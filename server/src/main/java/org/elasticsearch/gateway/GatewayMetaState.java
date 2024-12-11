@@ -300,7 +300,7 @@ public class GatewayMetaState implements Closeable {
             try {
                 IndexMetadata newMetadata = indexMetadataVerifier.verifyIndexMetadata(
                     indexMetadata,
-                    IndexVersions.MINIMUM_COMPATIBLE_ARCHIVE_INDICES
+                    IndexVersions.V_7_0_0
                 );
                 changed |= indexMetadata != newMetadata;
                 upgradedMetadata.put(newMetadata, false);
