@@ -192,6 +192,9 @@ public class IndexVersions {
 
     public static final IndexVersion MINIMUM_COMPATIBLE = V_8_0_0;
 
+    // Validate archive indices for Lucene N-2 version
+    public static final IndexVersion MINIMUM_COMPATIBLE_ARCHIVE_INDICES = V_7_0_0;
+
     static final NavigableMap<Integer, IndexVersion> VERSION_IDS = getAllVersionIds(IndexVersions.class);
     static final IndexVersion LATEST_DEFINED;
     static {

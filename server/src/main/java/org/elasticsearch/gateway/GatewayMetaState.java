@@ -68,6 +68,8 @@ import static org.elasticsearch.common.util.concurrent.EsExecutors.daemonThreadF
  */
 public class GatewayMetaState implements Closeable {
 
+    private static final Logger logger = LogManager.getLogger(GatewayMetaState.class);
+
     /**
      * Fake node ID for a voting configuration written by a master-ineligible data node to indicate that its on-disk state is potentially
      * stale (since it is written asynchronously after application, rather than before acceptance). This node ID means that if the node is
@@ -295,9 +297,18 @@ public class GatewayMetaState implements Closeable {
         boolean changed = false;
         final Metadata.Builder upgradedMetadata = Metadata.builder(metadata);
         for (IndexMetadata indexMetadata : metadata) {
-            IndexMetadata newMetadata = indexMetadataVerifier.verifyIndexMetadata(indexMetadata, IndexVersions.MINIMUM_COMPATIBLE);
-            changed |= indexMetadata != newMetadata;
-            upgradedMetadata.put(newMetadata, false);
+            try {
+                IndexMetadata newMetadata = indexMetadataVerifier.verifyIndexMetadata(
+                    indexMetadata,
+                    IndexVersions.MINIMUM_COMPATIBLE_ARCHIVE_INDICES
+                );
+                changed |= indexMetadata != newMetadata;
+                upgradedMetadata.put(newMetadata, false);
+            } catch (IllegalStateException e) {
+                changed = true;
+                upgradedMetadata.remove(indexMetadata.getIndex().getName());
+                logger.warn(e.getMessage());
+            }
         }
         // upgrade current templates
         if (applyPluginTemplateUpgraders(
