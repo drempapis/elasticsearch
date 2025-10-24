@@ -609,7 +609,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
             header = true;
         }
         return listener.delegateResponse((l, e) -> {
-            org.apache.logging.log4j.util.Supplier<String> messageSupplier = () -> format(
+            Supplier<String> messageSupplier = () -> format(
                 "[%s]%s: failed to execute search request for task [%d]",
                 nodeId,
                 shardId,
