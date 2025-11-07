@@ -41,6 +41,7 @@ import org.elasticsearch.search.aggregations.AggregationExecutionContext;
 import org.elasticsearch.search.aggregations.Aggregator;
 import org.elasticsearch.search.aggregations.BucketCollector;
 import org.elasticsearch.search.aggregations.bucket.filter.FilterByFilterAggregator;
+import org.elasticsearch.search.internal.ContextIndexSearcher;
 import org.elasticsearch.search.internal.SubSearchContext;
 import org.elasticsearch.search.lookup.SearchLookup;
 import org.elasticsearch.search.profile.aggregation.AggregationProfiler;
@@ -312,19 +313,27 @@ public abstract class AggregationContext implements Releasable {
      * Does this index have a {@code _doc_count} field in any segment?
      */
     public final boolean hasDocCountField() throws IOException {
-        /*
-         * When we add the second filter we check if there are any _doc_count
-         * fields and bail out of filter-by filter mode if there are. _doc_count
-         * fields are expensive to decode and the overhead of iterating per
-         * filter causes us to decode doc counts over and over again.
-         */
-        Term term = new Term(DocCountFieldMapper.NAME, DocCountFieldMapper.NAME);
-        for (LeafReaderContext c : searcher().getLeafContexts()) {
-            if (c.reader().docFreq(term) > 0) {
-                return true;
+        try {
+            /*
+             * When we add the second filter we check if there are any _doc_count
+             * fields and bail out of filter-by filter mode if there are. _doc_count
+             * fields are expensive to decode and the overhead of iterating per
+             * filter causes us to decode doc counts over and over again.
+             */
+            Term term = new Term(DocCountFieldMapper.NAME, DocCountFieldMapper.NAME);
+            for (LeafReaderContext c : searcher().getLeafContexts()) {
+                if (c.reader().docFreq(term) > 0) {
+                    return true;
+                }
             }
+            return false;
+        } catch (ContextIndexSearcher.TimeExceededException e) {
+            if (searcher() instanceof ContextIndexSearcher cis) {
+                // Registers a cancellation that always throws when checked during the search loop
+                cis.addQueryCancellation(cis::throwTimeExceededException);
+            }
+            return true;
         }
-        return false;
     }
 
     /**

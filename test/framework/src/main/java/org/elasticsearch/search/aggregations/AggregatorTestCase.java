@@ -319,7 +319,7 @@ public abstract class AggregatorTestCase extends ESTestCase {
         );
     }
 
-    private AggregationContext createAggregationContext(
+    protected AggregationContext createAggregationContext(
         IndexSearcher searcher,
         IndexSettings indexSettings,
         Query query,
