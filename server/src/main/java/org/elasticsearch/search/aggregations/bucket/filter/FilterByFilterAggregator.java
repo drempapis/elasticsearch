@@ -22,6 +22,7 @@ import org.elasticsearch.search.aggregations.AggregatorFactories;
 import org.elasticsearch.search.aggregations.CardinalityUpperBound;
 import org.elasticsearch.search.aggregations.LeafBucketCollector;
 import org.elasticsearch.search.aggregations.support.AggregationContext;
+import org.elasticsearch.search.internal.ContextIndexSearcher;
 import org.elasticsearch.search.runtime.AbstractScriptFieldQuery;
 import org.elasticsearch.tasks.TaskCancelledException;
 
@@ -97,7 +98,16 @@ public class FilterByFilterAggregator extends FiltersAggregator {
                 valid = false;
                 return;
             }
-            add(QueryToFilterAdapter.build(aggCtx.searcher(), key, query));
+
+            try {
+                add(QueryToFilterAdapter.build(aggCtx.searcher(), key, query));
+            } catch (ContextIndexSearcher.TimeExceededException e) {
+                if (aggCtx.searcher() instanceof ContextIndexSearcher cis) {
+                    cis.addQueryCancellation(cis::throwTimeExceededException);
+                }
+                valid = false;
+                return;
+            }
         }
 
         final void add(QueryToFilterAdapter filter) throws IOException {
