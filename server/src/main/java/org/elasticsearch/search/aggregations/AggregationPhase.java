@@ -44,7 +44,7 @@ public class AggregationPhase {
             );
     }
 
-    private static AggregatorCollector newAggregatorCollector(SearchContext context) {
+    private static AggregatorCollector  newAggregatorCollector(SearchContext context) {
         try {
             Aggregator[] aggregators = context.aggregations().factories().createTopLevelAggregators();
             BucketCollector bucketCollector = MultiBucketCollector.wrap(true, List.of(aggregators));

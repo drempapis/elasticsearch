@@ -198,16 +198,29 @@ public class QueryPhase {
                 );
             }
 
-            CollectorManager<Collector, QueryPhaseResult> collectorManager = QueryPhaseCollectorManager.createQueryPhaseCollectorManager(
-                postFilterWeight,
-                searchContext.aggregations() == null ? null : searchContext.aggregations().getAggsCollectorManager(),
-                searchContext,
-                hasFilterCollector
-            );
-
             final Runnable timeoutRunnable = getTimeoutCheck(searchContext);
             if (timeoutRunnable != null) {
                 searcher.addQueryCancellation(timeoutRunnable);
+            }
+
+            CollectorManager<Collector, QueryPhaseResult> collectorManager;
+            try {
+                collectorManager = QueryPhaseCollectorManager.createQueryPhaseCollectorManager(
+                    postFilterWeight,
+                    searchContext.aggregations() == null ? null : searchContext.aggregations().getAggsCollectorManager(),
+                    searchContext,
+                    hasFilterCollector
+                );
+            } catch (ContextIndexSearcher.TimeExceededException tee) {
+                // We timed out while preparing collectors (e.g., filter-by-filter agg did early terms work).
+                // Convert to a flagged, partial response rather than throwing.
+                SearchTimeoutException.handleTimeout(
+                    searchContext.request().allowPartialSearchResults(),
+                    searchContext.shardTarget(),
+                    searchContext.queryResult()
+                );
+                // We didn't start the actual search, so just return after setting timed_out & empty results.
+                return;
             }
 
             QueryPhaseResult queryPhaseResult = searcher.search(query, collectorManager);
@@ -263,8 +276,12 @@ public class QueryPhase {
             && searchContext.timeout().equals(SearchService.NO_TIMEOUT) == false;
 
         if (timeoutSet) {
-            final long startTime = searchContext.getRelativeTimeInMillis();
             final long timeout = searchContext.timeout().millis();
+            if (timeout <= 0L) {
+                return () -> searchContext.searcher().throwTimeExceededException();
+            }
+
+            final long startTime = searchContext.getRelativeTimeInMillis();
             final long maxTime = startTime + timeout;
             return () -> {
                 final long time = searchContext.getRelativeTimeInMillis();
