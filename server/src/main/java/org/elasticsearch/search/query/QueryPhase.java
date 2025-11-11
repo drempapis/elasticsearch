@@ -198,11 +198,6 @@ public class QueryPhase {
                 );
             }
 
-            final Runnable timeoutRunnable = getTimeoutCheck(searchContext);
-            if (timeoutRunnable != null) {
-                searcher.addQueryCancellation(timeoutRunnable);
-            }
-
             CollectorManager<Collector, QueryPhaseResult> collectorManager;
             try {
                 collectorManager = QueryPhaseCollectorManager.createQueryPhaseCollectorManager(
@@ -221,6 +216,11 @@ public class QueryPhase {
                 );
                 // We didn't start the actual search, so just return after setting timed_out & empty results.
                 return;
+            }
+
+            final Runnable timeoutRunnable = getTimeoutCheck(searchContext);
+            if (timeoutRunnable != null) {
+                searcher.addQueryCancellation(timeoutRunnable);
             }
 
             QueryPhaseResult queryPhaseResult = searcher.search(query, collectorManager);
@@ -276,12 +276,8 @@ public class QueryPhase {
             && searchContext.timeout().equals(SearchService.NO_TIMEOUT) == false;
 
         if (timeoutSet) {
-            final long timeout = searchContext.timeout().millis();
-            if (timeout <= 0L) {
-                return () -> searchContext.searcher().throwTimeExceededException();
-            }
-
             final long startTime = searchContext.getRelativeTimeInMillis();
+            final long timeout = searchContext.timeout().millis();
             final long maxTime = startTime + timeout;
             return () -> {
                 final long time = searchContext.getRelativeTimeInMillis();
