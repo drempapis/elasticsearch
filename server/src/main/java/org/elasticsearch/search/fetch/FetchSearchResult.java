@@ -83,6 +83,10 @@ public final class FetchSearchResult extends SearchPhaseResult {
         return hits;
     }
 
+    public void setHits(SearchHits hits) {
+        this.hits = hits;
+    }
+
     public FetchSearchResult initCounter() {
         counter = 0;
         return this;

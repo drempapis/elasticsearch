@@ -10,14 +10,22 @@ package org.elasticsearch.action.search;
 
 import org.apache.logging.log4j.Logger;
 import org.apache.lucene.search.ScoreDoc;
+import org.apache.lucene.search.TotalHits;
+import org.elasticsearch.action.ActionListener;
+import org.elasticsearch.common.unit.ByteSizeValue;
 import org.elasticsearch.common.util.concurrent.AbstractRunnable;
 import org.elasticsearch.common.util.concurrent.AtomicArray;
 import org.elasticsearch.core.Nullable;
+import org.elasticsearch.search.SearchHit;
+import org.elasticsearch.search.SearchHits;
 import org.elasticsearch.search.SearchPhaseResult;
 import org.elasticsearch.search.SearchShardTarget;
 import org.elasticsearch.search.dfs.AggregatedDfs;
 import org.elasticsearch.search.fetch.FetchSearchResult;
 import org.elasticsearch.search.fetch.ShardFetchSearchRequest;
+import org.elasticsearch.search.fetch.stream.ChunkedShardFetchRequest;
+import org.elasticsearch.search.fetch.stream.ChunkedShardFetchResponse;
+import org.elasticsearch.search.fetch.stream.TransportShardFetchAction;
 import org.elasticsearch.search.internal.ShardSearchContextId;
 import org.elasticsearch.search.rank.RankDoc;
 import org.elasticsearch.search.rank.RankDocShardInfo;
@@ -27,6 +35,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * This search phase merges the query results from the previous phase together and calculates the topN hits for this search.
@@ -35,6 +46,8 @@ import java.util.Map;
 
 class FetchSearchPhase extends SearchPhase {
     static final String NAME = "fetch";
+
+    private static final ByteSizeValue DEFAULT_FETCH_CHUNK_SIZE = ByteSizeValue.ofMb(4);
 
     private final AtomicArray<SearchPhaseResult> searchPhaseShardResults;
     private final AbstractSearchAsyncAction<?> context;
@@ -45,11 +58,14 @@ class FetchSearchPhase extends SearchPhase {
     private final SearchPhaseResults<SearchPhaseResult> resultConsumer;
     private final SearchPhaseController.ReducedQueryPhase reducedQueryPhase;
 
+    private final TransportShardFetchAction chunkedFetchAction;
+
     FetchSearchPhase(
         SearchPhaseResults<SearchPhaseResult> resultConsumer,
         AggregatedDfs aggregatedDfs,
         AbstractSearchAsyncAction<?> context,
-        @Nullable SearchPhaseController.ReducedQueryPhase reducedQueryPhase
+        @Nullable SearchPhaseController.ReducedQueryPhase reducedQueryPhase,
+        @Nullable TransportShardFetchAction chunkedFetchAction
     ) {
         super(NAME);
         if (context.getNumShards() != resultConsumer.getNumShards()) {
@@ -67,6 +83,7 @@ class FetchSearchPhase extends SearchPhase {
         this.progressListener = context.getTask().getProgressListener();
         this.reducedQueryPhase = reducedQueryPhase;
         this.resultConsumer = reducedQueryPhase == null ? resultConsumer : null;
+        this.chunkedFetchAction = chunkedFetchAction;
     }
 
     // protected for tests
@@ -98,10 +115,11 @@ class FetchSearchPhase extends SearchPhase {
         final int numShards = context.getNumShards();
         // Usually when there is a single shard, we force the search type QUERY_THEN_FETCH. But when there's kNN, we might
         // still use DFS_QUERY_THEN_FETCH, which does not perform the "query and fetch" optimization during the query phase.
-        final boolean queryAndFetchOptimization = numShards == 1
+        boolean queryAndFetchOptimization = numShards == 1
             && context.getRequest().hasKnnSearch() == false
             && reducedQueryPhase.queryPhaseRankCoordinatorContext() == null
             && (context.getRequest().source() == null || context.getRequest().source().rankBuilder() == null);
+        queryAndFetchOptimization = false;
         if (queryAndFetchOptimization) {
             assert assertConsistentWithQueryAndFetchOptimization();
             // query AND fetch optimization
@@ -212,7 +230,76 @@ class FetchSearchPhase extends SearchPhase {
         final ShardSearchContextId contextId = shardPhaseResult.queryResult() != null
             ? shardPhaseResult.queryResult().getContextId()
             : shardPhaseResult.rankFeatureResult().getContextId();
-        var listener = new SearchActionListener<FetchSearchResult>(shardTarget, shardIndex) {
+
+        final Transport.Connection connection;
+        try {
+            connection = context.getConnection(shardTarget.getClusterAlias(), shardTarget.getNodeId());
+        } catch (Exception e) {
+            logger.debug(() -> "[" + contextId + "] failed to get connection for fetch phase", e);
+            progressListener.notifyFetchFailure(shardIndex, shardTarget, e);
+            counter.onFailure(shardIndex, shardTarget, e);
+            releaseIrrelevantSearchContext(shardPhaseResult, context);
+            return;
+        }
+
+        if (chunkedFetchAction == null) {
+            var listener = new SearchActionListener<FetchSearchResult>(shardTarget, shardIndex) {
+                @Override
+                public void innerOnResponse(FetchSearchResult result) {
+                    try {
+                        progressListener.notifyFetchResult(shardIndex);
+                        counter.onResult(result);
+                    } catch (Exception e) {
+                        context.onPhaseFailure(NAME, "", e);
+                    }
+                }
+
+                @Override
+                public void onFailure(Exception e) {
+                    try {
+                        logger.debug(() -> "[" + contextId + "] Failed to execute fetch phase", e);
+                        progressListener.notifyFetchFailure(shardIndex, shardTarget, e);
+                        counter.onFailure(shardIndex, shardTarget, e);
+                    } finally {
+                        // see comment in original code – ensure we clear the search context if needed
+                        releaseIrrelevantSearchContext(shardPhaseResult, context);
+                    }
+                }
+            };
+
+            context.getSearchTransport()
+                .sendExecuteFetch(
+                    connection,
+                    new ShardFetchSearchRequest(
+                        context.getOriginalIndices(shardPhaseResult.getShardIndex()),
+                        contextId,
+                        shardPhaseResult.getShardSearchRequest(),
+                        entry,
+                        rankDocs,
+                        lastEmittedDocForShard,
+                        shardPhaseResult.getRescoreDocIds(),
+                        aggregatedDfs
+                    ),
+                    context.getTask(),
+                    listener
+                );
+            return;
+        }
+
+        // Chunked fetch behavior
+        final ShardFetchSearchRequest shardFetchRequest = new ShardFetchSearchRequest(
+            context.getOriginalIndices(shardPhaseResult.getShardIndex()),
+            contextId,
+            shardPhaseResult.getShardSearchRequest(),
+            entry,
+            rankDocs,
+            lastEmittedDocForShard,
+            shardPhaseResult.getRescoreDocIds(),
+            aggregatedDfs
+        );
+
+        // Create listener that handles the final result
+        var finalListener = new SearchActionListener<FetchSearchResult>(shardTarget, shardIndex) {
             @Override
             public void innerOnResponse(FetchSearchResult result) {
                 try {
@@ -226,40 +313,72 @@ class FetchSearchPhase extends SearchPhase {
             @Override
             public void onFailure(Exception e) {
                 try {
-                    logger.debug(() -> "[" + contextId + "] Failed to execute fetch phase", e);
+                    logger.debug(() -> "[" + contextId + "] Failed to execute chunked fetch phase", e);
                     progressListener.notifyFetchFailure(shardIndex, shardTarget, e);
                     counter.onFailure(shardIndex, shardTarget, e);
                 } finally {
-                    // the search context might not be cleared on the node where the fetch was executed for example
-                    // because the action was rejected by the thread pool. in this case we need to send a dedicated
-                    // request to clear the search context.
                     releaseIrrelevantSearchContext(shardPhaseResult, context);
                 }
             }
         };
-        final Transport.Connection connection;
-        try {
-            connection = context.getConnection(shardTarget.getClusterAlias(), shardTarget.getNodeId());
-        } catch (Exception e) {
-            listener.onFailure(e);
-            return;
-        }
-        context.getSearchTransport()
-            .sendExecuteFetch(
-                connection,
-                new ShardFetchSearchRequest(
-                    context.getOriginalIndices(shardPhaseResult.getShardIndex()),
-                    contextId,
-                    shardPhaseResult.getShardSearchRequest(),
-                    entry,
-                    rankDocs,
-                    lastEmittedDocForShard,
-                    shardPhaseResult.getRescoreDocIds(),
-                    aggregatedDfs
-                ),
-                context.getTask(),
-                listener
-            );
+
+
+        // Create the aggregator
+        final ChunkedFetchAggregator aggregator = new ChunkedFetchAggregator(
+            shardTarget,
+            contextId,
+            finalListener
+        );
+
+        // Start chunked fetching
+        ChunkedShardFetchRequest firstRequest = new ChunkedShardFetchRequest(
+            shardFetchRequest,
+            null, // no continuation token for first request
+            DEFAULT_FETCH_CHUNK_SIZE
+        );
+
+        sendNextChunk(connection, firstRequest, aggregator);
+    }
+
+    private void sendNextChunk(
+        Transport.Connection connection,
+        ChunkedShardFetchRequest request,
+        ChunkedFetchAggregator aggregator
+    ) {
+        chunkedFetchAction.execute(
+            connection,
+            request,
+            context.getTask(),
+            new ActionListener<ChunkedShardFetchResponse>() {
+                @Override
+                public void onResponse(ChunkedShardFetchResponse response) {
+                    try {
+                        aggregator.onChunk(response);
+
+                        if (response.hasMore() && aggregator.canAcceptMore()) {
+                            // Request next chunk
+                            ChunkedShardFetchRequest nextRequest = new ChunkedShardFetchRequest(
+                                request.getShardFetchRequest(),
+                                response.getContinuationToken(),
+                                request.getChunkSize(),
+                                request.getChunkIndex() + 1
+                            );
+                            sendNextChunk(connection, nextRequest, aggregator);
+                        } else {
+                            // No more chunks or hit limit - complete
+                            aggregator.complete();
+                        }
+                    } catch (Exception e) {
+                        aggregator.onFailure(e);
+                    }
+                }
+
+                @Override
+                public void onFailure(Exception e) {
+                    aggregator.onFailure(e);
+                }
+            }
+        );
     }
 
     private void moveToNextPhase(
@@ -283,4 +402,106 @@ class FetchSearchPhase extends SearchPhase {
             && request.source().rankBuilder() != null;
     }
 
+
+    /**
+     * Aggregates chunks from a single shard's fetch response
+     */
+    private class ChunkedFetchAggregator {
+        private final SearchShardTarget shardTarget;
+        private final ShardSearchContextId contextId;
+        private final ActionListener<FetchSearchResult> listener;
+
+        private final List<SearchHit[]> accumulatedHits = new CopyOnWriteArrayList<>();
+        private final AtomicBoolean completed = new AtomicBoolean(false);
+        private volatile FetchSearchResult firstChunkResult;
+
+        private TotalHits totalHits;
+        private float maxScore = Float.NaN;
+        private boolean metadataInitialized = false;
+
+        ChunkedFetchAggregator(
+            SearchShardTarget shardTarget,
+            ShardSearchContextId contextId,
+            ActionListener<FetchSearchResult> listener
+        ) {
+            this.shardTarget = shardTarget;
+            this.contextId = contextId;
+            this.listener = listener;
+        }
+
+        void onChunk(ChunkedShardFetchResponse response) {
+            if (metadataInitialized == false && response.totalHits() != null) {
+                this.totalHits = response.totalHits();
+                this.maxScore = response.maxScore();
+                this.metadataInitialized = true;
+            }
+
+            if (response.getHits() != null && response.getHits().length > 0) {
+                accumulatedHits.add(response.getHits());
+            }
+        }
+
+        boolean canAcceptMore() {
+            // Could add logic here to limit total accumulated hits
+            return true;
+        }
+
+        void complete() {
+            if (completed.compareAndSet(false, true) == false) {
+                return;
+            }
+
+            try {
+                FetchSearchResult finalResult = buildFinalResult();
+                listener.onResponse(finalResult);
+            } catch (Exception e) {
+                listener.onFailure(e);
+            }
+        }
+
+        void onFailure(Exception e) {
+            if (completed.compareAndSet(false, true)) {
+                listener.onFailure(e);
+            }
+        }
+
+        private FetchSearchResult buildFinalResult() {
+            int totalHitCount = accumulatedHits.stream().mapToInt(hits -> hits.length).sum();
+            SearchHit[] allHits = new SearchHit[totalHitCount];
+            int pos = 0;
+            for (SearchHit[] chunk : accumulatedHits) {
+                System.arraycopy(chunk, 0, allHits, pos, chunk.length);
+                pos += chunk.length;
+            }
+
+            // If metadata wasn’t provided for some reason, fall back conservatively.
+            TotalHits finalTotalHits = this.totalHits;
+            float finalMaxScore = this.maxScore;
+
+            if (finalTotalHits == null) {
+                // Fallback: we know at least how many hits we have; we cannot guess relation (equal_to or greater_than).
+                // A conservative choice is "relation = EQUAL_TO" and value=allHits.length
+                finalTotalHits = new TotalHits(allHits.length, TotalHits.Relation.EQUAL_TO);
+            }
+            if (Float.isNaN(finalMaxScore)) {
+                float max = Float.NEGATIVE_INFINITY;
+                for (SearchHit hit : allHits) {
+                    if (hit.getScore() > max) {
+                        max = hit.getScore();
+                    }
+                }
+                finalMaxScore = (max == Float.NEGATIVE_INFINITY) ? Float.NaN : max;
+            }
+
+            SearchHits searchHits = new SearchHits(allHits, finalTotalHits, finalMaxScore);
+
+            FetchSearchResult result = new FetchSearchResult();
+            result.setSearchShardTarget(shardTarget);
+            result.setHits(searchHits);
+
+            // if FetchSearchResult holds additional data (e.g. profile, innerHits), copy or set them here as needed
+
+            return result;
+        }
+    }
 }

@@ -19,6 +19,7 @@ import org.elasticsearch.search.SearchPhaseResult;
 import org.elasticsearch.search.SearchShardTarget;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.elasticsearch.search.dfs.AggregatedDfs;
+import org.elasticsearch.search.fetch.stream.TransportShardFetchAction;
 import org.elasticsearch.search.internal.ShardSearchContextId;
 import org.elasticsearch.search.rank.RankDoc;
 import org.elasticsearch.search.rank.context.RankFeaturePhaseRankCoordinatorContext;
@@ -48,12 +49,14 @@ public class RankFeaturePhase extends SearchPhase {
     private final AggregatedDfs aggregatedDfs;
     private final SearchProgressListener progressListener;
     private final RankFeaturePhaseRankCoordinatorContext rankFeaturePhaseRankCoordinatorContext;
+    private final TransportShardFetchAction chunkedFetchAction;
 
     RankFeaturePhase(
         SearchPhaseResults<SearchPhaseResult> queryPhaseResults,
         AggregatedDfs aggregatedDfs,
         AbstractSearchAsyncAction<?> context,
-        RankFeaturePhaseRankCoordinatorContext rankFeaturePhaseRankCoordinatorContext
+        RankFeaturePhaseRankCoordinatorContext rankFeaturePhaseRankCoordinatorContext,
+        TransportShardFetchAction chunkedFetchAction
     ) {
         super(NAME);
         assert rankFeaturePhaseRankCoordinatorContext != null;
@@ -72,6 +75,7 @@ public class RankFeaturePhase extends SearchPhase {
         this.rankPhaseResults = new ArraySearchPhaseResults<>(context.getNumShards());
         context.addReleasable(rankPhaseResults);
         this.progressListener = context.getTask().getProgressListener();
+        this.chunkedFetchAction = chunkedFetchAction;
     }
 
     @Override
@@ -267,6 +271,7 @@ public class RankFeaturePhase extends SearchPhase {
     }
 
     void moveToNextPhase(SearchPhaseResults<SearchPhaseResult> phaseResults, SearchPhaseController.ReducedQueryPhase reducedQueryPhase) {
-        context.executeNextPhase(NAME, () -> new FetchSearchPhase(phaseResults, aggregatedDfs, context, reducedQueryPhase));
+        context.executeNextPhase(NAME,
+            () -> new FetchSearchPhase(phaseResults, aggregatedDfs, context, reducedQueryPhase, chunkedFetchAction));
     }
 }

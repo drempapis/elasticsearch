@@ -18,6 +18,7 @@ import org.elasticsearch.rest.action.search.SearchResponseMetrics;
 import org.elasticsearch.search.SearchPhaseResult;
 import org.elasticsearch.search.SearchShardTarget;
 import org.elasticsearch.search.dfs.DfsSearchResult;
+import org.elasticsearch.search.fetch.stream.TransportShardFetchAction;
 import org.elasticsearch.search.internal.AliasFilter;
 import org.elasticsearch.transport.Transport;
 
@@ -31,6 +32,7 @@ final class SearchDfsQueryThenFetchAsyncAction extends AbstractSearchAsyncAction
     private final SearchPhaseResults<SearchPhaseResult> queryPhaseResultConsumer;
     private final SearchProgressListener progressListener;
     private final Client client;
+    private TransportShardFetchAction chunkedFetchAction;
 
     SearchDfsQueryThenFetchAsyncAction(
         Logger logger,
@@ -50,7 +52,8 @@ final class SearchDfsQueryThenFetchAsyncAction extends AbstractSearchAsyncAction
         SearchResponse.Clusters clusters,
         Client client,
         SearchResponseMetrics searchResponseMetrics,
-        Map<String, Object> searchRequestAttributes
+        Map<String, Object> searchRequestAttributes,
+        TransportShardFetchAction chunkedFetchAction
     ) {
         super(
             "dfs",
@@ -81,6 +84,7 @@ final class SearchDfsQueryThenFetchAsyncAction extends AbstractSearchAsyncAction
             notifyListShards(progressListener, clusters, request, shardsIts);
         }
         this.client = client;
+        this.chunkedFetchAction = chunkedFetchAction;
     }
 
     @Override
@@ -94,7 +98,7 @@ final class SearchDfsQueryThenFetchAsyncAction extends AbstractSearchAsyncAction
 
     @Override
     protected SearchPhase getNextPhase() {
-        return new DfsQueryPhase(queryPhaseResultConsumer, client, this);
+        return new DfsQueryPhase(queryPhaseResultConsumer, client, this, chunkedFetchAction);
     }
 
     @Override

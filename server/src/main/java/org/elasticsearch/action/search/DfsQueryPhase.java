@@ -27,6 +27,7 @@ import org.elasticsearch.search.builder.SubSearchSourceBuilder;
 import org.elasticsearch.search.dfs.AggregatedDfs;
 import org.elasticsearch.search.dfs.DfsKnnResults;
 import org.elasticsearch.search.dfs.DfsSearchResult;
+import org.elasticsearch.search.fetch.stream.TransportShardFetchAction;
 import org.elasticsearch.search.internal.ShardSearchRequest;
 import org.elasticsearch.search.query.QuerySearchRequest;
 import org.elasticsearch.search.query.QuerySearchResult;
@@ -56,8 +57,11 @@ class DfsQueryPhase extends SearchPhase {
     private final AbstractSearchAsyncAction<?> context;
     private final SearchProgressListener progressListener;
     private long phaseStartTimeInNanos;
+    private TransportShardFetchAction chunkedFetchAction;
 
-    DfsQueryPhase(SearchPhaseResults<SearchPhaseResult> queryResult, Client client, AbstractSearchAsyncAction<?> context) {
+    DfsQueryPhase(SearchPhaseResults<SearchPhaseResult> queryResult,
+                  Client client, AbstractSearchAsyncAction<?> context,
+                  TransportShardFetchAction chunkedFetchAction) {
         super(NAME);
         this.progressListener = context.getTask().getProgressListener();
         this.queryResult = queryResult;
@@ -67,7 +71,7 @@ class DfsQueryPhase extends SearchPhase {
 
     // protected for testing
     protected SearchPhase nextPhase(AggregatedDfs dfs) {
-        return SearchQueryThenFetchAsyncAction.nextPhase(client, context, queryResult, dfs);
+        return SearchQueryThenFetchAsyncAction.nextPhase(client, context, queryResult, dfs, chunkedFetchAction);
     }
 
     @SuppressWarnings("unchecked")

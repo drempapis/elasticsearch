@@ -86,6 +86,7 @@ import org.elasticsearch.search.builder.PointInTimeBuilder;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.elasticsearch.search.crossproject.CrossProjectIndexResolutionValidator;
 import org.elasticsearch.search.crossproject.CrossProjectModeDecider;
+import org.elasticsearch.search.fetch.stream.TransportShardFetchAction;
 import org.elasticsearch.search.internal.AliasFilter;
 import org.elasticsearch.search.internal.SearchContext;
 import org.elasticsearch.search.internal.ShardSearchContextId;
@@ -179,6 +180,7 @@ public class TransportSearchAction extends HandledTransportAction<SearchRequest,
     private final boolean collectCCSTelemetry;
     private final TimeValue forceConnectTimeoutSecs;
     private final CrossProjectModeDecider crossProjectModeDecider;
+    private final TransportShardFetchAction chunkedFetchAction;
 
     @Inject
     public TransportSearchAction(
@@ -197,7 +199,8 @@ public class TransportSearchAction extends HandledTransportAction<SearchRequest,
         ExecutorSelector executorSelector,
         SearchResponseMetrics searchResponseMetrics,
         Client client,
-        UsageService usageService
+        UsageService usageService,
+        TransportShardFetchAction chunkedFetchAction
     ) {
         super(TYPE.name(), transportService, actionFilters, SearchRequest::new, EsExecutors.DIRECT_EXECUTOR_SERVICE);
         this.threadPool = threadPool;
@@ -229,6 +232,7 @@ public class TransportSearchAction extends HandledTransportAction<SearchRequest,
         this.usageService = usageService;
         this.forceConnectTimeoutSecs = settings.getAsTime("search.ccs.force_connect_timeout", null);
         this.crossProjectModeDecider = new CrossProjectModeDecider(settings);
+        this.chunkedFetchAction = chunkedFetchAction;
     }
 
     private Map<String, OriginalIndices> buildPerIndexOriginalIndices(
@@ -1861,7 +1865,8 @@ public class TransportSearchAction extends HandledTransportAction<SearchRequest,
                         clusters,
                         client,
                         searchResponseMetrics,
-                        searchRequestAttributes
+                        searchRequestAttributes,
+                        chunkedFetchAction
                     );
                 } else {
                     assert searchRequest.searchType() == QUERY_THEN_FETCH : searchRequest.searchType();
@@ -1884,7 +1889,8 @@ public class TransportSearchAction extends HandledTransportAction<SearchRequest,
                         client,
                         searchService.batchQueryPhase(),
                         searchResponseMetrics,
-                        searchRequestAttributes
+                        searchRequestAttributes,
+                        chunkedFetchAction
                     );
                 }
                 success = true;

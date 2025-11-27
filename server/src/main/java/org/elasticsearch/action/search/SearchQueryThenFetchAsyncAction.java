@@ -42,6 +42,7 @@ import org.elasticsearch.search.SearchService;
 import org.elasticsearch.search.SearchShardTarget;
 import org.elasticsearch.search.builder.PointInTimeBuilder;
 import org.elasticsearch.search.dfs.AggregatedDfs;
+import org.elasticsearch.search.fetch.stream.TransportShardFetchAction;
 import org.elasticsearch.search.internal.AliasFilter;
 import org.elasticsearch.search.internal.SearchContext;
 import org.elasticsearch.search.internal.ShardSearchContextId;
@@ -98,6 +99,7 @@ public class SearchQueryThenFetchAsyncAction extends AbstractSearchAsyncAction<S
     private final Client client;
     private final boolean batchQueryPhase;
     private long phaseStartTimeNanos;
+    private final TransportShardFetchAction chunkedFetchAction;
 
     SearchQueryThenFetchAsyncAction(
         Logger logger,
@@ -118,7 +120,8 @@ public class SearchQueryThenFetchAsyncAction extends AbstractSearchAsyncAction<S
         Client client,
         boolean batchQueryPhase,
         SearchResponseMetrics searchResponseMetrics,
-        Map<String, Object> searchRequestAttributes
+        Map<String, Object> searchRequestAttributes,
+        TransportShardFetchAction chunkedFetchAction
     ) {
         super(
             "query",
@@ -146,6 +149,7 @@ public class SearchQueryThenFetchAsyncAction extends AbstractSearchAsyncAction<S
         this.progressListener = task.getProgressListener();
         this.client = client;
         this.batchQueryPhase = batchQueryPhase;
+        this.chunkedFetchAction = chunkedFetchAction;
         // don't build the SearchShard list (can be expensive) if the SearchProgressListener won't use it
         if (progressListener != SearchProgressListener.NOOP) {
             notifyListShards(progressListener, clusters, request, shardsIts);
@@ -208,18 +212,19 @@ public class SearchQueryThenFetchAsyncAction extends AbstractSearchAsyncAction<S
         Client client,
         AbstractSearchAsyncAction<?> context,
         SearchPhaseResults<SearchPhaseResult> queryResults,
-        AggregatedDfs aggregatedDfs
+        AggregatedDfs aggregatedDfs,
+        TransportShardFetchAction chunkedFetchAction
     ) {
         var rankFeaturePhaseCoordCtx = RankFeaturePhase.coordinatorContext(context.getRequest().source(), client);
         if (rankFeaturePhaseCoordCtx == null) {
-            return new FetchSearchPhase(queryResults, aggregatedDfs, context, null);
+            return new FetchSearchPhase(queryResults, aggregatedDfs, context, null, chunkedFetchAction);
         }
-        return new RankFeaturePhase(queryResults, aggregatedDfs, context, rankFeaturePhaseCoordCtx);
+        return new RankFeaturePhase(queryResults, aggregatedDfs, context, rankFeaturePhaseCoordCtx, chunkedFetchAction);
     }
 
     @Override
     protected SearchPhase getNextPhase() {
-        return nextPhase(client, this, results, null);
+        return nextPhase(client, this, results, null, chunkedFetchAction);
     }
 
     /**
