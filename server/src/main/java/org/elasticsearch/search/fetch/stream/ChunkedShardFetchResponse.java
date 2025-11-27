@@ -25,8 +25,6 @@ public class ChunkedShardFetchResponse extends ActionResponse {
     private final String continuationToken;
     private final int chunkNumber;
     private final int totalChunks;
-    private final TotalHits totalHits; // or TotalHits? depending on API
-    private final float maxScore;
 
     public static ChunkedShardFetchResponse empty() {
         return new ChunkedShardFetchResponse(
@@ -34,8 +32,6 @@ public class ChunkedShardFetchResponse extends ActionResponse {
             false,
             null,
             0,
-            0,
-            null,
             0
         );
     }
@@ -45,29 +41,19 @@ public class ChunkedShardFetchResponse extends ActionResponse {
         boolean hasMore,
         String continuationToken,
         int chunkNumber,
-        int totalChunks,
-        @Nullable TotalHits totalHits,
-        float maxScore
+        int totalChunks
     ) {
         this.hits = hits;
         this.hasMore = hasMore;
         this.continuationToken = continuationToken;
         this.chunkNumber = chunkNumber;
-        this.totalChunks = totalChunks;
-        this.totalHits = totalHits;
-        this.maxScore = maxScore;
+        this.totalChunks = totalChunks;;
     }
 
     public ChunkedShardFetchResponse(StreamInput in) throws IOException {
-        // CORRECT: ActionResponse has no-arg constructor only
-        // Don't call super(in)
-
-        // Read SearchHit array with pooled parameter
         int hitsLength = in.readVInt();
         this.hits = new SearchHit[hitsLength];
         for (int i = 0; i < hitsLength; i++) {
-            // CORRECT: SearchHit.readFrom needs pooled parameter
-            // Use false for non-pooled (safer default)
             this.hits[i] = SearchHit.readFrom(in, false);
         }
 
@@ -75,19 +61,6 @@ public class ChunkedShardFetchResponse extends ActionResponse {
         this.continuationToken = in.readOptionalString();
         this.chunkNumber = in.readVInt();
         this.totalChunks = in.readVInt();
-
-        // totalHits (nullable)
-        boolean hasTotalHits = in.readBoolean();
-        if (hasTotalHits) {
-            long value = in.readVLong();
-            TotalHits.Relation relation = in.readEnum(TotalHits.Relation.class);
-            this.totalHits = new TotalHits(value, relation);
-        } else {
-            this.totalHits = null;
-        }
-
-        // maxScore
-        this.maxScore = in.readFloat();
     }
 
     @Override
@@ -101,15 +74,6 @@ public class ChunkedShardFetchResponse extends ActionResponse {
         out.writeOptionalString(continuationToken);
         out.writeVInt(chunkNumber);
         out.writeVInt(totalChunks);
-        out.writeFloat(maxScore);
-
-        if (totalHits != null) {
-            out.writeBoolean(true);
-            out.writeVLong(totalHits.value());
-            out.writeEnum(totalHits.relation());
-        } else {
-            out.writeBoolean(false);
-        }
     }
 
     public SearchHit[] getHits() {
@@ -130,13 +94,5 @@ public class ChunkedShardFetchResponse extends ActionResponse {
 
     public int getTotalChunks() {
         return totalChunks;
-    }
-
-    @Nullable public TotalHits totalHits() {
-        return totalHits;
-    }
-
-    public float maxScore() {
-        return maxScore;
     }
 }

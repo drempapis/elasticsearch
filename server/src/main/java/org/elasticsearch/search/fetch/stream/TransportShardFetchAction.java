@@ -144,49 +144,35 @@ public class TransportShardFetchAction {
             searchService.executeFetchPhase(
                 request.getShardFetchRequest(),
                 shardTask,
-                ActionListener.wrap(
-                    fetchResult -> {
-                        SearchHits searchHits = fetchResult.hits();
-                        SearchHit[] allHits = fetchResult.hits().getHits();
-                        TotalHits totalHits = searchHits.getTotalHits();
-                        float maxScore = searchHits.getMaxScore();
+                ActionListener.wrap(fetchResult -> {
+                    SearchHits searchHits = fetchResult.hits();
+                    SearchHit[] allHits = searchHits.getHits();
 
-                        if (allHits.length == 0) {
-                            // No hits - send empty response
-                            channel.sendResponse(ChunkedShardFetchResponse.empty());
-                            return;
-                        }
+                    List<SearchHit[]> chunks = createChunks(allHits, request.getChunkSize());
 
-                        // Create continuation token and cache the hits
-                        String token = UUID.randomUUID().toString();
-                        List<SearchHit[]> chunks = createChunks(allHits, request.getChunkSize());
-                        chunkCache.put(token, chunks);
-
-                        // Send first chunk
-                        SearchHit[] firstChunk = chunks.get(0);
-                        boolean hasMore = chunks.size() > 1;
-
-                        ChunkedShardFetchResponse response = new ChunkedShardFetchResponse(
-                            firstChunk,
-                            hasMore,
-                            hasMore ? token : null,
-                            1,  // chunk number
-                            chunks.size(),
-                            totalHits,
-                            maxScore
-                        );
-
-                        channel.sendResponse(response);
-                    },
-                    error -> {
-                        try {
-                            channel.sendResponse(error);
-                        } catch (Exception e) {
-                            //logger.error("Failed to send error response", e);
-                        }
+                    if (chunks.isEmpty()) {
+                        channel.sendResponse(ChunkedShardFetchResponse.empty());
+                        return;
                     }
-                )
+
+                    boolean hasMore = chunks.size() > 1;
+                    String token = null;
+                    if (hasMore) {
+                        token = UUID.randomUUID().toString();
+                        chunkCache.put(token, chunks);
+                    }
+
+                    ChunkedShardFetchResponse response = new ChunkedShardFetchResponse(
+                        chunks.getFirst(),
+                        hasMore,
+                        token,
+                        1,
+                        chunks.size()
+                    );
+                    channel.sendResponse(response);
+                }, channel::sendResponse)
             );
+
         }
 
         /**
@@ -200,10 +186,7 @@ public class TransportShardFetchAction {
             List<SearchHit[]> chunks = chunkCache.get(token);
 
             if (chunks == null) {
-                // Token expired or invalid
-                throw new IllegalStateException(
-                    "Continuation token not found or expired: " + token
-                );
+                throw new IllegalStateException("Continuation token not found or expired: " + token);
             }
 
             // Determine which chunk to return based on how many we've already sent
@@ -211,7 +194,6 @@ public class TransportShardFetchAction {
             int chunkIndex = request.getChunkIndex();
 
             if (chunkIndex >= chunks.size()) {
-                // All chunks sent - clean up cache
                 chunkCache.remove(token);
                 channel.sendResponse(ChunkedShardFetchResponse.empty());
                 return;
@@ -225,12 +207,9 @@ public class TransportShardFetchAction {
                 hasMore,
                 hasMore ? token : null,
                 chunkIndex + 1,
-                chunks.size(),
-                null, // totalHits only in first chunk
-                Float.NaN     // maxScore only in first chunk
+                chunks.size()
             );
 
-            // Clean up if this was the last chunk
             if (hasMore == false) {
                 chunkCache.remove(token);
             }

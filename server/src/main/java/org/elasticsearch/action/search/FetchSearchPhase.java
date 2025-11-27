@@ -353,6 +353,10 @@ class FetchSearchPhase extends SearchPhase {
                 @Override
                 public void onResponse(ChunkedShardFetchResponse response) {
                     try {
+                        if (aggregator.canAcceptMore() == false) {
+                            return;
+                        }
+
                         aggregator.onChunk(response);
 
                         if (response.hasMore() && aggregator.canAcceptMore()) {
@@ -415,10 +419,6 @@ class FetchSearchPhase extends SearchPhase {
         private final AtomicBoolean completed = new AtomicBoolean(false);
         private volatile FetchSearchResult firstChunkResult;
 
-        private TotalHits totalHits;
-        private float maxScore = Float.NaN;
-        private boolean metadataInitialized = false;
-
         ChunkedFetchAggregator(
             SearchShardTarget shardTarget,
             ShardSearchContextId contextId,
@@ -430,20 +430,13 @@ class FetchSearchPhase extends SearchPhase {
         }
 
         void onChunk(ChunkedShardFetchResponse response) {
-            if (metadataInitialized == false && response.totalHits() != null) {
-                this.totalHits = response.totalHits();
-                this.maxScore = response.maxScore();
-                this.metadataInitialized = true;
-            }
-
             if (response.getHits() != null && response.getHits().length > 0) {
                 accumulatedHits.add(response.getHits());
             }
         }
 
         boolean canAcceptMore() {
-            // Could add logic here to limit total accumulated hits
-            return true;
+            return completed.get() == false;
         }
 
         void complete() {
@@ -474,33 +467,12 @@ class FetchSearchPhase extends SearchPhase {
                 pos += chunk.length;
             }
 
-            // If metadata wasn’t provided for some reason, fall back conservatively.
-            TotalHits finalTotalHits = this.totalHits;
-            float finalMaxScore = this.maxScore;
 
-            if (finalTotalHits == null) {
-                // Fallback: we know at least how many hits we have; we cannot guess relation (equal_to or greater_than).
-                // A conservative choice is "relation = EQUAL_TO" and value=allHits.length
-                finalTotalHits = new TotalHits(allHits.length, TotalHits.Relation.EQUAL_TO);
-            }
-            if (Float.isNaN(finalMaxScore)) {
-                float max = Float.NEGATIVE_INFINITY;
-                for (SearchHit hit : allHits) {
-                    if (hit.getScore() > max) {
-                        max = hit.getScore();
-                    }
-                }
-                finalMaxScore = (max == Float.NEGATIVE_INFINITY) ? Float.NaN : max;
-            }
-
-            SearchHits searchHits = new SearchHits(allHits, finalTotalHits, finalMaxScore);
+            SearchHits searchHits = new SearchHits(allHits, null, Float.NaN);
 
             FetchSearchResult result = new FetchSearchResult();
             result.setSearchShardTarget(shardTarget);
             result.setHits(searchHits);
-
-            // if FetchSearchResult holds additional data (e.g. profile, innerHits), copy or set them here as needed
-
             return result;
         }
     }
