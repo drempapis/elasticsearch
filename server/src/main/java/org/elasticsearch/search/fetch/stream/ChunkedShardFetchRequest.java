@@ -14,6 +14,7 @@ import org.elasticsearch.action.ActionRequestValidationException;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.unit.ByteSizeValue;
+import org.elasticsearch.core.Nullable;
 import org.elasticsearch.search.fetch.ShardFetchRequest;
 
 import java.io.IOException;
@@ -24,13 +25,14 @@ import java.io.IOException;
 public class ChunkedShardFetchRequest extends ActionRequest {
 
     private final ShardFetchRequest shardFetchRequest;
+    @Nullable
     private final String continuationToken;  // null for initial request
     private final ByteSizeValue chunkSize;
     private final int chunkIndex;  // which chunk to return
 
     public ChunkedShardFetchRequest(
             ShardFetchRequest shardFetchRequest,
-            String continuationToken,
+            @Nullable String continuationToken,
             ByteSizeValue chunkSize
     ) {
         this(shardFetchRequest, continuationToken, chunkSize, 0);
@@ -38,7 +40,7 @@ public class ChunkedShardFetchRequest extends ActionRequest {
 
     public ChunkedShardFetchRequest(
             ShardFetchRequest shardFetchRequest,
-            String continuationToken,
+            @Nullable String continuationToken,
             ByteSizeValue chunkSize,
             int chunkIndex
     ) {
@@ -52,7 +54,7 @@ public class ChunkedShardFetchRequest extends ActionRequest {
         super(in);
         this.shardFetchRequest = new ShardFetchRequest(in);
         this.continuationToken = in.readOptionalString();
-        this.chunkSize = in.readOptionalWriteable(ByteSizeValue::readFrom);
+        this.chunkSize = ByteSizeValue.readFrom(in);
         this.chunkIndex = in.readVInt();
     }
 
@@ -61,7 +63,7 @@ public class ChunkedShardFetchRequest extends ActionRequest {
         super.writeTo(out);
         shardFetchRequest.writeTo(out);
         out.writeOptionalString(continuationToken);
-        out.writeOptionalWriteable(chunkSize);
+        chunkSize.writeTo(out);
         out.writeVInt(chunkIndex);
     }
 
@@ -84,9 +86,5 @@ public class ChunkedShardFetchRequest extends ActionRequest {
 
     public int getChunkIndex() {
         return chunkIndex;
-    }
-
-    public boolean isInitialRequest() {
-        return continuationToken == null;
     }
 }
