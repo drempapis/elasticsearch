@@ -124,6 +124,7 @@ public class TransportSearchIT extends ESIntegTestCase {
         return Collections.singletonList(TestPlugin.class);
     }
 
+
     public void testLocalClusterAlias() throws ExecutionException, InterruptedException {
         long nowInMillis = randomLongBetween(0, Long.MAX_VALUE);
         IndexRequest indexRequest = new IndexRequest("test");

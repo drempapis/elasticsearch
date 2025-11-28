@@ -37,7 +37,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * This search phase merges the query results from the previous phase together and calculates the topN hits for this search.
@@ -322,13 +321,8 @@ class FetchSearchPhase extends SearchPhase {
             }
         };
 
-
         // Create the aggregator
-        final ChunkedFetchAggregator aggregator = new ChunkedFetchAggregator(
-            shardTarget,
-            contextId,
-            finalListener
-        );
+        final ChunkedFetchAggregator aggregator = new ChunkedFetchAggregator(finalListener);
 
         // Start chunked fetching
         ChunkedShardFetchRequest firstRequest = new ChunkedShardFetchRequest(
@@ -410,7 +404,8 @@ class FetchSearchPhase extends SearchPhase {
     /**
      * Aggregates chunks from a single shard's fetch response
      */
-    private class ChunkedFetchAggregator {
+  /*  private class ChunkedFetchAggregator {
+
         private final SearchShardTarget shardTarget;
         private final ShardSearchContextId contextId;
         private final ActionListener<FetchSearchResult> listener;
@@ -467,7 +462,6 @@ class FetchSearchPhase extends SearchPhase {
                 pos += chunk.length;
             }
 
-
             SearchHits searchHits = new SearchHits(allHits, null, Float.NaN);
 
             FetchSearchResult result = new FetchSearchResult();
@@ -475,5 +469,102 @@ class FetchSearchPhase extends SearchPhase {
             result.setHits(searchHits);
             return result;
         }
+    }*/
+
+    private class ChunkedFetchAggregator {
+
+        private final ActionListener<FetchSearchResult> listener;
+        private final List<SearchHit[]> accumulatedHits = new CopyOnWriteArrayList<>();
+        private final AtomicBoolean completed = new AtomicBoolean(false);
+        private volatile FetchSearchResult firstChunkResult;
+
+        ChunkedFetchAggregator(ActionListener<FetchSearchResult> listener) {
+            this.listener = listener;
+        }
+
+        void onChunk(ChunkedShardFetchResponse response) {
+            if (completed.get()) {
+                return;
+            }
+
+            if (firstChunkResult == null) {
+                FetchSearchResult base = response.getFetchResult();
+                if (base != null) {
+                    firstChunkResult = base;
+                }
+            }
+
+            SearchHit[] hits = response.getHits();
+            if (hits != null && hits.length > 0) {
+                accumulatedHits.add(hits);
+            }
+
+            if (response.isLastChunk()) {
+                complete();
+            }
+        }
+
+        boolean canAcceptMore() {
+            return completed.get() == false;
+        }
+
+        void complete() {
+            if (completed.compareAndSet(false, true) == false) {
+                return;
+            }
+
+            try {
+                if (firstChunkResult == null) {
+                    listener.onFailure(
+                        new IllegalStateException("No base FetchSearchResult received for chunked fetch")
+                    );
+                    return;
+                }
+
+                mergeAccumulatedHitsIntoBaseResult(firstChunkResult);
+                listener.onResponse(firstChunkResult);
+            } catch (Exception e) {
+                listener.onFailure(e);
+            }
+        }
+
+        void onFailure(Exception e) {
+            if (completed.compareAndSet(false, true)) {
+                listener.onFailure(e);
+            }
+        }
+
+        private void mergeAccumulatedHitsIntoBaseResult(FetchSearchResult result) {
+            // Base metadata from the original hits (if any)
+            SearchHits originalHits = result.hits();
+            final TotalHits totalHits;
+            final float maxScore;
+
+            if (originalHits != null) {
+                totalHits = originalHits.getTotalHits();
+                maxScore = originalHits.getMaxScore();
+            } else {
+                totalHits = null;
+                maxScore = Float.NaN;
+            }
+
+            int totalHitCount = accumulatedHits.stream().mapToInt(h -> h.length).sum();
+            if (totalHitCount == 0) {
+                SearchHits mergedHits = new SearchHits(null, totalHits, maxScore);
+                result.setHits(mergedHits);
+                return;
+            }
+
+            SearchHit[] merged = new SearchHit[totalHitCount];
+            int pos = 0;
+            for (SearchHit[] chunk : accumulatedHits) {
+                System.arraycopy(chunk, 0, merged, pos, chunk.length);
+                pos += chunk.length;
+            }
+
+            SearchHits mergedHits = new SearchHits(merged, totalHits, maxScore);
+            result.setHits(mergedHits);
+        }
     }
+
 }

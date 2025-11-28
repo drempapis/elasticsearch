@@ -15,7 +15,7 @@ import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.unit.ByteSizeValue;
 import org.elasticsearch.core.Nullable;
-import org.elasticsearch.search.fetch.ShardFetchRequest;
+import org.elasticsearch.search.fetch.ShardFetchSearchRequest;
 
 import java.io.IOException;
 
@@ -24,14 +24,14 @@ import java.io.IOException;
  */
 public class ChunkedShardFetchRequest extends ActionRequest {
 
-    private final ShardFetchRequest shardFetchRequest;
+    private final ShardFetchSearchRequest shardFetchRequest;
     @Nullable
     private final String continuationToken;  // null for initial request
     private final ByteSizeValue chunkSize;
-    private final int chunkIndex;  // which chunk to return
+    private final int chunkIndex;
 
     public ChunkedShardFetchRequest(
-            ShardFetchRequest shardFetchRequest,
+            ShardFetchSearchRequest shardFetchRequest,
             @Nullable String continuationToken,
             ByteSizeValue chunkSize
     ) {
@@ -39,7 +39,7 @@ public class ChunkedShardFetchRequest extends ActionRequest {
     }
 
     public ChunkedShardFetchRequest(
-            ShardFetchRequest shardFetchRequest,
+        ShardFetchSearchRequest shardFetchRequest,
             @Nullable String continuationToken,
             ByteSizeValue chunkSize,
             int chunkIndex
@@ -52,7 +52,7 @@ public class ChunkedShardFetchRequest extends ActionRequest {
 
     public ChunkedShardFetchRequest(StreamInput in) throws IOException {
         super(in);
-        this.shardFetchRequest = new ShardFetchRequest(in);
+        this.shardFetchRequest = new ShardFetchSearchRequest(in);
         this.continuationToken = in.readOptionalString();
         this.chunkSize = ByteSizeValue.readFrom(in);
         this.chunkIndex = in.readVInt();
@@ -72,7 +72,7 @@ public class ChunkedShardFetchRequest extends ActionRequest {
         return null;
     }
 
-    public ShardFetchRequest getShardFetchRequest() {
+    public ShardFetchSearchRequest getShardFetchRequest() {
         return shardFetchRequest;
     }
 

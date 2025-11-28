@@ -83,7 +83,7 @@ public class TransportShardFetchAction {
     /**
      * Execute a chunked fetch on a remote node
      */
-    public void execute(
+   /* public void execute(
             DiscoveryNode node,
             ChunkedShardFetchRequest request,
             ActionListener<ChunkedShardFetchResponse> listener
@@ -98,7 +98,7 @@ public class TransportShardFetchAction {
                 EsExecutors.DIRECT_EXECUTOR_SERVICE
             )
         );
-    }
+    }*/
 
     /**
      * Handles chunked fetch requests on the data node
@@ -163,6 +163,7 @@ public class TransportShardFetchAction {
                     }
 
                     ChunkedShardFetchResponse response = new ChunkedShardFetchResponse(
+                        fetchResult,
                         chunks.getFirst(),
                         hasMore,
                         token,
@@ -172,7 +173,6 @@ public class TransportShardFetchAction {
                     channel.sendResponse(response);
                 }, channel::sendResponse)
             );
-
         }
 
         /**
@@ -203,6 +203,7 @@ public class TransportShardFetchAction {
             boolean hasMore = chunkIndex < chunks.size() - 1;
 
             ChunkedShardFetchResponse response = new ChunkedShardFetchResponse(
+                null,
                 chunk,
                 hasMore,
                 hasMore ? token : null,
