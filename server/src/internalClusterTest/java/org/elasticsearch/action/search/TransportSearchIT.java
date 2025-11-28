@@ -9,6 +9,8 @@
 
 package org.elasticsearch.action.search;
 
+import com.carrotsearch.randomizedtesting.annotations.Repeat;
+
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.search.ScoreMode;
 import org.elasticsearch.TransportVersion;

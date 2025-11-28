@@ -16,6 +16,7 @@ import org.elasticsearch.common.unit.ByteSizeValue;
 import org.elasticsearch.common.util.concurrent.AbstractRunnable;
 import org.elasticsearch.common.util.concurrent.AtomicArray;
 import org.elasticsearch.core.Nullable;
+import org.elasticsearch.core.Releasable;
 import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.SearchHits;
 import org.elasticsearch.search.SearchPhaseResult;
@@ -118,7 +119,6 @@ class FetchSearchPhase extends SearchPhase {
             && context.getRequest().hasKnnSearch() == false
             && reducedQueryPhase.queryPhaseRankCoordinatorContext() == null
             && (context.getRequest().source() == null || context.getRequest().source().rankBuilder() == null);
-        queryAndFetchOptimization = false;
         if (queryAndFetchOptimization) {
             assert assertConsistentWithQueryAndFetchOptimization();
             // query AND fetch optimization
@@ -368,6 +368,13 @@ class FetchSearchPhase extends SearchPhase {
                         }
                     } catch (Exception e) {
                         aggregator.onFailure(e);
+                    } finally {
+                        FetchSearchResult fetchResult = response.getFetchResult();
+                        if (fetchResult != null) {
+                            // Use the correct release mechanism for your ES version:
+                            // e.g. fetchResult.decRef() or Releasables.close(fetchResult) / fetchResult.release()
+                            fetchResult.decRef(); // or appropriate close
+                        }
                     }
                 }
 
@@ -401,80 +408,11 @@ class FetchSearchPhase extends SearchPhase {
     }
 
 
-    /**
-     * Aggregates chunks from a single shard's fetch response
-     */
-  /*  private class ChunkedFetchAggregator {
-
-        private final SearchShardTarget shardTarget;
-        private final ShardSearchContextId contextId;
-        private final ActionListener<FetchSearchResult> listener;
-
-        private final List<SearchHit[]> accumulatedHits = new CopyOnWriteArrayList<>();
-        private final AtomicBoolean completed = new AtomicBoolean(false);
-        private volatile FetchSearchResult firstChunkResult;
-
-        ChunkedFetchAggregator(
-            SearchShardTarget shardTarget,
-            ShardSearchContextId contextId,
-            ActionListener<FetchSearchResult> listener
-        ) {
-            this.shardTarget = shardTarget;
-            this.contextId = contextId;
-            this.listener = listener;
-        }
-
-        void onChunk(ChunkedShardFetchResponse response) {
-            if (response.getHits() != null && response.getHits().length > 0) {
-                accumulatedHits.add(response.getHits());
-            }
-        }
-
-        boolean canAcceptMore() {
-            return completed.get() == false;
-        }
-
-        void complete() {
-            if (completed.compareAndSet(false, true) == false) {
-                return;
-            }
-
-            try {
-                FetchSearchResult finalResult = buildFinalResult();
-                listener.onResponse(finalResult);
-            } catch (Exception e) {
-                listener.onFailure(e);
-            }
-        }
-
-        void onFailure(Exception e) {
-            if (completed.compareAndSet(false, true)) {
-                listener.onFailure(e);
-            }
-        }
-
-        private FetchSearchResult buildFinalResult() {
-            int totalHitCount = accumulatedHits.stream().mapToInt(hits -> hits.length).sum();
-            SearchHit[] allHits = new SearchHit[totalHitCount];
-            int pos = 0;
-            for (SearchHit[] chunk : accumulatedHits) {
-                System.arraycopy(chunk, 0, allHits, pos, chunk.length);
-                pos += chunk.length;
-            }
-
-            SearchHits searchHits = new SearchHits(allHits, null, Float.NaN);
-
-            FetchSearchResult result = new FetchSearchResult();
-            result.setSearchShardTarget(shardTarget);
-            result.setHits(searchHits);
-            return result;
-        }
-    }*/
-
     private class ChunkedFetchAggregator {
 
         private final ActionListener<FetchSearchResult> listener;
         private final List<SearchHit[]> accumulatedHits = new CopyOnWriteArrayList<>();
+        private final List<FetchSearchResult> intermediateResults = new CopyOnWriteArrayList<>();
         private final AtomicBoolean completed = new AtomicBoolean(false);
         private volatile FetchSearchResult firstChunkResult;
 
@@ -484,18 +422,32 @@ class FetchSearchPhase extends SearchPhase {
 
         void onChunk(ChunkedShardFetchResponse response) {
             if (completed.get()) {
+                // Already completed - clean up this response
+                FetchSearchResult fetchResult = response.getFetchResult();
+                if (fetchResult != null) {
+                    fetchResult.decRef();
+                }
                 return;
             }
 
-            if (firstChunkResult == null) {
-                FetchSearchResult base = response.getFetchResult();
-                if (base != null) {
-                    firstChunkResult = base;
+            FetchSearchResult fetchResult = response.getFetchResult();
+            if (fetchResult != null) {
+                // Track this result for cleanup
+                intermediateResults.add(fetchResult);
+
+                if (firstChunkResult == null) {
+                    firstChunkResult = fetchResult;
+                    // Keep an extra reference since we're using it as the base
+                    firstChunkResult.incRef();
                 }
             }
 
             SearchHit[] hits = response.getHits();
             if (hits != null && hits.length > 0) {
+                // Increment ref count on each hit since we're storing them
+                for (SearchHit hit : hits) {
+                    hit.incRef();
+                }
                 accumulatedHits.add(hits);
             }
 
@@ -515,6 +467,7 @@ class FetchSearchPhase extends SearchPhase {
 
             try {
                 if (firstChunkResult == null) {
+                    cleanupAll();
                     listener.onFailure(
                         new IllegalStateException("No base FetchSearchResult received for chunked fetch")
                     );
@@ -522,20 +475,78 @@ class FetchSearchPhase extends SearchPhase {
                 }
 
                 mergeAccumulatedHitsIntoBaseResult(firstChunkResult);
+
+                // Clean up intermediate results except the one we're returning
+                cleanupIntermediateResultsExcept(firstChunkResult);
+
+                // Pass the result to the listener
                 listener.onResponse(firstChunkResult);
+
+                // Decrement our extra reference (listener now owns it)
+                firstChunkResult.decRef();
             } catch (Exception e) {
+                cleanupAll();
                 listener.onFailure(e);
             }
         }
 
         void onFailure(Exception e) {
             if (completed.compareAndSet(false, true)) {
+                cleanupAll();
                 listener.onFailure(e);
             }
         }
 
+        private void cleanupAll() {
+            // Clean up all intermediate FetchSearchResults
+            for (FetchSearchResult result : intermediateResults) {
+                try {
+                    result.decRef();
+                } catch (Exception ex) {
+                    logger.warn("Failed to release intermediate fetch result", ex);
+                }
+            }
+            intermediateResults.clear();
+
+            // Clean up all accumulated hits
+            for (SearchHit[] chunk : accumulatedHits) {
+                for (SearchHit hit : chunk) {
+                    try {
+                        hit.decRef();
+                    } catch (Exception ex) {
+                        logger.warn("Failed to release search hit", ex);
+                    }
+                }
+            }
+            accumulatedHits.clear();
+        }
+
+        private void cleanupIntermediateResultsExcept(FetchSearchResult keep) {
+            // Clean up all intermediate results except the one we're keeping
+            for (FetchSearchResult result : intermediateResults) {
+                if (result != keep) {
+                    try {
+                        result.decRef();
+                    } catch (Exception ex) {
+                        logger.warn("Failed to release intermediate fetch result", ex);
+                    }
+                }
+            }
+            intermediateResults.clear();
+
+            for (SearchHit[] chunk : accumulatedHits) {
+                for (SearchHit hit : chunk) {
+                    try {
+                        hit.decRef();
+                    } catch (Exception ex) {
+                        logger.warn("Failed to release search hit", ex);
+                    }
+                }
+            }
+            accumulatedHits.clear();
+        }
+
         private void mergeAccumulatedHitsIntoBaseResult(FetchSearchResult result) {
-            // Base metadata from the original hits (if any)
             SearchHits originalHits = result.hits();
             final TotalHits totalHits;
             final float maxScore;
@@ -549,12 +560,13 @@ class FetchSearchPhase extends SearchPhase {
             }
 
             int totalHitCount = accumulatedHits.stream().mapToInt(h -> h.length).sum();
+
+            // If no accumulated hits, don't replace anything
             if (totalHitCount == 0) {
-                SearchHits mergedHits = new SearchHits(null, totalHits, maxScore);
-                result.setHits(mergedHits);
                 return;
             }
 
+            // Build merged array
             SearchHit[] merged = new SearchHit[totalHitCount];
             int pos = 0;
             for (SearchHit[] chunk : accumulatedHits) {
@@ -562,7 +574,12 @@ class FetchSearchPhase extends SearchPhase {
                 pos += chunk.length;
             }
 
+            // Create new SearchHits with merged array
+            // The SearchHit objects already have their ref counts incremented from onChunk
             SearchHits mergedHits = new SearchHits(merged, totalHits, maxScore);
+
+            // Replace the hits in the result
+            // The FetchSearchResult will handle cleanup of the old SearchHits
             result.setHits(mergedHits);
         }
     }

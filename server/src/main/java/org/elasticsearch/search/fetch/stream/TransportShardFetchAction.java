@@ -13,7 +13,6 @@ import org.apache.lucene.search.TotalHits;
 import org.elasticsearch.action.ActionListener;
 import org.elasticsearch.action.ActionListenerResponseHandler;
 import org.elasticsearch.action.search.SearchShardTask;
-import org.elasticsearch.cluster.node.DiscoveryNode;
 import org.elasticsearch.common.unit.ByteSizeValue;
 import org.elasticsearch.common.util.concurrent.EsExecutors;
 import org.elasticsearch.injection.guice.Inject;
@@ -32,16 +31,6 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * Shard-level fetch action that implements chunking using the request-back mechanism.
- *
- * Key insight: Instead of buffering all results, we:
- * 1. Execute FetchPhase normally to get all hits
- * 2. Store hits in a temporary cache with a continuation token
- * 3. Return only the first chunk immediately
- * 4. Coordinator requests back subsequent chunks using the token
- * 5. Clean up cache when fetch is complete
- */
 public class TransportShardFetchAction {
 
     public static final String ACTION_NAME = "indices:data/read/search/fetch/shard_streaming";
@@ -80,29 +69,7 @@ public class TransportShardFetchAction {
                 EsExecutors.DIRECT_EXECUTOR_SERVICE));
     }
 
-    /**
-     * Execute a chunked fetch on a remote node
-     */
-   /* public void execute(
-            DiscoveryNode node,
-            ChunkedShardFetchRequest request,
-            ActionListener<ChunkedShardFetchResponse> listener
-    ) {
-        transportService.sendRequest(
-            node,
-            ACTION_NAME,
-            request,
-            new ActionListenerResponseHandler<>(
-                listener,
-                ChunkedShardFetchResponse::new,
-                EsExecutors.DIRECT_EXECUTOR_SERVICE
-            )
-        );
-    }*/
 
-    /**
-     * Handles chunked fetch requests on the data node
-     */
     private class ChunkedFetchRequestHandler implements TransportRequestHandler<ChunkedShardFetchRequest> {
 
         @Override
@@ -115,17 +82,12 @@ public class TransportShardFetchAction {
             String continuationToken = request.getContinuationToken();
 
             if (continuationToken == null) {
-                // First request - execute fetch and cache results
                 handleInitialFetchRequest(request, channel, task);
             } else {
-                // Subsequent request - return next chunk from cache
                 handleContinuationRequest(request, continuationToken, channel);
             }
         }
 
-        /**
-         * Handle the initial fetch request
-         */
         private void handleInitialFetchRequest(
                 ChunkedShardFetchRequest request,
                 TransportChannel channel,
@@ -189,8 +151,6 @@ public class TransportShardFetchAction {
                 throw new IllegalStateException("Continuation token not found or expired: " + token);
             }
 
-            // Determine which chunk to return based on how many we've already sent
-            // (This is simplified - in reality you'd track chunk index in the token)
             int chunkIndex = request.getChunkIndex();
 
             if (chunkIndex >= chunks.size()) {
@@ -241,7 +201,6 @@ public class TransportShardFetchAction {
                 currentChunkSize += hitSize;
             }
 
-            // Add final chunk
             if (currentChunk.isEmpty() == false) {
                 chunks.add(currentChunk.toArray(new SearchHit[0]));
             }
@@ -286,7 +245,7 @@ public class TransportShardFetchAction {
     /**
      * Cache for storing chunks during multi-request fetch
      *
-     * Note: In production, this should:
+     * To make it production wise
      * 1. Have TTL-based expiration
      * 2. Have size limits
      * 3. Be monitored for memory usage
