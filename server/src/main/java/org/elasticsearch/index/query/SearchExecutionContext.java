@@ -738,14 +738,14 @@ public class SearchExecutionContext extends QueryRewriteContext {
     }
 
     /**
-     * Add to query construction memory (thread-safe)
+     * Add to query construction memory.
      */
     public void addQueryConstructionMemory(long bytes) {
         queryConstructionMemoryUsed.addAndGet(bytes);
     }
 
     /**
-     * Get total query construction memory used (thread-safe)
+     * Get total query construction memory used.
      */
     public long getQueryConstructionMemoryUsed() {
         return queryConstructionMemoryUsed.get();
