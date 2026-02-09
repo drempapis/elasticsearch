@@ -640,7 +640,6 @@ public abstract class AbstractBuilderTestCase extends ESTestCase {
 
         @Override
         public void close() throws IOException {
-            //IOUtils.close(circuitBreakerService);
         }
 
         SearchExecutionContext createShardContext(IndexSearcher searcher) {
