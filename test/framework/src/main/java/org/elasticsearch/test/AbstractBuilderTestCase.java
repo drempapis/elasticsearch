@@ -29,8 +29,10 @@ import org.elasticsearch.client.internal.Client;
 import org.elasticsearch.cluster.metadata.IndexMetadata;
 import org.elasticsearch.cluster.service.ClusterService;
 import org.elasticsearch.common.Strings;
+import org.elasticsearch.common.breaker.CircuitBreaker;
 import org.elasticsearch.common.compress.CompressedXContent;
 import org.elasticsearch.common.io.stream.NamedWriteableRegistry;
+import org.elasticsearch.common.metrics.CounterMetric;
 import org.elasticsearch.common.regex.Regex;
 import org.elasticsearch.common.settings.ClusterSettings;
 import org.elasticsearch.common.settings.IndexScopedSettings;
@@ -64,6 +66,9 @@ import org.elasticsearch.index.similarity.SimilarityService;
 import org.elasticsearch.indices.DateFieldRangeInfo;
 import org.elasticsearch.indices.IndicesModule;
 import org.elasticsearch.indices.analysis.AnalysisModule;
+import org.elasticsearch.indices.breaker.CircuitBreakerMetrics;
+import org.elasticsearch.indices.breaker.CircuitBreakerService;
+import org.elasticsearch.indices.breaker.HierarchyCircuitBreakerService;
 import org.elasticsearch.indices.breaker.NoneCircuitBreakerService;
 import org.elasticsearch.indices.fielddata.cache.IndicesFieldDataCache;
 import org.elasticsearch.node.InternalSettingsPreparer;
@@ -383,6 +388,32 @@ public abstract class AbstractBuilderTestCase extends ESTestCase {
         return createSearchExecutionContext(null);
     }
 
+    protected static CircuitBreaker createQueryConstructionCircuitBreaker(String limit) {
+        Settings settings = Settings.builder()
+            .put("indices.breaker.query_construction.limit", limit)
+            .put("indices.breaker.query_construction.overhead", "1.0")
+            .build();
+
+        ClusterSettings clusterSettings = new ClusterSettings(settings, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS);
+        CircuitBreakerService service = new HierarchyCircuitBreakerService(
+            CircuitBreakerMetrics.NOOP,
+            settings,
+            Collections.emptyList(),
+            clusterSettings
+        );
+
+        return service.getBreaker(CircuitBreaker.QUERY_CONSTRUCTION);
+    }
+
+    /**
+     * Creates a circuit breaker for testing query construction with default limit (10% of heap).
+     *
+     * @return a configured CircuitBreaker instance
+     */
+    protected static CircuitBreaker createQueryConstructionCircuitBreaker() {
+        return createQueryConstructionCircuitBreaker("10%");
+    }
+
     protected static QueryRewriteContext createQueryRewriteContext() {
         return serviceHolder.createQueryRewriteContext();
     }
@@ -422,6 +453,18 @@ public abstract class AbstractBuilderTestCase extends ESTestCase {
 
     }
 
+    /**
+     * Override this method to provide a custom CircuitBreakerService for tests.
+     * By default, returns NoneCircuitBreakerService for backwards compatibility.
+     *
+     * @param nodeSettings the node settings
+     * @param clusterSettings the cluster settings
+     * @return the CircuitBreakerService to use in tests
+     */
+    protected CircuitBreakerService createCircuitBreakerService(Settings nodeSettings, ClusterSettings clusterSettings) {
+        return new NoneCircuitBreakerService();
+    }
+
     private static class ServiceHolder implements Closeable {
         private final IndexFieldDataService indexFieldDataService;
         private final SearchModule searchModule;
@@ -436,6 +479,7 @@ public abstract class AbstractBuilderTestCase extends ESTestCase {
         private final Client client;
         private final long nowInMillis;
         private final IndexMetadata indexMetadata;
+        private final CircuitBreakerService circuitBreakerService;
 
         ServiceHolder(
             Settings nodeSettings,
@@ -452,12 +496,15 @@ public abstract class AbstractBuilderTestCase extends ESTestCase {
             PluginsService pluginsService;
             pluginsService = new MockPluginsService(nodeSettings, env, plugins);
 
+            ClusterSettings clusterSettings = new ClusterSettings(Settings.EMPTY, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS);
             ClusterService clusterService = new ClusterService(
                 Settings.EMPTY,
-                new ClusterSettings(Settings.EMPTY, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS),
+                clusterSettings,
                 new DeterministicTaskQueue().getThreadPool(),
                 null
             );
+
+            this.circuitBreakerService = testCase.createCircuitBreakerService(nodeSettings, clusterSettings);
 
             client = (Client) Proxy.newProxyInstance(
                 Client.class.getClassLoader(),
@@ -592,7 +639,9 @@ public abstract class AbstractBuilderTestCase extends ESTestCase {
         }
 
         @Override
-        public void close() throws IOException {}
+        public void close() throws IOException {
+            //IOUtils.close(circuitBreakerService);
+        }
 
         SearchExecutionContext createShardContext(IndexSearcher searcher) {
             return new SearchExecutionContext(

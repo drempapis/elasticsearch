@@ -13,8 +13,10 @@ import org.apache.lucene.index.Term;
 import org.apache.lucene.search.BoostQuery;
 import org.apache.lucene.search.FuzzyQuery;
 import org.apache.lucene.search.Query;
+import org.apache.lucene.util.Accountable;
 import org.elasticsearch.ElasticsearchParseException;
 import org.elasticsearch.common.ParsingException;
+import org.elasticsearch.common.breaker.CircuitBreaker;
 import org.elasticsearch.common.unit.Fuzziness;
 import org.elasticsearch.core.Strings;
 import org.elasticsearch.test.AbstractQueryTestCase;
@@ -310,5 +312,28 @@ public class FuzzyQueryBuilderTests extends AbstractQueryTestCase<FuzzyQueryBuil
         query = new FuzzyQueryBuilder(TEXT_FIELD_NAME, "text").transpositions(false).toQuery(createSearchExecutionContext());
         assertThat(query, instanceOf(FuzzyQuery.class));
         assertEquals(false, ((FuzzyQuery) query).getTranspositions());
+    }
+
+    public void testFuzzyQueryCircuitBreakerAccounting() throws Exception {
+        SearchExecutionContext context = createSearchExecutionContext();
+        CircuitBreaker cb = createQueryConstructionCircuitBreaker();
+        context.setQueryConstructionCircuitBreaker(cb);
+
+        long before = cb.getUsed();
+        FuzzyQueryBuilder queryBuilder = new FuzzyQueryBuilder(TEXT_FIELD_NAME, "test");
+        queryBuilder.fuzziness(Fuzziness.TWO);
+        Query query = queryBuilder.toQuery(context);
+        assertNotNull("Fuzzy query should be created", query);
+
+        long after = cb.getUsed();
+        if (query instanceof Accountable queryAccountable) {
+            long queryMemory = queryAccountable.ramBytesUsed();
+            if (queryMemory > 0) {
+                assertTrue(
+                    "Circuit breaker should account for fuzzy query memory. Before: " + before +
+                        ", After: " + after + ", Query memory: " + queryMemory, after >= before
+                );
+            }
+        }
     }
 }

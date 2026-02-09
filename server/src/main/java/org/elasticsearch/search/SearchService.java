@@ -15,6 +15,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.lucene.search.FieldDoc;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.TopDocs;
+import org.apache.lucene.util.Accountable;
 import org.elasticsearch.ElasticsearchException;
 import org.elasticsearch.ExceptionsHelper;
 import org.elasticsearch.TransportVersion;
@@ -68,6 +69,7 @@ import org.elasticsearch.index.query.InnerHitContextBuilder;
 import org.elasticsearch.index.query.InnerHitsRewriteContext;
 import org.elasticsearch.index.query.MatchAllQueryBuilder;
 import org.elasticsearch.index.query.MatchNoneQueryBuilder;
+import org.elasticsearch.index.query.ParsedQuery;
 import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryRewriteContext;
 import org.elasticsearch.index.query.Rewriteable;
@@ -342,8 +344,10 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
 
     private final BigArrays bigArrays;
 
+
     private final FetchPhase fetchPhase;
     private final CircuitBreaker circuitBreaker;
+    private final CircuitBreaker queryConstructionCircuitBreaker;
     private final OnlinePrewarmingService onlinePrewarmingService;
     private final int prewarmingMaxPoolFactorThreshold;
     private volatile Executor searchExecutor;
@@ -405,7 +409,8 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
         this.scriptService = scriptService;
         this.bigArrays = bigArrays;
         this.fetchPhase = fetchPhase;
-        circuitBreaker = circuitBreakerService.getBreaker(CircuitBreaker.REQUEST);
+        this.circuitBreaker = circuitBreakerService.getBreaker(CircuitBreaker.REQUEST);
+        this.queryConstructionCircuitBreaker = circuitBreakerService.getBreaker(CircuitBreaker.QUERY_CONSTRUCTION);
         this.multiBucketConsumerService = new MultiBucketConsumerService(clusterService, settings, circuitBreaker);
         this.executorSelector = executorSelector;
         this.tracer = tracer;
@@ -478,6 +483,10 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
 
     public CircuitBreaker getCircuitBreaker() {
         return circuitBreaker;
+    }
+
+    public CircuitBreaker getQueryConstructionCircuitBreaker() {
+        return queryConstructionCircuitBreaker;
     }
 
     public BigArrays getBigArrays() {
@@ -1467,6 +1476,10 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
         checkCancelled(task);
         final DefaultSearchContext context = createSearchContext(readerContext, request, defaultSearchTimeout, resultsType);
         resultsType.addResultsObject(context);
+
+        // Release the memory used for query construction once the search context is closed.
+        context.addReleasable(context.getSearchExecutionContext()::releaseQueryConstructionMemory);
+
         try {
             if (request.scroll() != null) {
                 context.scrollContext().scroll = request.scroll();
@@ -1537,12 +1550,24 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
             // might end up with incorrect state since we are using now() or script services
             // during rewrite and normalized / evaluate templates etc.
             SearchExecutionContext context = new SearchExecutionContext(searchContext.getSearchExecutionContext());
-            Rewriteable.rewrite(request.getRewriteable(), context, true);
+            context.setQueryConstructionCircuitBreaker(queryConstructionCircuitBreaker);
+
+            try {
+                Rewriteable.rewrite(request.getRewriteable(), context, true);
+            } finally {
+                long memoryUsed = context.getQueryConstructionMemoryUsed();
+                if (memoryUsed > 0 && queryConstructionCircuitBreaker != null) {
+                    queryConstructionCircuitBreaker.addWithoutBreaking(-memoryUsed);
+                }
+            }
+
             if (context.getTimeRangeFilterFromMillis() != null) {
                 // range queries may get rewritten to match_all or a range with open bounds. Rewriting in that case is the only place
                 // where we parse the date and set it to the context. We need to propagate it back from the clone into the original context
                 searchContext.getSearchExecutionContext().setTimeRangeFilterFromMillis(context.getTimeRangeFilterFromMillis());
             }
+
+            searchContext.getSearchExecutionContext().setQueryConstructionCircuitBreaker(queryConstructionCircuitBreaker);
             assert searchContext.getSearchExecutionContext().isCacheable();
             success = true;
         } finally {
@@ -1714,14 +1739,16 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
                 InnerHitContextBuilder.extractInnerHits(rewrittenForInnerHits, innerHitBuilders);
             }
             searchExecutionContext.setAliasFilter(context.request().getAliasFilter().getQueryBuilder());
-            context.parsedQuery(searchExecutionContext.toQuery(query));
+            ParsedQuery parsedQuery = buildQueryWithCircuitBreaker(searchExecutionContext, query, "main_query");
+            context.parsedQuery(parsedQuery);
         }
         if (source.postFilter() != null) {
             QueryBuilder rewrittenForInnerHits = Rewriteable.rewrite(source.postFilter(), innerHitsRewriteContext, true);
             if (false == source.skipInnerHits()) {
                 InnerHitContextBuilder.extractInnerHits(rewrittenForInnerHits, innerHitBuilders);
             }
-            context.parsedPostFilter(searchExecutionContext.toQuery(source.postFilter()));
+            ParsedQuery parsedPostFilter = buildQueryWithCircuitBreaker(searchExecutionContext, source.postFilter(), "post_filter");
+            context.parsedPostFilter(parsedPostFilter);
         }
         if (innerHitBuilders.size() > 0) {
             for (Map.Entry<String, InnerHitContextBuilder> entry : innerHitBuilders.entrySet()) {
@@ -2393,5 +2420,36 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
                 );
             }
         };
+    }
+
+    /**
+     * Builds a Lucene query from a QueryBuilder with circuit breaker protection.
+     * Accounts for memory used during query construction, especially for automaton-based queries.
+     */
+    private ParsedQuery buildQueryWithCircuitBreaker(
+        SearchExecutionContext searchExecutionContext,
+        QueryBuilder queryBuilder,
+        String component
+    ) {
+        if (queryConstructionCircuitBreaker == null) {
+            return searchExecutionContext.toQuery(queryBuilder);
+        }
+
+        long startMemory = queryConstructionCircuitBreaker.getUsed();
+        ParsedQuery parsedQuery = searchExecutionContext.toQuery(queryBuilder);
+        Query query = parsedQuery.query();
+
+        if (query instanceof Accountable accountableQuery) {
+            long queryMemory = accountableQuery.ramBytesUsed();
+            long currentUsed = queryConstructionCircuitBreaker.getUsed();
+            long alreadyAccounted = currentUsed - startMemory;
+            long memoryDelta = Math.max(0, queryMemory - alreadyAccounted);
+
+            if (memoryDelta > 0) {
+                queryConstructionCircuitBreaker.addEstimateBytesAndMaybeBreak(memoryDelta, component);
+                searchExecutionContext.addQueryConstructionMemory(memoryDelta);
+            }
+        }
+        return parsedQuery;
     }
 }

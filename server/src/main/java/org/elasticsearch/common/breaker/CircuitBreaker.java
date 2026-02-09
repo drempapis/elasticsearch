@@ -43,6 +43,10 @@ public interface CircuitBreaker {
      * on the network layer.
      */
     String IN_FLIGHT_REQUESTS = "inflight_requests";
+    /**
+     * The query construction breaker tracks memory used for constructing queries.
+     */
+    String QUERY_CONSTRUCTION = "query_construction";
 
     enum Type {
         // A regular or ChildMemoryCircuitBreaker

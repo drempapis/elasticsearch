@@ -23,6 +23,7 @@ import org.apache.lucene.util.SetOnce;
 import org.elasticsearch.action.ActionListener;
 import org.elasticsearch.client.internal.Client;
 import org.elasticsearch.common.ParsingException;
+import org.elasticsearch.common.breaker.CircuitBreaker;
 import org.elasticsearch.common.io.stream.NamedWriteableRegistry;
 import org.elasticsearch.common.lucene.search.Queries;
 import org.elasticsearch.core.Nullable;
@@ -73,6 +74,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.BooleanSupplier;
@@ -112,6 +114,8 @@ public class SearchExecutionContext extends QueryRewriteContext {
     private final Integer requestSize;
     private final MapperMetrics mapperMetrics;
     private final ShardSearchStats shardSearchStats;
+    private CircuitBreaker queryConstructionCircuitBreaker;
+    private final AtomicLong queryConstructionMemoryUsed = new AtomicLong(0);
 
     public SearchExecutionContext(
         int shardId,
@@ -717,5 +721,43 @@ public class SearchExecutionContext extends QueryRewriteContext {
     @Nullable
     public ShardSearchStats stats() {
         return shardSearchStats;
+    }
+
+    /**
+     * Set the circuit breaker for query construction memory accounting
+     */
+    public void setQueryConstructionCircuitBreaker(CircuitBreaker breaker) {
+        this.queryConstructionCircuitBreaker = breaker;
+    }
+
+    /**
+     * Get the circuit breaker for query construction memory accounting
+     */
+    public CircuitBreaker getQueryConstructionCircuitBreaker() {
+        return queryConstructionCircuitBreaker;
+    }
+
+    /**
+     * Add to query construction memory (thread-safe)
+     */
+    public void addQueryConstructionMemory(long bytes) {
+        queryConstructionMemoryUsed.addAndGet(bytes);
+    }
+
+    /**
+     * Get total query construction memory used (thread-safe)
+     */
+    public long getQueryConstructionMemoryUsed() {
+        return queryConstructionMemoryUsed.get();
+    }
+
+    /**
+     * Release all accumulated query construction memory back to the circuit breaker.
+     */
+    public void releaseQueryConstructionMemory() {
+        long memoryToRelease = queryConstructionMemoryUsed.getAndSet(0);
+        if (memoryToRelease > 0 && queryConstructionCircuitBreaker != null) {
+            queryConstructionCircuitBreaker.addWithoutBreaking(-memoryToRelease);
+        }
     }
 }

@@ -11,9 +11,12 @@ package org.elasticsearch.index.query;
 
 import org.apache.lucene.search.FuzzyQuery;
 import org.apache.lucene.search.Query;
+import org.apache.lucene.util.Accountable;
 import org.elasticsearch.TransportVersion;
 import org.elasticsearch.common.ParsingException;
 import org.elasticsearch.common.Strings;
+import org.elasticsearch.common.breaker.CircuitBreaker;
+import org.elasticsearch.common.breaker.CircuitBreakingException;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.unit.Fuzziness;
@@ -270,7 +273,11 @@ public class FuzzyQueryBuilder extends AbstractQueryBuilder<FuzzyQueryBuilder> i
             throw new IllegalStateException("Rewrite first");
         }
         String rewrite = this.rewrite;
-        return fieldType.fuzzyQuery(
+
+        CircuitBreaker cb = context.getQueryConstructionCircuitBreaker();
+        long beforeMemory = cb != null ? cb.getUsed() : 0L;
+
+        Query query = fieldType.fuzzyQuery(
             value,
             fuzziness,
             prefixLength,
@@ -279,6 +286,15 @@ public class FuzzyQueryBuilder extends AbstractQueryBuilder<FuzzyQueryBuilder> i
             context,
             QueryParsers.parseRewriteMethod(rewrite, null, LoggingDeprecationHandler.INSTANCE)
         );
+
+        if (cb != null && query instanceof Accountable queryMemory) {
+            long memoryDelta = Math.max(0, queryMemory.ramBytesUsed() - (cb.getUsed() - beforeMemory));
+            if (memoryDelta > 0) {
+                cb.addEstimateBytesAndMaybeBreak(memoryDelta, "fuzzy:" + fieldName);
+                context.addQueryConstructionMemory(memoryDelta);
+            }
+        }
+        return query;
     }
 
     @Override

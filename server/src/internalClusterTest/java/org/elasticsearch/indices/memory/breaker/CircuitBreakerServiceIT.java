@@ -27,7 +27,13 @@ import org.elasticsearch.common.breaker.NoopCircuitBreaker;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.unit.ByteSizeUnit;
 import org.elasticsearch.common.unit.ByteSizeValue;
+import org.elasticsearch.common.unit.Fuzziness;
 import org.elasticsearch.core.TimeValue;
+import org.elasticsearch.index.query.BoolQueryBuilder;
+import org.elasticsearch.index.query.FuzzyQueryBuilder;
+import org.elasticsearch.index.query.PrefixQueryBuilder;
+import org.elasticsearch.index.query.RegexpQueryBuilder;
+import org.elasticsearch.index.query.WildcardQueryBuilder;
 import org.elasticsearch.indices.breaker.CircuitBreakerStats;
 import org.elasticsearch.indices.breaker.HierarchyCircuitBreakerService;
 import org.elasticsearch.rest.RestStatus;
@@ -416,6 +422,59 @@ public class CircuitBreakerServiceIT extends ESIntegTestCase {
         checkLimitSize(client, 0.8);
 
         updateClusterSettings(Settings.builder().putNull(totalCircuitBreakerLimitSettingKey).putNull(useRealMemoryUsageSetting));
+    }
+
+    public void testQueryConstructionCircuitBreaker() throws Exception {
+        if (noopBreakerUsed()) {
+            logger.info("--> noop breakers used, skipping test");
+            return;
+        }
+
+        assertAcked(
+            prepareCreate("cb-query-test", 1, Settings.builder().put(SETTING_NUMBER_OF_REPLICAS, between(0, 1)))
+                .setMapping("test_field", "type=text")
+        );
+
+        int docCount = scaledRandomIntBetween(100, 500);
+        List<IndexRequestBuilder> reqs = new ArrayList<>();
+        for (long id = 0; id < docCount; id++) {
+            reqs.add(client().prepareIndex("cb-query-test")
+                .setId(Long.toString(id))
+                .setSource("test_field", "value" + id));
+        }
+        indexRandom(true, false, true, reqs);
+
+        updateClusterSettings(
+            Settings.builder()
+                .put(HierarchyCircuitBreakerService.QUERY_CONSTRUCTION_CIRCUIT_BREAKER_LIMIT_SETTING.getKey(), "10b")
+                .put(HierarchyCircuitBreakerService.QUERY_CONSTRUCTION_CIRCUIT_BREAKER_OVERHEAD_SETTING.getKey(), 1.0)
+        );
+
+        BoolQueryBuilder boolQuery = new BoolQueryBuilder();
+        for (int i = 0; i < 100; i++) {
+            boolQuery.should(new WildcardQueryBuilder("test_field", "*pattern*" + i + "*"));
+        }
+
+        SearchRequestBuilder searchRequest = client().prepareSearch("cb-query-test").setQuery(boolQuery);
+        // This is one of the cases where a CB-trip does not translate into a 429, but instead a 400, because the query is rejected
+        // at construction time, before it is executed
+        assertFailures(searchRequest, RestStatus.BAD_REQUEST, containsString("Data too large"));
+
+        NodesStatsResponse stats = client().admin().cluster().prepareNodesStats().setBreaker(true).get();
+        long queryConstructionBreaks = 0;
+        for (NodeStats stat : stats.getNodes()) {
+            CircuitBreakerStats breakerStats = stat.getBreaker().getStats(CircuitBreaker.QUERY_CONSTRUCTION);
+            if (breakerStats != null) {
+                queryConstructionBreaks += breakerStats.getTrippedCount();
+            }
+        }
+        assertThat("Query construction breaker should have tripped", queryConstructionBreaks, greaterThanOrEqualTo(1L));
+
+        updateClusterSettings(
+            Settings.builder()
+                .putNull(HierarchyCircuitBreakerService.QUERY_CONSTRUCTION_CIRCUIT_BREAKER_LIMIT_SETTING.getKey())
+                .putNull(HierarchyCircuitBreakerService.QUERY_CONSTRUCTION_CIRCUIT_BREAKER_OVERHEAD_SETTING.getKey())
+        );
     }
 
     private void checkLimitSize(Client client, double limitRatio) {

@@ -13,9 +13,12 @@ import org.apache.lucene.search.MatchAllDocsQuery;
 import org.apache.lucene.search.MatchNoDocsQuery;
 import org.apache.lucene.search.MultiTermQuery;
 import org.apache.lucene.search.Query;
+import org.apache.lucene.util.Accountable;
 import org.elasticsearch.TransportVersion;
 import org.elasticsearch.common.ParsingException;
 import org.elasticsearch.common.Strings;
+import org.elasticsearch.common.breaker.CircuitBreaker;
+import org.elasticsearch.common.breaker.CircuitBreakingException;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.xcontent.LoggingDeprecationHandler;
@@ -236,11 +239,23 @@ public class PrefixQueryBuilder extends AbstractQueryBuilder<PrefixQueryBuilder>
         }
         MultiTermQuery.RewriteMethod method = QueryParsers.parseRewriteMethod(rewrite, null, LoggingDeprecationHandler.INSTANCE);
 
+        CircuitBreaker cb = context.getQueryConstructionCircuitBreaker();
+        long beforeMemory = cb != null ? cb.getUsed() : 0L;
+
         MappedFieldType fieldType = context.getFieldType(fieldName);
         if (fieldType == null) {
             throw new IllegalStateException("Rewrite first");
         }
-        return fieldType.prefixQuery(value, method, caseInsensitive, context);
+        Query query = fieldType.prefixQuery(value, method, caseInsensitive, context);
+
+        if (cb != null && query instanceof Accountable queryMemory) {
+            long memoryDelta = Math.max(0, queryMemory.ramBytesUsed() - (cb.getUsed() - beforeMemory));
+            if (memoryDelta > 0) {
+                cb.addEstimateBytesAndMaybeBreak(memoryDelta, "prefix:" + fieldName);
+                context.addQueryConstructionMemory(memoryDelta);
+            }
+        }
+        return query;
     }
 
     @Override

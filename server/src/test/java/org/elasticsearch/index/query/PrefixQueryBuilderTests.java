@@ -15,7 +15,10 @@ import org.apache.lucene.search.MatchNoDocsQuery;
 import org.apache.lucene.search.MultiTermQuery;
 import org.apache.lucene.search.PrefixQuery;
 import org.apache.lucene.search.Query;
+import org.apache.lucene.util.Accountable;
 import org.elasticsearch.common.ParsingException;
+import org.elasticsearch.common.breaker.CircuitBreaker;
+import org.elasticsearch.common.breaker.CircuitBreakingException;
 import org.elasticsearch.core.Strings;
 import org.elasticsearch.index.mapper.DateFieldMapper;
 import org.elasticsearch.test.AbstractQueryTestCase;
@@ -210,4 +213,37 @@ public class PrefixQueryBuilderTests extends AbstractQueryTestCase<PrefixQueryBu
         assertThat(rewritten, CoreMatchers.instanceOf(MatchNoneQueryBuilder.class));
     }
 
+    public void testPrefixQueryCircuitBreakerAccounting() throws Exception {
+        SearchExecutionContext context = createSearchExecutionContext();
+        CircuitBreaker cb = createQueryConstructionCircuitBreaker();
+        context.setQueryConstructionCircuitBreaker(cb);
+
+        long before = cb.getUsed();
+        PrefixQueryBuilder queryBuilder = new PrefixQueryBuilder(TEXT_FIELD_NAME, "test");
+        Query query = queryBuilder.toQuery(context);
+        assertTrue(query instanceof Accountable);
+
+        long after = cb.getUsed();
+        long queryMemory = ((Accountable) query).ramBytesUsed();
+        assertTrue("Circuit breaker should account for regexp query memory", after >= before);
+        assertBusy(() -> assertEquals("QueryMemory should be equal to delta", queryMemory, after - before));
+    }
+
+    public void testPrefixCircuitBreakerTripsWithLowLimit() {
+        SearchExecutionContext context = createSearchExecutionContext();
+        CircuitBreaker cb = createQueryConstructionCircuitBreaker("500kb"); // Low limit
+        context.setQueryConstructionCircuitBreaker(cb);
+
+        BoolQueryBuilder boolQuery = new BoolQueryBuilder();
+        for (int i = 0; i < 100; i++) {
+            PrefixQueryBuilder prefixQuery = new PrefixQueryBuilder(TEXT_FIELD_NAME, "prefix" + i);
+            if (randomBoolean()) {
+                prefixQuery.caseInsensitive(true);
+            }
+            boolQuery.should(prefixQuery);
+        }
+
+        CircuitBreakingException exception = expectThrows(CircuitBreakingException.class, () -> boolQuery.toQuery(context));
+        assertTrue("Error should mention Data too large", exception.getMessage().contains("Data too large"));
+    }
 }

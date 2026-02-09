@@ -13,9 +13,12 @@ import org.apache.lucene.search.MatchAllDocsQuery;
 import org.apache.lucene.search.MatchNoDocsQuery;
 import org.apache.lucene.search.MultiTermQuery;
 import org.apache.lucene.search.Query;
+import org.apache.lucene.util.Accountable;
 import org.elasticsearch.TransportVersion;
 import org.elasticsearch.common.ParsingException;
 import org.elasticsearch.common.Strings;
+import org.elasticsearch.common.breaker.CircuitBreaker;
+import org.elasticsearch.common.breaker.CircuitBreakingException;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.xcontent.LoggingDeprecationHandler;
@@ -276,7 +279,20 @@ public class WildcardQueryBuilder extends AbstractQueryBuilder<WildcardQueryBuil
         }
 
         MultiTermQuery.RewriteMethod method = QueryParsers.parseRewriteMethod(rewrite, null, LoggingDeprecationHandler.INSTANCE);
-        return fieldType.wildcardQuery(value, method, caseInsensitive, context);
+
+        CircuitBreaker cb = context.getQueryConstructionCircuitBreaker();
+        long beforeMemory = cb != null ? cb.getUsed() : 0L;
+
+        Query query = fieldType.wildcardQuery(value, method, caseInsensitive, context);
+
+        if (cb != null && query instanceof Accountable queryMemory) {
+            long memoryDelta = Math.max(0, queryMemory.ramBytesUsed() - (cb.getUsed() - beforeMemory));
+            if (memoryDelta > 0) {
+                cb.addEstimateBytesAndMaybeBreak(memoryDelta, "wildcard:" + fieldName);
+                context.addQueryConstructionMemory(memoryDelta);
+            }
+        }
+        return query;
     }
 
     @Override

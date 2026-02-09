@@ -11,7 +11,10 @@ package org.elasticsearch.index.query;
 
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.RegexpQuery;
+import org.apache.lucene.util.Accountable;
 import org.elasticsearch.common.ParsingException;
+import org.elasticsearch.common.breaker.CircuitBreaker;
+import org.elasticsearch.common.breaker.CircuitBreakingException;
 import org.elasticsearch.core.Strings;
 import org.elasticsearch.test.AbstractQueryTestCase;
 
@@ -144,5 +147,35 @@ public class RegexpQueryBuilderTests extends AbstractQueryTestCase<RegexpQueryBu
             }""";
         e = expectThrows(ParsingException.class, () -> parseQuery(shortJson));
         assertEquals("[regexp] query doesn't support multiple fields, found [user1] and [user2]", e.getMessage());
+    }
+
+    public void testRegexpQueryCircuitBreakerAccounting() throws Exception {
+        SearchExecutionContext context = createSearchExecutionContext();
+        CircuitBreaker cb = createQueryConstructionCircuitBreaker();
+        context.setQueryConstructionCircuitBreaker(cb);
+
+        long before = cb.getUsed();
+        RegexpQueryBuilder queryBuilder = new RegexpQueryBuilder(TEXT_FIELD_NAME, ".*test.*pattern.*");
+        Query query = queryBuilder.toQuery(context);
+        assertTrue(query instanceof Accountable);
+
+        long after = cb.getUsed();
+        long queryMemory = ((Accountable) query).ramBytesUsed();
+        assertTrue("Circuit breaker should account for regexp query memory", after >= before);
+        assertBusy(() -> assertEquals("QueryMemory should be equal to delta", queryMemory, after - before));
+    }
+
+    public void testRegexpCircuitBreakerTripsWithLowLimit() {
+        SearchExecutionContext context = createSearchExecutionContext();
+        CircuitBreaker cb = createQueryConstructionCircuitBreaker("500kb"); // Low limit
+        context.setQueryConstructionCircuitBreaker(cb);
+
+        BoolQueryBuilder boolQuery = new BoolQueryBuilder();
+        for (int i = 0; i < 50; i++) {
+            boolQuery.should(new RegexpQueryBuilder(TEXT_FIELD_NAME, "(pattern" + i + "|alternate" + i + "|option" + i + ").*"));
+        }
+
+        CircuitBreakingException exception = expectThrows(CircuitBreakingException.class, () -> boolQuery.toQuery(context));
+        assertTrue("Error should mention Data too large", exception.getMessage().contains("Data too large"));
     }
 }
