@@ -27,12 +27,8 @@ import org.elasticsearch.common.breaker.NoopCircuitBreaker;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.unit.ByteSizeUnit;
 import org.elasticsearch.common.unit.ByteSizeValue;
-import org.elasticsearch.common.unit.Fuzziness;
 import org.elasticsearch.core.TimeValue;
 import org.elasticsearch.index.query.BoolQueryBuilder;
-import org.elasticsearch.index.query.FuzzyQueryBuilder;
-import org.elasticsearch.index.query.PrefixQueryBuilder;
-import org.elasticsearch.index.query.RegexpQueryBuilder;
 import org.elasticsearch.index.query.WildcardQueryBuilder;
 import org.elasticsearch.indices.breaker.CircuitBreakerStats;
 import org.elasticsearch.indices.breaker.HierarchyCircuitBreakerService;
@@ -431,16 +427,16 @@ public class CircuitBreakerServiceIT extends ESIntegTestCase {
         }
 
         assertAcked(
-            prepareCreate("cb-query-test", 1, Settings.builder().put(SETTING_NUMBER_OF_REPLICAS, between(0, 1)))
-                .setMapping("test_field", "type=text")
+            prepareCreate("cb-query-test", 1, Settings.builder().put(SETTING_NUMBER_OF_REPLICAS, between(0, 1))).setMapping(
+                "test_field",
+                "type=text"
+            )
         );
 
         int docCount = scaledRandomIntBetween(100, 500);
         List<IndexRequestBuilder> reqs = new ArrayList<>();
         for (long id = 0; id < docCount; id++) {
-            reqs.add(client().prepareIndex("cb-query-test")
-                .setId(Long.toString(id))
-                .setSource("test_field", "value" + id));
+            reqs.add(client().prepareIndex("cb-query-test").setId(Long.toString(id)).setSource("test_field", "value" + id));
         }
         indexRandom(true, false, true, reqs);
 

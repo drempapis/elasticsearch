@@ -32,7 +32,6 @@ import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.breaker.CircuitBreaker;
 import org.elasticsearch.common.compress.CompressedXContent;
 import org.elasticsearch.common.io.stream.NamedWriteableRegistry;
-import org.elasticsearch.common.metrics.CounterMetric;
 import org.elasticsearch.common.regex.Regex;
 import org.elasticsearch.common.settings.ClusterSettings;
 import org.elasticsearch.common.settings.IndexScopedSettings;
@@ -639,8 +638,7 @@ public abstract class AbstractBuilderTestCase extends ESTestCase {
         }
 
         @Override
-        public void close() throws IOException {
-        }
+        public void close() throws IOException {}
 
         SearchExecutionContext createShardContext(IndexSearcher searcher) {
             return new SearchExecutionContext(

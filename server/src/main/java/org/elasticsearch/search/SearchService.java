@@ -344,7 +344,6 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
 
     private final BigArrays bigArrays;
 
-
     private final FetchPhase fetchPhase;
     private final CircuitBreaker circuitBreaker;
     private final CircuitBreaker queryConstructionCircuitBreaker;

@@ -330,8 +330,13 @@ public class FuzzyQueryBuilderTests extends AbstractQueryTestCase<FuzzyQueryBuil
             long queryMemory = queryAccountable.ramBytesUsed();
             if (queryMemory > 0) {
                 assertTrue(
-                    "Circuit breaker should account for fuzzy query memory. Before: " + before +
-                        ", After: " + after + ", Query memory: " + queryMemory, after >= before
+                    "Circuit breaker should account for fuzzy query memory. Before: "
+                        + before
+                        + ", After: "
+                        + after
+                        + ", Query memory: "
+                        + queryMemory,
+                    after >= before
                 );
             }
         }
