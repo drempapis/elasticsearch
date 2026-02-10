@@ -20,8 +20,11 @@ import org.elasticsearch.action.ActionListener;
 import org.elasticsearch.action.OriginalIndices;
 import org.elasticsearch.action.search.SearchRequest;
 import org.elasticsearch.cluster.metadata.IndexMetadata;
+import org.elasticsearch.common.breaker.CircuitBreaker;
+import org.elasticsearch.common.breaker.CircuitBreakingException;
 import org.elasticsearch.common.component.Lifecycle;
 import org.elasticsearch.common.regex.Regex;
+import org.elasticsearch.common.settings.ClusterSettings;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.util.BigArrays;
 import org.elasticsearch.index.IndexMode;
@@ -42,15 +45,21 @@ import org.elasticsearch.index.mapper.MappingLookup;
 import org.elasticsearch.index.mapper.MetadataFieldMapper;
 import org.elasticsearch.index.mapper.ObjectMapper;
 import org.elasticsearch.index.mapper.RootObjectMapper;
+import org.elasticsearch.index.query.BoolQueryBuilder;
 import org.elasticsearch.index.query.MatchAllQueryBuilder;
 import org.elasticsearch.index.query.MatchNoneQueryBuilder;
+import org.elasticsearch.index.query.ParsedQuery;
 import org.elasticsearch.index.query.QueryRewriteContext;
+import org.elasticsearch.index.query.QueryShardException;
 import org.elasticsearch.index.query.RangeQueryBuilder;
 import org.elasticsearch.index.query.SearchExecutionContext;
 import org.elasticsearch.index.query.SearchExecutionContextHelper;
+import org.elasticsearch.index.query.WildcardQueryBuilder;
 import org.elasticsearch.index.shard.IndexShard;
 import org.elasticsearch.index.shard.IndexShardTestCase;
 import org.elasticsearch.index.shard.ShardId;
+import org.elasticsearch.indices.breaker.CircuitBreakerMetrics;
+import org.elasticsearch.indices.breaker.HierarchyCircuitBreakerService;
 import org.elasticsearch.script.ScriptCompiler;
 import org.elasticsearch.search.aggregations.support.ValuesSourceType;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
@@ -83,6 +92,8 @@ import static org.elasticsearch.common.util.concurrent.EsExecutors.DIRECT_EXECUT
 import static org.elasticsearch.search.SearchService.isExecutorQueuedBeyondPrewarmingFactor;
 import static org.elasticsearch.search.SearchService.wrapListenerForErrorHandling;
 import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.not;
 
 public class SearchServiceTests extends IndexShardTestCase {
@@ -387,6 +398,109 @@ public class SearchServiceTests extends IndexShardTestCase {
             // allowing prewarming
             assertThat(isExecutorQueuedBeyondPrewarmingFactor(DIRECT_EXECUTOR_SERVICE, 2), is(false));
         }
+    }
+
+    public void testBuildQueryWithCircuitBreakerAccountsMemory() throws IOException {
+        IndexShard indexShard = newShard(true);
+        try {
+            recoverShardFromStore(indexShard);
+            try (Engine.Searcher searcher = indexShard.acquireSearcher("test")) {
+                SearchExecutionContext context = createSearchExecutionContext(
+                    (mappedFieldType, fieldDataContext) -> null, searcher
+                );
+                CircuitBreaker cb = createQueryConstructionBreaker("100mb");
+                context.setQueryConstructionCircuitBreaker(cb);
+
+                long cbBefore = cb.getUsed();
+
+                WildcardQueryBuilder queryBuilder = new WildcardQueryBuilder("field", "*test*pattern*");
+                ParsedQuery result = SearchService.buildQueryWithCircuitBreaker(cb, context, queryBuilder, "main_query");
+
+                assertNotNull(result);
+                long cbAfter = cb.getUsed();
+                long tracked = context.getQueryConstructionMemoryUsed();
+
+                assertTrue("Circuit breaker should have accounted memory", cbAfter > cbBefore);
+                assertTrue("Context should have tracked memory", tracked > 0);
+                assertEquals("CB delta must match tracked memory", cbAfter - cbBefore, tracked);
+            }
+        } finally {
+            closeShards(indexShard);
+        }
+    }
+
+    public void testBuildQueryWithCircuitBreakerTripsOnLimitExceeded() throws IOException {
+        IndexShard indexShard = newShard(true);
+        try {
+            recoverShardFromStore(indexShard);
+            try (Engine.Searcher searcher = indexShard.acquireSearcher("test")) {
+                SearchExecutionContext context = createSearchExecutionContext(
+                    (mappedFieldType, fieldDataContext) -> null, searcher
+                );
+                CircuitBreaker cb = createQueryConstructionBreaker("1kb");
+                context.setQueryConstructionCircuitBreaker(cb);
+
+                BoolQueryBuilder boolQuery = new BoolQueryBuilder();
+                for (int i = 0; i < 50; i++) {
+                    boolQuery.should(new WildcardQueryBuilder("field", "*a*b*c*" + i + "*"));
+                }
+
+                QueryShardException e = expectThrows(
+                    QueryShardException.class,
+                    () -> SearchService.buildQueryWithCircuitBreaker(cb, context, boolQuery, "main_query")
+                );
+                assertThat(e.getCause(), instanceOf(CircuitBreakingException.class));
+                assertThat(e.getCause().getMessage(), containsString("Data too large"));
+            }
+        } finally {
+            closeShards(indexShard);
+        }
+    }
+
+    public void testQueryConstructionMemoryReleasedOnContextClose() throws IOException {
+        IndexShard indexShard = newShard(true);
+        try {
+            recoverShardFromStore(indexShard);
+            try (Engine.Searcher searcher = indexShard.acquireSearcher("test")) {
+                SearchExecutionContext context = createSearchExecutionContext(
+                    (mappedFieldType, fieldDataContext) -> null, searcher
+                );
+                CircuitBreaker cb = createQueryConstructionBreaker("100mb");
+                context.setQueryConstructionCircuitBreaker(cb);
+
+                for (int i = 0; i < 3; i++) {
+                    SearchService.buildQueryWithCircuitBreaker(
+                        cb, context, new WildcardQueryBuilder("field", "*test" + i + "*"), "query_" + i
+                    );
+                }
+
+                long cbAfterBuild = cb.getUsed();
+                long tracked = context.getQueryConstructionMemoryUsed();
+                assertTrue("Memory should be accounted before release", cbAfterBuild > 0);
+                assertEquals("Tracked memory should match CB", cbAfterBuild, tracked);
+
+                context.releaseQueryConstructionMemory();
+
+                assertEquals("CB must be fully released", 0L, cb.getUsed());
+                assertEquals("Tracked memory must be zeroed", 0L, context.getQueryConstructionMemoryUsed());
+            }
+        } finally {
+            closeShards(indexShard);
+        }
+    }
+
+    private CircuitBreaker createQueryConstructionBreaker(String limit) {
+        Settings settings = Settings.builder()
+            .put(HierarchyCircuitBreakerService.QUERY_CONSTRUCTION_CIRCUIT_BREAKER_LIMIT_SETTING.getKey(), limit)
+            .put(HierarchyCircuitBreakerService.USE_REAL_MEMORY_USAGE_SETTING.getKey(), false)
+            .build();
+        ClusterSettings clusterSettings = new ClusterSettings(settings, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS);
+        return new HierarchyCircuitBreakerService(
+            CircuitBreakerMetrics.NOOP,
+            settings,
+            Collections.emptyList(),
+            clusterSettings
+        ).getBreaker(CircuitBreaker.QUERY_CONSTRUCTION);
     }
 
     private SearchService.CanMatchContext doTestCanMatch(

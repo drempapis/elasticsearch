@@ -55,6 +55,7 @@ import org.elasticsearch.common.util.concurrent.EsExecutors;
 import org.elasticsearch.common.util.concurrent.EsRejectedExecutionException;
 import org.elasticsearch.core.Booleans;
 import org.elasticsearch.core.IOUtils;
+import org.elasticsearch.core.Nullable;
 import org.elasticsearch.core.RefCounted;
 import org.elasticsearch.core.Releasable;
 import org.elasticsearch.core.Releasables;
@@ -2422,11 +2423,20 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
         };
     }
 
+    private ParsedQuery buildQueryWithCircuitBreaker(
+        SearchExecutionContext searchExecutionContext,
+        QueryBuilder queryBuilder,
+        String component
+    ) {
+        return buildQueryWithCircuitBreaker(queryConstructionCircuitBreaker, searchExecutionContext, queryBuilder, component);
+    }
+
     /**
      * Builds a Lucene query from a QueryBuilder with circuit breaker protection.
      * Accounts for memory used during query construction, especially for automaton-based queries.
      */
-    private ParsedQuery buildQueryWithCircuitBreaker(
+    static ParsedQuery buildQueryWithCircuitBreaker(
+        @Nullable CircuitBreaker queryConstructionCircuitBreaker,
         SearchExecutionContext searchExecutionContext,
         QueryBuilder queryBuilder,
         String component
