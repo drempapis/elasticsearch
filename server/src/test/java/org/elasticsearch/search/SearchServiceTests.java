@@ -405,9 +405,7 @@ public class SearchServiceTests extends IndexShardTestCase {
         try {
             recoverShardFromStore(indexShard);
             try (Engine.Searcher searcher = indexShard.acquireSearcher("test")) {
-                SearchExecutionContext context = createSearchExecutionContext(
-                    (mappedFieldType, fieldDataContext) -> null, searcher
-                );
+                SearchExecutionContext context = createSearchExecutionContext((mappedFieldType, fieldDataContext) -> null, searcher);
                 CircuitBreaker cb = createQueryConstructionBreaker("100mb");
                 context.setQueryConstructionCircuitBreaker(cb);
 
@@ -434,9 +432,7 @@ public class SearchServiceTests extends IndexShardTestCase {
         try {
             recoverShardFromStore(indexShard);
             try (Engine.Searcher searcher = indexShard.acquireSearcher("test")) {
-                SearchExecutionContext context = createSearchExecutionContext(
-                    (mappedFieldType, fieldDataContext) -> null, searcher
-                );
+                SearchExecutionContext context = createSearchExecutionContext((mappedFieldType, fieldDataContext) -> null, searcher);
                 CircuitBreaker cb = createQueryConstructionBreaker("1kb");
                 context.setQueryConstructionCircuitBreaker(cb);
 
@@ -462,15 +458,16 @@ public class SearchServiceTests extends IndexShardTestCase {
         try {
             recoverShardFromStore(indexShard);
             try (Engine.Searcher searcher = indexShard.acquireSearcher("test")) {
-                SearchExecutionContext context = createSearchExecutionContext(
-                    (mappedFieldType, fieldDataContext) -> null, searcher
-                );
+                SearchExecutionContext context = createSearchExecutionContext((mappedFieldType, fieldDataContext) -> null, searcher);
                 CircuitBreaker cb = createQueryConstructionBreaker("100mb");
                 context.setQueryConstructionCircuitBreaker(cb);
 
                 for (int i = 0; i < 3; i++) {
                     SearchService.buildQueryWithCircuitBreaker(
-                        cb, context, new WildcardQueryBuilder("field", "*test" + i + "*"), "query_" + i
+                        cb,
+                        context,
+                        new WildcardQueryBuilder("field", "*test" + i + "*"),
+                        "query_" + i
                     );
                 }
 
@@ -495,12 +492,8 @@ public class SearchServiceTests extends IndexShardTestCase {
             .put(HierarchyCircuitBreakerService.USE_REAL_MEMORY_USAGE_SETTING.getKey(), false)
             .build();
         ClusterSettings clusterSettings = new ClusterSettings(settings, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS);
-        return new HierarchyCircuitBreakerService(
-            CircuitBreakerMetrics.NOOP,
-            settings,
-            Collections.emptyList(),
-            clusterSettings
-        ).getBreaker(CircuitBreaker.QUERY_CONSTRUCTION);
+        return new HierarchyCircuitBreakerService(CircuitBreakerMetrics.NOOP, settings, Collections.emptyList(), clusterSettings)
+            .getBreaker(CircuitBreaker.QUERY_CONSTRUCTION);
     }
 
     private SearchService.CanMatchContext doTestCanMatch(
