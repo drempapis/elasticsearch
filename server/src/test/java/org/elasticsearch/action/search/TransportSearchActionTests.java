@@ -1898,9 +1898,7 @@ public class TransportSearchActionTests extends ESTestCase {
 
         assertThat(iterators, hasSize(numberOfShards));
 
-        Optional<SearchShardIterator> missingNodeIterator = iterators.stream()
-            .filter(it -> it.shardId().id() == 0)
-            .findFirst();
+        Optional<SearchShardIterator> missingNodeIterator = iterators.stream().filter(it -> it.shardId().id() == 0).findFirst();
         assertTrue(missingNodeIterator.isPresent());
         assertThat(missingNodeIterator.get().getTargetNodeIds(), hasSize(0));
     }

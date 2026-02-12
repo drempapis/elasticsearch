@@ -91,8 +91,10 @@ public class SearchContextInvalidationIT extends ESIntegTestCase {
                 SearchContextMissingNodesException ex = (SearchContextMissingNodesException) cause;
                 assertThat(ex.status(), equalTo(RestStatus.NOT_FOUND));
                 assertThat(ex.getContextType(), equalTo("scroll"));
-                assertThat(ex.getMessage(), containsString( "Search context of type [" + ex.getContextType() + "]" +
-                    " references nodes that have left the cluster"));
+                assertThat(
+                    ex.getMessage(),
+                    containsString("Search context of type [" + ex.getContextType() + "]" + " references nodes that have left the cluster")
+                );
             }
         } finally {
             if (searchResponse != null) {
@@ -209,8 +211,10 @@ public class SearchContextInvalidationIT extends ESIntegTestCase {
             SearchContextMissingNodesException ex = (SearchContextMissingNodesException) cause;
             assertThat(ex.status(), equalTo(RestStatus.NOT_FOUND));
             assertThat(ex.getContextType(), equalTo("pit"));
-            assertThat(ex.getMessage(), containsString( "Search context of type [" + ex.getContextType()
-                + "] references nodes that have left the cluster"));
+            assertThat(
+                ex.getMessage(),
+                containsString("Search context of type [" + ex.getContextType() + "] references nodes that have left the cluster")
+            );
         }
     }
 

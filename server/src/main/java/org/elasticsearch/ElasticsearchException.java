@@ -15,10 +15,10 @@ import org.apache.lucene.index.IndexFormatTooOldException;
 import org.apache.lucene.store.AlreadyClosedException;
 import org.apache.lucene.store.LockObtainFailedException;
 import org.elasticsearch.action.bulk.IndexDocFailureStoreStatus;
+import org.elasticsearch.action.search.SearchContextMissingNodesException;
 import org.elasticsearch.action.support.replication.ReplicationOperation;
 import org.elasticsearch.action.support.replication.StaleRequestException;
 import org.elasticsearch.cluster.RemoteException;
-import org.elasticsearch.action.search.SearchContextMissingNodesException;
 import org.elasticsearch.cluster.action.shard.ShardStateAction;
 import org.elasticsearch.common.io.stream.NotSerializableExceptionWrapper;
 import org.elasticsearch.common.io.stream.StreamInput;
@@ -80,13 +80,13 @@ import java.util.stream.Collectors;
 import static java.util.Collections.emptyMap;
 import static java.util.Collections.singletonMap;
 import static java.util.Collections.unmodifiableMap;
+import static org.elasticsearch.action.search.SearchContextMissingNodesException.SEARCH_CONTEXT_MISSING_NODES_EXCEPTION_VERSION;
 import static org.elasticsearch.action.support.replication.ReplicationSplitHelper.STALE_REQUEST_EXCEPTION_VERSION;
 import static org.elasticsearch.cluster.metadata.IndexMetadata.INDEX_UUID_NA_VALUE;
 import static org.elasticsearch.cluster.metadata.MetadataCreateIndexService.INDEX_LIMIT_EXCEEDED_EXCEPTION_VERSION;
 import static org.elasticsearch.common.xcontent.XContentParserUtils.ensureExpectedToken;
 import static org.elasticsearch.common.xcontent.XContentParserUtils.ensureFieldName;
 import static org.elasticsearch.search.crossproject.CrossProjectIndexExpressionsRewriter.NO_MATCHING_PROJECT_EXCEPTION_VERSION;
-import static org.elasticsearch.action.search.SearchContextMissingNodesException.SEARCH_CONTEXT_MISSING_NODES_EXCEPTION_VERSION;
 
 /**
  * A base class for all elasticsearch exceptions.
@@ -2061,6 +2061,7 @@ public class ElasticsearchException extends RuntimeException implements ToXConte
             188,
             SEARCH_CONTEXT_MISSING_NODES_EXCEPTION_VERSION
         );
+
         final Class<? extends ElasticsearchException> exceptionClass;
         final CheckedFunction<StreamInput, ? extends ElasticsearchException, IOException> constructor;
         final int id;

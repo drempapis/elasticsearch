@@ -10,6 +10,7 @@
 package org.elasticsearch.action.search;
 
 import org.elasticsearch.ElasticsearchException;
+import org.elasticsearch.TransportVersion;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.rest.RestStatus;
@@ -17,7 +18,6 @@ import org.elasticsearch.xcontent.XContentBuilder;
 
 import java.io.IOException;
 import java.util.Set;
-import org.elasticsearch.TransportVersion;
 
 /**
  * Exception thrown when a search context references nodes that have left the cluster.
@@ -37,8 +37,9 @@ public class SearchContextMissingNodesException extends ElasticsearchException {
     /**
      * The transport version at which this exception type was introduced.
      */
-    public static TransportVersion SEARCH_CONTEXT_MISSING_NODES_EXCEPTION_VERSION =
-        TransportVersion.fromName("search-context-missing-nodes-exception");
+    public static TransportVersion SEARCH_CONTEXT_MISSING_NODES_EXCEPTION_VERSION = TransportVersion.fromName(
+        "search-context-missing-nodes-exception"
+    );
 
     private final Set<String> missingNodeIds;
     private final String contextType;
@@ -136,7 +137,10 @@ public class SearchContextMissingNodesException extends ElasticsearchException {
      * @return a formatted error message describing the exception
      */
     private static String buildMessage(String contextType, Set<String> missingNodeIds) {
-        return  "Search context of type [" + contextType + "] references nodes that have left the cluster: " + missingNodeIds
+        return "Search context of type ["
+            + contextType
+            + "] references nodes that have left the cluster: "
+            + missingNodeIds
             + ". Context type no longer valid.";
     }
 }
