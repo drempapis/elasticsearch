@@ -97,7 +97,6 @@ public class WildcardQueryBuilderTests extends AbstractQueryTestCase<WildcardQue
 
     public void testEmptyValue() throws IOException {
         SearchExecutionContext context = createSearchExecutionContext();
-        context.setQueryConstructionCircuitBreaker(createQueryConstructionCircuitBreaker("1mb"));
         context.setAllowUnmappedFields(true);
         WildcardQueryBuilder wildcardQueryBuilder = new WildcardQueryBuilder(TEXT_FIELD_NAME, "");
         assertEquals(wildcardQueryBuilder.toQuery(context).getClass(), WildcardQuery.class);
