@@ -45,7 +45,6 @@ import java.time.ZonedDateTime;
 import java.util.Collections;
 
 import static org.elasticsearch.index.query.QueryBuilders.rangeQuery;
-import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.not;
@@ -694,9 +693,7 @@ public class RangeQueryBuilderTests extends AbstractQueryTestCase<RangeQueryBuil
         context.setQueryConstructionCircuitBreaker(cb);
 
         long before = cb.getUsed();
-        RangeQueryBuilder rangeQuery = new RangeQueryBuilder(TEXT_FIELD_NAME)
-            .gte("aaa")
-            .lte("zzz");
+        RangeQueryBuilder rangeQuery = new RangeQueryBuilder(TEXT_FIELD_NAME).gte("aaa").lte("zzz");
         Query query = rangeQuery.toQuery(context);
         long after = cb.getUsed();
 
@@ -710,9 +707,7 @@ public class RangeQueryBuilderTests extends AbstractQueryTestCase<RangeQueryBuil
         CircuitBreaker cb = createQueryConstructionBreaker("1kb");  // Very low limit
         context.setQueryConstructionCircuitBreaker(cb);
 
-        RangeQueryBuilder rangeQuery = new RangeQueryBuilder(TEXT_FIELD_NAME)
-            .gte("a")
-            .lte("zzzzzzzzzzzzzzzzzzzz");
+        RangeQueryBuilder rangeQuery = new RangeQueryBuilder(TEXT_FIELD_NAME).gte("a").lte("zzzzzzzzzzzzzzzzzzzz");
 
         CircuitBreakingException exception = expectThrows(CircuitBreakingException.class, () -> rangeQuery.toQuery(context));
         assertTrue("Error should mention Data too large", exception.getMessage().contains("Data too large"));
