@@ -112,10 +112,7 @@ public class CircuitBreakerServiceIT extends ESIntegTestCase {
     }
 
     public void testMemoryBreaker() throws Exception {
-        if (noopBreakerUsed()) {
-            logger.info("--> noop breakers used, skipping test");
-            return;
-        }
+        assumeFalse("--> noop breakers used, skipping test", noopBreakerUsed());
         assertAcked(
             prepareCreate("cb-test", 1, Settings.builder().put(SETTING_NUMBER_OF_REPLICAS, between(0, 1))).setMapping(
                 "test",
@@ -161,10 +158,7 @@ public class CircuitBreakerServiceIT extends ESIntegTestCase {
     }
 
     public void testRamAccountingTermsEnum() throws Exception {
-        if (noopBreakerUsed()) {
-            logger.info("--> noop breakers used, skipping test");
-            return;
-        }
+        assumeFalse("--> noop breakers used, skipping test", noopBreakerUsed());
         final Client client = client();
 
         // Create an index where the mappings have a field data filter
@@ -227,10 +221,7 @@ public class CircuitBreakerServiceIT extends ESIntegTestCase {
     }
 
     public void testRequestBreaker() throws Exception {
-        if (noopBreakerUsed()) {
-            logger.info("--> noop breakers used, skipping test");
-            return;
-        }
+        assumeFalse("--> noop breakers used, skipping test", noopBreakerUsed());
         assertAcked(prepareCreate("cb-test", 1, Settings.builder().put(SETTING_NUMBER_OF_REPLICAS, between(0, 1))));
         Client client = client();
 
@@ -258,10 +249,7 @@ public class CircuitBreakerServiceIT extends ESIntegTestCase {
     }
 
     public void testAggTookTooMuch() throws Exception {
-        if (noopBreakerUsed()) {
-            logger.info("--> noop breakers used, skipping test");
-            return;
-        }
+        assumeFalse("--> noop breakers used, skipping test", noopBreakerUsed());
         assertAcked(prepareCreate("cb-test", 1, Settings.builder().put(SETTING_NUMBER_OF_REPLICAS, between(0, 1))));
         Client client = client();
 
@@ -309,10 +297,7 @@ public class CircuitBreakerServiceIT extends ESIntegTestCase {
     }
 
     public void testCanResetUnreasonableSettings() {
-        if (noopBreakerUsed()) {
-            logger.info("--> noop breakers used, skipping test");
-            return;
-        }
+        assumeFalse("--> noop breakers used, skipping test", noopBreakerUsed());
         updateClusterSettings(
             Settings.builder().put(HierarchyCircuitBreakerService.IN_FLIGHT_REQUESTS_CIRCUIT_BREAKER_LIMIT_SETTING.getKey(), "5b")
         );
@@ -335,10 +320,7 @@ public class CircuitBreakerServiceIT extends ESIntegTestCase {
 
     public void testLimitsRequestSize() {
         ByteSizeValue inFlightRequestsLimit = ByteSizeValue.of(8, ByteSizeUnit.KB);
-        if (noopBreakerUsed()) {
-            logger.info("--> noop breakers used, skipping test");
-            return;
-        }
+        assumeFalse("--> noop breakers used, skipping test", noopBreakerUsed());
 
         internalCluster().ensureAtLeastNumDataNodes(2);
 
@@ -421,10 +403,7 @@ public class CircuitBreakerServiceIT extends ESIntegTestCase {
     }
 
     public void testQueryConstructionCircuitBreaker() throws Exception {
-        if (noopBreakerUsed()) {
-            logger.info("--> noop breakers used, skipping test");
-            return;
-        }
+        assumeFalse("--> noop breakers used, skipping test", noopBreakerUsed());
 
         assertAcked(
             prepareCreate("cb-query-test", 1, Settings.builder().put(SETTING_NUMBER_OF_REPLICAS, between(0, 1))).setMapping(
