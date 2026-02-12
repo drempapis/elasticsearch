@@ -282,8 +282,6 @@ public class RegexpQueryBuilder extends AbstractQueryBuilder<RegexpQueryBuilder>
         int sanitisedSyntaxFlag = syntaxFlagsValue & (RegExp.ALL | deprecatedComplementFlag);
 
         CircuitBreaker cb = context.getQueryConstructionCircuitBreaker();
-        long beforeMemory = cb != null ? cb.getUsed() : 0L;
-
         MappedFieldType fieldType = context.getFieldType(fieldName);
         if (fieldType != null) {
             query = fieldType.regexpQuery(value, sanitisedSyntaxFlag, matchFlagsValue, maxDeterminizedStates, method, context);
@@ -306,12 +304,10 @@ public class RegexpQueryBuilder extends AbstractQueryBuilder<RegexpQueryBuilder>
                 );
         }
 
-        if (cb != null && query instanceof Accountable queryMemory) {
-            long memoryDelta = Math.max(0, queryMemory.ramBytesUsed() - (cb.getUsed() - beforeMemory));
-            if (memoryDelta > 0) {
-                cb.addEstimateBytesAndMaybeBreak(memoryDelta, "regexp:" + fieldName);
-                context.addQueryConstructionMemory(memoryDelta);
-            }
+        if (cb != null && query instanceof Accountable accountable) {
+            long queryMemory = accountable.ramBytesUsed();
+            cb.addEstimateBytesAndMaybeBreak(queryMemory, "regexp:" + fieldName);
+            context.addQueryConstructionMemory(queryMemory);
         }
         return query;
     }

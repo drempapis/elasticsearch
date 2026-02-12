@@ -11,9 +11,11 @@ package org.elasticsearch.index.query;
 
 import org.apache.lucene.search.Query;
 import org.apache.lucene.util.BytesRef;
+import org.apache.lucene.util.Accountable;
 import org.elasticsearch.TransportVersion;
 import org.elasticsearch.common.ParsingException;
 import org.elasticsearch.common.Strings;
+import org.elasticsearch.common.breaker.CircuitBreaker;
 import org.elasticsearch.common.geo.ShapeRelation;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
@@ -538,7 +540,16 @@ public class RangeQueryBuilder extends AbstractQueryBuilder<RangeQueryBuilder> i
             throw new IllegalStateException("Rewrite first");
         }
         DateMathParser forcedDateParser = getForceDateParser();
-        return mapper.rangeQuery(from, to, includeLower, includeUpper, relation, timeZone, forcedDateParser, context);
+
+        CircuitBreaker cb = context.getQueryConstructionCircuitBreaker();
+        Query query = mapper.rangeQuery(from, to, includeLower, includeUpper, relation, timeZone, forcedDateParser, context);
+
+        if (cb != null && query instanceof Accountable accountable) {
+            long queryMemory = accountable.ramBytesUsed();
+            cb.addEstimateBytesAndMaybeBreak(queryMemory, "range:" + fieldName);
+            context.addQueryConstructionMemory(queryMemory);
+        }
+        return query;
     }
 
     @Override

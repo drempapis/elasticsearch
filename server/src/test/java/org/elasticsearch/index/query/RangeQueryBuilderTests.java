@@ -19,24 +19,33 @@ import org.apache.lucene.search.PointRangeQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.search.TermRangeQuery;
+import org.apache.lucene.util.Accountable;
 import org.elasticsearch.ElasticsearchParseException;
 import org.elasticsearch.common.ParsingException;
+import org.elasticsearch.common.breaker.CircuitBreaker;
+import org.elasticsearch.common.breaker.CircuitBreakingException;
 import org.elasticsearch.common.geo.ShapeRelation;
 import org.elasticsearch.common.lucene.BytesRefs;
 import org.elasticsearch.common.lucene.search.Queries;
+import org.elasticsearch.common.settings.ClusterSettings;
+import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.core.Strings;
 import org.elasticsearch.index.mapper.DateFieldMapper;
 import org.elasticsearch.index.mapper.FieldNamesFieldMapper;
 import org.elasticsearch.index.mapper.MappedFieldType;
 import org.elasticsearch.index.mapper.MappedFieldType.Relation;
+import org.elasticsearch.indices.breaker.CircuitBreakerMetrics;
+import org.elasticsearch.indices.breaker.HierarchyCircuitBreakerService;
 import org.elasticsearch.test.AbstractQueryTestCase;
 
 import java.io.IOException;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
+import java.util.Collections;
 
 import static org.elasticsearch.index.query.QueryBuilders.rangeQuery;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.not;
@@ -677,5 +686,47 @@ public class RangeQueryBuilderTests extends AbstractQueryTestCase<RangeQueryBuil
         rewriteQuery = rewriteQuery(queryBuilder, new SearchExecutionContext(context));
         assertNotNull(rewriteQuery.toQuery(context));
         assertFalse("query should not be cacheable: " + queryBuilder.toString(), context.isCacheable());
+    }
+
+    public void testRangeQueryCircuitBreakerAccountingTextFields() throws Exception {
+        SearchExecutionContext context = createSearchExecutionContext();
+        CircuitBreaker cb = createQueryConstructionBreaker("100mb");
+        context.setQueryConstructionCircuitBreaker(cb);
+
+        long before = cb.getUsed();
+        RangeQueryBuilder rangeQuery = new RangeQueryBuilder(TEXT_FIELD_NAME)
+            .gte("aaa")
+            .lte("zzz");
+        Query query = rangeQuery.toQuery(context);
+        long after = cb.getUsed();
+
+        long queryMemory = ((Accountable) query).ramBytesUsed();
+        assertTrue("Circuit breaker should account for regexp query memory", after >= before);
+        assertBusy(() -> assertEquals("QueryMemory should be equal to delta", queryMemory, after - before));
+    }
+
+    public void testRangeQueryCircuitBreakerTripsOnLargeTextRange() throws IOException {
+        SearchExecutionContext context = createSearchExecutionContext();
+        CircuitBreaker cb = createQueryConstructionBreaker("1kb");  // Very low limit
+        context.setQueryConstructionCircuitBreaker(cb);
+
+        RangeQueryBuilder rangeQuery = new RangeQueryBuilder(TEXT_FIELD_NAME)
+            .gte("a")
+            .lte("zzzzzzzzzzzzzzzzzzzz");
+
+        CircuitBreakingException exception = expectThrows(CircuitBreakingException.class, () -> rangeQuery.toQuery(context));
+        assertTrue("Error should mention Data too large", exception.getMessage().contains("Data too large"));
+    }
+
+    private CircuitBreaker createQueryConstructionBreaker(String limit) {
+        return new HierarchyCircuitBreakerService(
+            CircuitBreakerMetrics.NOOP,
+            Settings.builder()
+                .put(HierarchyCircuitBreakerService.QUERY_CONSTRUCTION_CIRCUIT_BREAKER_LIMIT_SETTING.getKey(), limit)
+                .put(HierarchyCircuitBreakerService.USE_REAL_MEMORY_USAGE_SETTING.getKey(), false)
+                .build(),
+            Collections.emptyList(),
+            new ClusterSettings(Settings.EMPTY, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS)
+        ).getBreaker(CircuitBreaker.QUERY_CONSTRUCTION);
     }
 }

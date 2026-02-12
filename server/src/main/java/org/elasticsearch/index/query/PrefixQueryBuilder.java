@@ -239,20 +239,16 @@ public class PrefixQueryBuilder extends AbstractQueryBuilder<PrefixQueryBuilder>
         MultiTermQuery.RewriteMethod method = QueryParsers.parseRewriteMethod(rewrite, null, LoggingDeprecationHandler.INSTANCE);
 
         CircuitBreaker cb = context.getQueryConstructionCircuitBreaker();
-        long beforeMemory = cb != null ? cb.getUsed() : 0L;
-
         MappedFieldType fieldType = context.getFieldType(fieldName);
         if (fieldType == null) {
             throw new IllegalStateException("Rewrite first");
         }
         Query query = fieldType.prefixQuery(value, method, caseInsensitive, context);
 
-        if (cb != null && query instanceof Accountable queryMemory) {
-            long memoryDelta = Math.max(0, queryMemory.ramBytesUsed() - (cb.getUsed() - beforeMemory));
-            if (memoryDelta > 0) {
-                cb.addEstimateBytesAndMaybeBreak(memoryDelta, "prefix:" + fieldName);
-                context.addQueryConstructionMemory(memoryDelta);
-            }
+        if (cb != null && query instanceof Accountable accountable) {
+            long queryMemory = accountable.ramBytesUsed();
+            cb.addEstimateBytesAndMaybeBreak(queryMemory, "prefix:" + fieldName);
+            context.addQueryConstructionMemory(queryMemory);
         }
         return query;
     }

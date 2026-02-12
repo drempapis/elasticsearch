@@ -274,8 +274,6 @@ public class FuzzyQueryBuilder extends AbstractQueryBuilder<FuzzyQueryBuilder> i
         String rewrite = this.rewrite;
 
         CircuitBreaker cb = context.getQueryConstructionCircuitBreaker();
-        long beforeMemory = cb != null ? cb.getUsed() : 0L;
-
         Query query = fieldType.fuzzyQuery(
             value,
             fuzziness,
@@ -286,13 +284,12 @@ public class FuzzyQueryBuilder extends AbstractQueryBuilder<FuzzyQueryBuilder> i
             QueryParsers.parseRewriteMethod(rewrite, null, LoggingDeprecationHandler.INSTANCE)
         );
 
-        if (cb != null && query instanceof Accountable queryMemory) {
-            long memoryDelta = Math.max(0, queryMemory.ramBytesUsed() - (cb.getUsed() - beforeMemory));
-            if (memoryDelta > 0) {
-                cb.addEstimateBytesAndMaybeBreak(memoryDelta, "fuzzy:" + fieldName);
-                context.addQueryConstructionMemory(memoryDelta);
-            }
+        if (cb != null && query instanceof Accountable accountable) {
+            long queryMemory = accountable.ramBytesUsed();
+            cb.addEstimateBytesAndMaybeBreak(queryMemory, "fuzzy:" + fieldName);
+            context.addQueryConstructionMemory(queryMemory);
         }
+
         return query;
     }
 

@@ -280,16 +280,12 @@ public class WildcardQueryBuilder extends AbstractQueryBuilder<WildcardQueryBuil
         MultiTermQuery.RewriteMethod method = QueryParsers.parseRewriteMethod(rewrite, null, LoggingDeprecationHandler.INSTANCE);
 
         CircuitBreaker cb = context.getQueryConstructionCircuitBreaker();
-        long beforeMemory = cb != null ? cb.getUsed() : 0L;
-
         Query query = fieldType.wildcardQuery(value, method, caseInsensitive, context);
 
-        if (cb != null && query instanceof Accountable queryMemory) {
-            long memoryDelta = Math.max(0, queryMemory.ramBytesUsed() - (cb.getUsed() - beforeMemory));
-            if (memoryDelta > 0) {
-                cb.addEstimateBytesAndMaybeBreak(memoryDelta, "wildcard:" + fieldName);
-                context.addQueryConstructionMemory(memoryDelta);
-            }
+        if (cb != null && query instanceof Accountable accountable) {
+            long queryMemory = accountable.ramBytesUsed();
+            cb.addEstimateBytesAndMaybeBreak(queryMemory, "wildcard:" + fieldName);
+            context.addQueryConstructionMemory(queryMemory);
         }
         return query;
     }
