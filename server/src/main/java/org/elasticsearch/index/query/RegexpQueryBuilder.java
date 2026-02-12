@@ -19,7 +19,6 @@ import org.apache.lucene.util.automaton.RegExp;
 import org.elasticsearch.TransportVersion;
 import org.elasticsearch.common.ParsingException;
 import org.elasticsearch.common.Strings;
-import org.elasticsearch.common.breaker.CircuitBreaker;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.lucene.BytesRefs;
@@ -281,7 +280,6 @@ public class RegexpQueryBuilder extends AbstractQueryBuilder<RegexpQueryBuilder>
         int deprecatedComplementFlag = syntaxFlagsValue & RegExp.DEPRECATED_COMPLEMENT;
         int sanitisedSyntaxFlag = syntaxFlagsValue & (RegExp.ALL | deprecatedComplementFlag);
 
-        CircuitBreaker cb = context.getQueryConstructionCircuitBreaker();
         MappedFieldType fieldType = context.getFieldType(fieldName);
         if (fieldType != null) {
             query = fieldType.regexpQuery(value, sanitisedSyntaxFlag, matchFlagsValue, maxDeterminizedStates, method, context);
@@ -304,10 +302,8 @@ public class RegexpQueryBuilder extends AbstractQueryBuilder<RegexpQueryBuilder>
                 );
         }
 
-        if (cb != null && query instanceof Accountable accountable) {
-            long queryMemory = accountable.ramBytesUsed();
-            cb.addEstimateBytesAndMaybeBreak(queryMemory, "regexp:" + fieldName);
-            context.addQueryConstructionMemory(queryMemory);
+        if (query instanceof Accountable accountable) {
+            context.addQueryConstructionMemory(accountable.ramBytesUsed(), "regexp:" + fieldName);
         }
         return query;
     }

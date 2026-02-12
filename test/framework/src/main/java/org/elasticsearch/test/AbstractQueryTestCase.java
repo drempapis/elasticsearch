@@ -470,6 +470,7 @@ public abstract class AbstractQueryTestCase<QB extends AbstractQueryBuilder<QB>>
         for (int runs = 0; runs < NUMBER_OF_TESTQUERIES; runs++) {
             try (IndexReaderManager irm = getIndexReaderManager()) {
                 SearchExecutionContext context = createSearchExecutionContext(irm.getIndexSearcher());
+                context.setQueryConstructionCircuitBreaker(createQueryConstructionCircuitBreaker("1mb"));
                 assert context.isCacheable();
                 context.setAllowUnmappedFields(true);
                 QB firstQuery = createTestQueryBuilder();
@@ -511,6 +512,7 @@ public abstract class AbstractQueryTestCase<QB extends AbstractQueryBuilder<QB>>
                     );
                 }
                 context = new SearchExecutionContext(context);
+                context.setQueryConstructionCircuitBreaker(createQueryConstructionCircuitBreaker("1mb"));
                 Query secondLuceneQuery = rewriteQuery(secondQuery, createQueryRewriteContext(), new SearchExecutionContext(context))
                     .toQuery(context);
                 assertNotNull("toQuery should not return null", secondLuceneQuery);
@@ -950,6 +952,7 @@ public abstract class AbstractQueryTestCase<QB extends AbstractQueryBuilder<QB>>
         QB queryBuilder = createTestQueryBuilder();
         try (IndexReaderManager irm = getIndexReaderManager()) {
             SearchExecutionContext context = createSearchExecutionContext(irm.getIndexSearcher());
+            context.setQueryConstructionCircuitBreaker(createQueryConstructionCircuitBreaker("1mb"));
             QueryBuilder rewriteQuery = rewriteQuery(queryBuilder, createQueryRewriteContext(), new SearchExecutionContext(context));
             assertNotNull(rewriteQuery.toQuery(context));
             assertTrue("query should be cacheable: " + queryBuilder.toString(), context.isCacheable());

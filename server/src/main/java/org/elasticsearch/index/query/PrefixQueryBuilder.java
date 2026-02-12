@@ -17,7 +17,6 @@ import org.apache.lucene.util.Accountable;
 import org.elasticsearch.TransportVersion;
 import org.elasticsearch.common.ParsingException;
 import org.elasticsearch.common.Strings;
-import org.elasticsearch.common.breaker.CircuitBreaker;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.xcontent.LoggingDeprecationHandler;
@@ -238,17 +237,14 @@ public class PrefixQueryBuilder extends AbstractQueryBuilder<PrefixQueryBuilder>
         }
         MultiTermQuery.RewriteMethod method = QueryParsers.parseRewriteMethod(rewrite, null, LoggingDeprecationHandler.INSTANCE);
 
-        CircuitBreaker cb = context.getQueryConstructionCircuitBreaker();
         MappedFieldType fieldType = context.getFieldType(fieldName);
         if (fieldType == null) {
             throw new IllegalStateException("Rewrite first");
         }
         Query query = fieldType.prefixQuery(value, method, caseInsensitive, context);
 
-        if (cb != null && query instanceof Accountable accountable) {
-            long queryMemory = accountable.ramBytesUsed();
-            cb.addEstimateBytesAndMaybeBreak(queryMemory, "prefix:" + fieldName);
-            context.addQueryConstructionMemory(queryMemory);
+        if (query instanceof Accountable accountable) {
+            context.addQueryConstructionMemory(accountable.ramBytesUsed(), "prefix:" + fieldName);
         }
         return query;
     }

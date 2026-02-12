@@ -17,7 +17,6 @@ import org.apache.lucene.util.Accountable;
 import org.elasticsearch.TransportVersion;
 import org.elasticsearch.common.ParsingException;
 import org.elasticsearch.common.Strings;
-import org.elasticsearch.common.breaker.CircuitBreaker;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.xcontent.LoggingDeprecationHandler;
@@ -278,14 +277,10 @@ public class WildcardQueryBuilder extends AbstractQueryBuilder<WildcardQueryBuil
         }
 
         MultiTermQuery.RewriteMethod method = QueryParsers.parseRewriteMethod(rewrite, null, LoggingDeprecationHandler.INSTANCE);
-
-        CircuitBreaker cb = context.getQueryConstructionCircuitBreaker();
         Query query = fieldType.wildcardQuery(value, method, caseInsensitive, context);
 
-        if (cb != null && query instanceof Accountable accountable) {
-            long queryMemory = accountable.ramBytesUsed();
-            cb.addEstimateBytesAndMaybeBreak(queryMemory, "wildcard:" + fieldName);
-            context.addQueryConstructionMemory(queryMemory);
+        if (query instanceof Accountable accountable) {
+            context.addQueryConstructionMemory(accountable.ramBytesUsed(), "wildcard:" + fieldName);
         }
         return query;
     }

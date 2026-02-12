@@ -2445,20 +2445,11 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
             return searchExecutionContext.toQuery(queryBuilder);
         }
 
-        long startMemory = queryConstructionCircuitBreaker.getUsed();
         ParsedQuery parsedQuery = searchExecutionContext.toQuery(queryBuilder);
         Query query = parsedQuery.query();
 
         if (query instanceof Accountable accountableQuery) {
-            long queryMemory = accountableQuery.ramBytesUsed();
-            long currentUsed = queryConstructionCircuitBreaker.getUsed();
-            long alreadyAccounted = currentUsed - startMemory;
-            long memoryDelta = Math.max(0, queryMemory - alreadyAccounted);
-
-            if (memoryDelta > 0) {
-                queryConstructionCircuitBreaker.addEstimateBytesAndMaybeBreak(memoryDelta, component);
-                searchExecutionContext.addQueryConstructionMemory(memoryDelta);
-            }
+            searchExecutionContext.addQueryConstructionMemory(accountableQuery.ramBytesUsed(), component);
         }
         return parsedQuery;
     }

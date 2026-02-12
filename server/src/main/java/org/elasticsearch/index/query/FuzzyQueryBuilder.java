@@ -15,7 +15,6 @@ import org.apache.lucene.util.Accountable;
 import org.elasticsearch.TransportVersion;
 import org.elasticsearch.common.ParsingException;
 import org.elasticsearch.common.Strings;
-import org.elasticsearch.common.breaker.CircuitBreaker;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.unit.Fuzziness;
@@ -273,7 +272,6 @@ public class FuzzyQueryBuilder extends AbstractQueryBuilder<FuzzyQueryBuilder> i
         }
         String rewrite = this.rewrite;
 
-        CircuitBreaker cb = context.getQueryConstructionCircuitBreaker();
         Query query = fieldType.fuzzyQuery(
             value,
             fuzziness,
@@ -284,12 +282,9 @@ public class FuzzyQueryBuilder extends AbstractQueryBuilder<FuzzyQueryBuilder> i
             QueryParsers.parseRewriteMethod(rewrite, null, LoggingDeprecationHandler.INSTANCE)
         );
 
-        if (cb != null && query instanceof Accountable accountable) {
-            long queryMemory = accountable.ramBytesUsed();
-            cb.addEstimateBytesAndMaybeBreak(queryMemory, "fuzzy:" + fieldName);
-            context.addQueryConstructionMemory(queryMemory);
+        if (query instanceof Accountable accountable) {
+            context.addQueryConstructionMemory(accountable.ramBytesUsed(), "fuzzy:" + fieldName);
         }
-
         return query;
     }
 

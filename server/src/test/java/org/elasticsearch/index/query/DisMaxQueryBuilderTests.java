@@ -95,7 +95,9 @@ public class DisMaxQueryBuilderTests extends AbstractQueryTestCase<DisMaxQueryBu
                 ]
               }
             }""", TEXT_FIELD_NAME);
-        Query query = parseQuery(queryAsString).toQuery(createSearchExecutionContext());
+        SearchExecutionContext context = createSearchExecutionContext();
+        context.setQueryConstructionCircuitBreaker(createQueryConstructionCircuitBreaker());
+        Query query = parseQuery(queryAsString).toQuery(context);
         Query expected = new DisjunctionMaxQuery(List.of(new BoostQuery(new PrefixQuery(new Term(TEXT_FIELD_NAME, "sh")), 1.2f)), 0);
         assertEquals(expected, query);
     }

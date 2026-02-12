@@ -731,16 +731,10 @@ public class SearchExecutionContext extends QueryRewriteContext {
     }
 
     /**
-     * Get the circuit breaker for query construction memory accounting
-     */
-    public CircuitBreaker getQueryConstructionCircuitBreaker() {
-        return queryConstructionCircuitBreaker;
-    }
-
-    /**
      * Add to query construction memory.
      */
-    public void addQueryConstructionMemory(long bytes) {
+    public void addQueryConstructionMemory(long bytes, String label) {
+        queryConstructionCircuitBreaker.addEstimateBytesAndMaybeBreak(bytes, label);
         queryConstructionMemoryUsed.addAndGet(bytes);
     }
 
