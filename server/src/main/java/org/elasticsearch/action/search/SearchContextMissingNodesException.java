@@ -1,0 +1,142 @@
+/*
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the "Elastic License
+ * 2.0", the "GNU Affero General Public License v3.0 only", and the "Server Side
+ * Public License v 1"; you may not use this file except in compliance with, at
+ * your election, the "Elastic License 2.0", the "GNU Affero General Public
+ * License v3.0 only", or the "Server Side Public License, v 1".
+ */
+
+package org.elasticsearch.action.search;
+
+import org.elasticsearch.ElasticsearchException;
+import org.elasticsearch.common.io.stream.StreamInput;
+import org.elasticsearch.common.io.stream.StreamOutput;
+import org.elasticsearch.rest.RestStatus;
+import org.elasticsearch.xcontent.XContentBuilder;
+
+import java.io.IOException;
+import java.util.Set;
+import org.elasticsearch.TransportVersion;
+
+/**
+ * Exception thrown when a search context references nodes that have left the cluster.
+ * <p>
+ * This exception indicates that a previously created search context is no longer valid
+ * because one or more of the nodes it depends on have left the cluster. This typically
+ * occurs when a client tries to fetch additional pages of search results after some nodes
+ * have become unavailable. The exception provides details about the missing nodes and
+ * the context that is no longer valid.
+ * </p>
+ * <p>
+ * The exception is returned with HTTP status 404 (NOT_FOUND) when serialized to REST responses.
+ * </p>
+ */
+public class SearchContextMissingNodesException extends ElasticsearchException {
+
+    /**
+     * The transport version at which this exception type was introduced.
+     */
+    public static TransportVersion SEARCH_CONTEXT_MISSING_NODES_EXCEPTION_VERSION =
+        TransportVersion.fromName("search-context-missing-nodes-exception");
+
+    private final Set<String> missingNodeIds;
+    private final String contextType;
+
+    /**
+     * Constructs a new SearchContextMissingNodesException.
+     *
+     * @param contextType the type of search context (e.g., "pit", "scroll")
+     * @param missingNodeIds the set of node IDs that have left the cluster
+     */
+    public SearchContextMissingNodesException(String contextType, Set<String> missingNodeIds) {
+        super(buildMessage(contextType, missingNodeIds));
+        this.contextType = contextType;
+        this.missingNodeIds = Set.copyOf(missingNodeIds);
+    }
+
+    /**
+     * Constructs a new SearchContextMissingNodesException from a StreamInput.
+     * Used for deserialization during transport communication between nodes.
+     *
+     * @param in the input stream to read from
+     * @throws IOException if an I/O error occurs while reading from the stream
+     */
+    public SearchContextMissingNodesException(StreamInput in) throws IOException {
+        super(in);
+        this.contextType = in.readString();
+        this.missingNodeIds = in.readCollectionAsImmutableSet(StreamInput::readString);
+    }
+
+    /**
+     * Serializes this exception to a StreamOutput.
+     * Used for transport communication between nodes.
+     *
+     * @param out the output stream to write to
+     * @throws IOException if an I/O error occurs while writing to the stream
+     */
+    @Override
+    public void writeTo(StreamOutput out) throws IOException {
+        super.writeTo(out);
+        out.writeString(contextType);
+        out.writeStringCollection(missingNodeIds);
+    }
+
+    /**
+     * Returns the HTTP status code for this exception.
+     *
+     * @return {@link RestStatus#NOT_FOUND} to indicate the search context is not found
+     */
+    @Override
+    public RestStatus status() {
+        return RestStatus.NOT_FOUND;
+    }
+
+    /**
+     * Serializes the exception metadata to XContent format.
+     * Adds context type and list of missing node IDs to the JSON output.
+     *
+     * @param builder the XContent builder to write to
+     * @param params additional parameters for serialization
+     * @throws IOException if an I/O error occurs while writing
+     */
+    @Override
+    protected void metadataToXContent(XContentBuilder builder, Params params) throws IOException {
+        builder.field("context_type", contextType);
+        builder.startArray("missing_nodes");
+        for (String nodeId : missingNodeIds) {
+            builder.value(nodeId);
+        }
+        builder.endArray();
+    }
+
+    /**
+     * Returns the set of node IDs that have left the cluster.
+     *
+     * @return an immutable set of node IDs
+     */
+    public Set<String> getMissingNodeIds() {
+        return missingNodeIds;
+    }
+
+    /**
+     * Returns the type of search context that is no longer valid.
+     *
+     * @return the context type (e.g., "pit", "scroll")
+     */
+    public String getContextType() {
+        return contextType;
+    }
+
+    /**
+     * Builds the exception message from the context information.
+     *
+     * @param contextType the type of search context
+     * @param missingNodeIds the set of node IDs that have left the cluster
+     * @return a formatted error message describing the exception
+     */
+    private static String buildMessage(String contextType, Set<String> missingNodeIds) {
+        return  "Search context of type [" + contextType + "] references nodes that have left the cluster: " + missingNodeIds
+            + ". Context type no longer valid.";
+    }
+}

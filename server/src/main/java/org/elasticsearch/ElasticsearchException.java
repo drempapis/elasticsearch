@@ -18,6 +18,7 @@ import org.elasticsearch.action.bulk.IndexDocFailureStoreStatus;
 import org.elasticsearch.action.support.replication.ReplicationOperation;
 import org.elasticsearch.action.support.replication.StaleRequestException;
 import org.elasticsearch.cluster.RemoteException;
+import org.elasticsearch.action.search.SearchContextMissingNodesException;
 import org.elasticsearch.cluster.action.shard.ShardStateAction;
 import org.elasticsearch.common.io.stream.NotSerializableExceptionWrapper;
 import org.elasticsearch.common.io.stream.StreamInput;
@@ -85,6 +86,7 @@ import static org.elasticsearch.cluster.metadata.MetadataCreateIndexService.INDE
 import static org.elasticsearch.common.xcontent.XContentParserUtils.ensureExpectedToken;
 import static org.elasticsearch.common.xcontent.XContentParserUtils.ensureFieldName;
 import static org.elasticsearch.search.crossproject.CrossProjectIndexExpressionsRewriter.NO_MATCHING_PROJECT_EXCEPTION_VERSION;
+import static org.elasticsearch.action.search.SearchContextMissingNodesException.SEARCH_CONTEXT_MISSING_NODES_EXCEPTION_VERSION;
 
 /**
  * A base class for all elasticsearch exceptions.
@@ -372,7 +374,7 @@ public class ElasticsearchException extends RuntimeException implements ToXConte
     }
 
     @Override
-    public final void writeTo(StreamOutput out) throws IOException {
+    public void writeTo(StreamOutput out) throws IOException {
         writeTo(out, createNestingFunction(0, () -> {}));
     }
 
@@ -2052,8 +2054,13 @@ public class ElasticsearchException extends RuntimeException implements ToXConte
             186,
             INDEX_LIMIT_EXCEEDED_EXCEPTION_VERSION
         ),
-        STALE_REQUEST_EXCEPTION(StaleRequestException.class, StaleRequestException::new, 187, STALE_REQUEST_EXCEPTION_VERSION);
-
+        STALE_REQUEST_EXCEPTION(StaleRequestException.class, StaleRequestException::new, 187, STALE_REQUEST_EXCEPTION_VERSION),
+        SEARCH_CONTEXT_MISSING_NODES_EXCEPTION(
+            SearchContextMissingNodesException.class,
+            SearchContextMissingNodesException::new,
+            188,
+            SEARCH_CONTEXT_MISSING_NODES_EXCEPTION_VERSION
+        );
         final Class<? extends ElasticsearchException> exceptionClass;
         final CheckedFunction<StreamInput, ? extends ElasticsearchException, IOException> constructor;
         final int id;
