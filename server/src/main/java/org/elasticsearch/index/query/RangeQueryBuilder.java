@@ -10,8 +10,8 @@
 package org.elasticsearch.index.query;
 
 import org.apache.lucene.search.Query;
-import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.Accountable;
+import org.apache.lucene.util.BytesRef;
 import org.elasticsearch.TransportVersion;
 import org.elasticsearch.common.ParsingException;
 import org.elasticsearch.common.Strings;
