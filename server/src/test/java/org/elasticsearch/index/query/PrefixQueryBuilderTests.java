@@ -93,7 +93,7 @@ public class PrefixQueryBuilderTests extends AbstractQueryTestCase<PrefixQueryBu
     public void testBlendedRewriteMethod() throws IOException {
         String rewrite = "top_terms_blended_freqs_10";
         SearchExecutionContext context = createSearchExecutionContext();
-        context.setQueryConstructionCircuitBreaker(createCircuitBreakerService());
+        context.setCircuitBreaker(createCircuitBreakerService());
         Query parsedQuery = parseQuery(prefixQuery(TEXT_FIELD_NAME, "val").rewrite(rewrite)).toQuery(context);
         assertThat(parsedQuery, instanceOf(PrefixQuery.class));
         PrefixQuery prefixQuery = (PrefixQuery) parsedQuery;
@@ -218,7 +218,7 @@ public class PrefixQueryBuilderTests extends AbstractQueryTestCase<PrefixQueryBu
     public void testPrefixQueryCircuitBreakerAccounting() throws Exception {
         SearchExecutionContext context = createSearchExecutionContext();
         CircuitBreaker cb = createCircuitBreakerService();
-        context.setQueryConstructionCircuitBreaker(cb);
+        context.setCircuitBreaker(cb);
 
         long before = cb.getUsed();
         PrefixQueryBuilder queryBuilder = new PrefixQueryBuilder(TEXT_FIELD_NAME, "test");
@@ -234,7 +234,7 @@ public class PrefixQueryBuilderTests extends AbstractQueryTestCase<PrefixQueryBu
     public void testPrefixCircuitBreakerTripsWithLowLimit() {
         SearchExecutionContext context = createSearchExecutionContext();
         CircuitBreaker cb = createCircuitBreakerService("500kb"); // Low limit
-        context.setQueryConstructionCircuitBreaker(cb);
+        context.setCircuitBreaker(cb);
 
         BoolQueryBuilder boolQuery = new BoolQueryBuilder();
         for (int i = 0; i < 100; i++) {

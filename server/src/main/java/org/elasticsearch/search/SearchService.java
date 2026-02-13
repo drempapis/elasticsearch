@@ -1544,7 +1544,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
             // might end up with incorrect state since we are using now() or script services
             // during rewrite and normalized / evaluate templates etc.
             SearchExecutionContext context = new SearchExecutionContext(searchContext.getSearchExecutionContext());
-            context.setQueryConstructionCircuitBreaker(circuitBreaker);
+            context.setCircuitBreaker(circuitBreaker);
 
             try {
                 Rewriteable.rewrite(request.getRewriteable(), context, true);
@@ -1561,7 +1561,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
                 searchContext.getSearchExecutionContext().setTimeRangeFilterFromMillis(context.getTimeRangeFilterFromMillis());
             }
 
-            searchContext.getSearchExecutionContext().setQueryConstructionCircuitBreaker(circuitBreaker);
+            searchContext.getSearchExecutionContext().setCircuitBreaker(circuitBreaker);
             assert searchContext.getSearchExecutionContext().isCacheable();
             success = true;
         } finally {

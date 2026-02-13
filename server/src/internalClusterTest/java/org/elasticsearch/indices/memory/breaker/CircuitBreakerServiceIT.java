@@ -402,7 +402,7 @@ public class CircuitBreakerServiceIT extends ESIntegTestCase {
         updateClusterSettings(Settings.builder().putNull(totalCircuitBreakerLimitSettingKey).putNull(useRealMemoryUsageSetting));
     }
 
-    public void testQueryConstructionCircuitBreaker() {
+    public void testCircuitBreakerDuringQueryConstruction() {
         assumeFalse("--> noop breakers used, skipping test", noopBreakerUsed());
 
         assertAcked(

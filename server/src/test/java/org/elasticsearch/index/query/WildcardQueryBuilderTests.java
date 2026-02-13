@@ -208,7 +208,7 @@ public class WildcardQueryBuilderTests extends AbstractQueryTestCase<WildcardQue
     public void testWildcardQueryCircuitBreakerAccounting() throws Exception {
         SearchExecutionContext context = createSearchExecutionContext();
         CircuitBreaker cb = createCircuitBreakerService();
-        context.setQueryConstructionCircuitBreaker(cb);
+        context.setCircuitBreaker(cb);
 
         long before = cb.getUsed();
         WildcardQueryBuilder queryBuilder = new WildcardQueryBuilder(TEXT_FIELD_NAME, "test*pattern*with*wildcards*");
@@ -229,7 +229,7 @@ public class WildcardQueryBuilderTests extends AbstractQueryTestCase<WildcardQue
     public void testCircuitBreakerTripsWithLowLimit() {
         SearchExecutionContext context = createSearchExecutionContext();
         CircuitBreaker cb = createCircuitBreakerService("1mb"); // Low limit
-        context.setQueryConstructionCircuitBreaker(cb);
+        context.setCircuitBreaker(cb);
 
         BoolQueryBuilder boolQuery = new BoolQueryBuilder();
         for (int i = 0; i < 100; i++) {

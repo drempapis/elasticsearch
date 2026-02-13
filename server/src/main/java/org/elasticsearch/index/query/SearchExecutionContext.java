@@ -724,14 +724,15 @@ public class SearchExecutionContext extends QueryRewriteContext {
     }
 
     /**
-     * Set the circuit breaker for query construction memory accounting
+     * Set the circuit breaker for memory accounting
      */
-    public void setQueryConstructionCircuitBreaker(CircuitBreaker breaker) {
+    public void setCircuitBreaker(CircuitBreaker breaker) {
         this.circuitBreaker = breaker;
     }
 
     /**
-     * Add to query construction memory.
+     * Account on memory during query construction. This is used to track memory usage of queries that are being built,
+     * and to break if the memory usage exceeds the limit set by the circuit breaker.
      */
     public void addQueryConstructionMemory(long bytes, String label) {
         if (circuitBreaker != null) {

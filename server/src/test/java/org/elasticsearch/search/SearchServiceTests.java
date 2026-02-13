@@ -407,7 +407,7 @@ public class SearchServiceTests extends IndexShardTestCase {
             try (Engine.Searcher searcher = indexShard.acquireSearcher("test")) {
                 SearchExecutionContext context = createSearchExecutionContext((mappedFieldType, fieldDataContext) -> null, searcher);
                 CircuitBreaker cb = createQueryConstructionBreaker("100mb");
-                context.setQueryConstructionCircuitBreaker(cb);
+                context.setCircuitBreaker(cb);
 
                 long cbBefore = cb.getUsed();
 
@@ -434,7 +434,7 @@ public class SearchServiceTests extends IndexShardTestCase {
             try (Engine.Searcher searcher = indexShard.acquireSearcher("test")) {
                 SearchExecutionContext context = createSearchExecutionContext((mappedFieldType, fieldDataContext) -> null, searcher);
                 CircuitBreaker cb = createQueryConstructionBreaker("1kb");
-                context.setQueryConstructionCircuitBreaker(cb);
+                context.setCircuitBreaker(cb);
 
                 BoolQueryBuilder boolQuery = new BoolQueryBuilder();
                 for (int i = 0; i < 50; i++) {
@@ -460,7 +460,7 @@ public class SearchServiceTests extends IndexShardTestCase {
             try (Engine.Searcher searcher = indexShard.acquireSearcher("test")) {
                 SearchExecutionContext context = createSearchExecutionContext((mappedFieldType, fieldDataContext) -> null, searcher);
                 CircuitBreaker cb = createQueryConstructionBreaker("100mb");
-                context.setQueryConstructionCircuitBreaker(cb);
+                context.setCircuitBreaker(cb);
 
                 for (int i = 0; i < 3; i++) {
                     SearchService.buildQueryWithCircuitBreaker(

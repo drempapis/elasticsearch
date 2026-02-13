@@ -685,7 +685,7 @@ public class RangeQueryBuilderTests extends AbstractQueryTestCase<RangeQueryBuil
     public void testRangeQueryCircuitBreakerAccountingTextFields() throws Exception {
         SearchExecutionContext context = createSearchExecutionContext();
         CircuitBreaker cb = createCircuitBreakerService("100mb");
-        context.setQueryConstructionCircuitBreaker(cb);
+        context.setCircuitBreaker(cb);
 
         long before = cb.getUsed();
         RangeQueryBuilder rangeQuery = new RangeQueryBuilder(TEXT_FIELD_NAME).gte("aaa").lte("zzz");
@@ -700,7 +700,7 @@ public class RangeQueryBuilderTests extends AbstractQueryTestCase<RangeQueryBuil
     public void testRangeQueryCircuitBreakerTripsOnLargeTextRange() {
         SearchExecutionContext context = createSearchExecutionContext();
         CircuitBreaker cb = createCircuitBreakerService("1kb");  // Very low limit
-        context.setQueryConstructionCircuitBreaker(cb);
+        context.setCircuitBreaker(cb);
 
         RangeQueryBuilder rangeQuery = new RangeQueryBuilder(TEXT_FIELD_NAME).gte("a").lte("zzzzzzzzzzzzzzzzzzzz");
 
