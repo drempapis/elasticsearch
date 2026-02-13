@@ -734,7 +734,7 @@ public class SearchExecutionContext extends QueryRewriteContext {
      * Add to query construction memory.
      */
     public void addQueryConstructionMemory(long bytes, String label) {
-        if(circuitBreaker != null) {
+        if (circuitBreaker != null) {
             circuitBreaker.addEstimateBytesAndMaybeBreak(bytes, label);
             queryConstructionMemoryUsed.addAndGet(bytes);
         }
