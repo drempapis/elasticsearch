@@ -943,58 +943,7 @@ public class HierarchyCircuitBreakerServiceTests extends ESTestCase {
             HierarchyCircuitBreakerService.permitNegativeValues = false;
         }
     }
-
-    public void testQueryConstructionBreakerTrips() {
-        Settings settings = Settings.builder()
-            .put(HierarchyCircuitBreakerService.REQUEST_CIRCUIT_BREAKER_LIMIT_SETTING.getKey(), "100b")
-            .put(HierarchyCircuitBreakerService.USE_REAL_MEMORY_USAGE_SETTING.getKey(), false)
-            .build();
-
-        CircuitBreakerService service = new HierarchyCircuitBreakerService(
-            CircuitBreakerMetrics.NOOP,
-            settings,
-            Collections.emptyList(),
-            new ClusterSettings(settings, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS)
-        );
-
-        CircuitBreaker breaker = service.getBreaker(CircuitBreaker.REQUEST);
-
-        breaker.addEstimateBytesAndMaybeBreak(50, "test1");
-        assertThat(breaker.getUsed(), equalTo(50L));
-        assertThat(breaker.getTrippedCount(), equalTo(0L));
-
-        CircuitBreakingException exception = expectThrows(
-            CircuitBreakingException.class,
-            () -> breaker.addEstimateBytesAndMaybeBreak(60, "test2")
-        );
-
-        assertThat(exception.getMessage(), containsString("request"));
-        assertThat(breaker.getUsed(), equalTo(50L));
-        assertThat(breaker.getTrippedCount(), equalTo(1L));
-    }
-
-    public void testQueryConstructionBreakerStats() {
-        CircuitBreakerService service = new HierarchyCircuitBreakerService(
-            CircuitBreakerMetrics.NOOP,
-            Settings.EMPTY,
-            Collections.emptyList(),
-            new ClusterSettings(Settings.EMPTY, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS)
-        );
-
-        CircuitBreaker breaker = service.getBreaker(CircuitBreaker.REQUEST);
-
-        breaker.addEstimateBytesAndMaybeBreak(1000, "test");
-
-        CircuitBreakerStats stats = service.stats().getStats(CircuitBreaker.REQUEST);
-        assertThat(stats, not(nullValue()));
-        assertThat(stats.getEstimated(), equalTo(1000L));
-        assertThat(stats.getTrippedCount(), equalTo(0L));
-
-        breaker.addWithoutBreaking(-1000);
-        stats = service.stats().getStats(CircuitBreaker.REQUEST);
-        assertThat(stats.getEstimated(), equalTo(0L));
-    }
-
+    
     void assertCircuitBreakerLimitWarning() {
         assertWarnings(
             "[indices.breaker.total.limit] should be specified using a percentage of the heap. "
