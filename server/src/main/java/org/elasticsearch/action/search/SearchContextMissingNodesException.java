@@ -38,7 +38,7 @@ public class SearchContextMissingNodesException extends ElasticsearchException {
      * The transport version at which this exception type was introduced.
      */
     public static TransportVersion SEARCH_CONTEXT_MISSING_NODES_EXCEPTION_VERSION = TransportVersion.fromName(
-        "search-context-missing-nodes-exception"
+        "search_context_missing_nodes_exception"
     );
 
     private final Set<String> missingNodeIds;
