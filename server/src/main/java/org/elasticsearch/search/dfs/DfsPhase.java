@@ -31,6 +31,8 @@ import org.elasticsearch.search.profile.dfs.DfsTimingType;
 import org.elasticsearch.search.profile.query.CollectorResult;
 import org.elasticsearch.search.profile.query.ProfileCollectorManager;
 import org.elasticsearch.search.profile.query.QueryProfiler;
+import org.elasticsearch.search.query.QueryPhase;
+import org.elasticsearch.search.query.SearchTimeoutException;
 import org.elasticsearch.search.rescore.RescoreContext;
 import org.elasticsearch.search.vectors.KnnSearchBuilder;
 import org.elasticsearch.search.vectors.KnnVectorQueryBuilder;
@@ -199,6 +201,11 @@ public class DfsPhase {
         final long beforeQueryTime = System.nanoTime();
         var opsListener = context.indexShard().getSearchOperationListener();
         opsListener.onPreQueryPhase(context);
+
+        final Runnable timeoutRunnable = QueryPhase.getTimeoutCheck(context);
+        if (timeoutRunnable != null) {
+            context.searcher().addQueryCancellation(timeoutRunnable);
+        }
         try {
             for (int i = 0; i < knnSearch.size(); i++) {
                 String knnField = knnVectorQueryBuilders.get(i).getFieldName();
@@ -209,6 +216,14 @@ public class DfsPhase {
             afterQueryTime = System.nanoTime();
             opsListener.onQueryPhase(context, afterQueryTime - beforeQueryTime);
             opsListener = null;
+        } catch (ContextIndexSearcher.TimeExceededException e) {
+            SearchTimeoutException.handleTimeout(
+                context.request().allowPartialSearchResults(),
+                context.shardTarget(),
+                context.queryResult()
+            );
+            context.dfsResult().knnResults(List.of());
+            return;
         } finally {
             if (opsListener != null) {
                 opsListener.onFailedQueryPhase(context);
