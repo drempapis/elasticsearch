@@ -55,7 +55,6 @@ import org.elasticsearch.common.util.concurrent.EsExecutors;
 import org.elasticsearch.common.util.concurrent.EsRejectedExecutionException;
 import org.elasticsearch.core.Booleans;
 import org.elasticsearch.core.IOUtils;
-import org.elasticsearch.core.Nullable;
 import org.elasticsearch.core.RefCounted;
 import org.elasticsearch.core.Releasable;
 import org.elasticsearch.core.Releasables;
@@ -1733,7 +1732,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
                 InnerHitContextBuilder.extractInnerHits(rewrittenForInnerHits, innerHitBuilders);
             }
             searchExecutionContext.setAliasFilter(context.request().getAliasFilter().getQueryBuilder());
-            ParsedQuery parsedQuery = buildQueryWithCircuitBreaker(searchExecutionContext, query, "main_query");
+            ParsedQuery parsedQuery = buildQueryWithMemoryAccounting(searchExecutionContext, query, "main_query");
             context.parsedQuery(parsedQuery);
         }
         if (source.postFilter() != null) {
@@ -1741,7 +1740,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
             if (false == source.skipInnerHits()) {
                 InnerHitContextBuilder.extractInnerHits(rewrittenForInnerHits, innerHitBuilders);
             }
-            ParsedQuery parsedPostFilter = buildQueryWithCircuitBreaker(searchExecutionContext, source.postFilter(), "post_filter");
+            ParsedQuery parsedPostFilter = buildQueryWithMemoryAccounting(searchExecutionContext, source.postFilter(), "post_filter");
             context.parsedPostFilter(parsedPostFilter);
         }
         if (innerHitBuilders.size() > 0) {
@@ -2417,28 +2416,11 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
         };
     }
 
-    private ParsedQuery buildQueryWithCircuitBreaker(
+    static ParsedQuery buildQueryWithMemoryAccounting(
         SearchExecutionContext searchExecutionContext,
         QueryBuilder queryBuilder,
         String component
     ) {
-        return buildQueryWithCircuitBreaker(circuitBreaker, searchExecutionContext, queryBuilder, component);
-    }
-
-    /**
-     * Builds a Lucene query from a QueryBuilder with circuit breaker protection.
-     * Accounts for memory used during query construction, especially for automaton-based queries.
-     */
-    static ParsedQuery buildQueryWithCircuitBreaker(
-        @Nullable CircuitBreaker queryConstructionCircuitBreaker,
-        SearchExecutionContext searchExecutionContext,
-        QueryBuilder queryBuilder,
-        String component
-    ) {
-        if (queryConstructionCircuitBreaker == null) {
-            return searchExecutionContext.toQuery(queryBuilder);
-        }
-
         ParsedQuery parsedQuery = searchExecutionContext.toQuery(queryBuilder);
         Query query = parsedQuery.query();
 

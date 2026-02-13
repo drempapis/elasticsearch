@@ -943,7 +943,7 @@ public class HierarchyCircuitBreakerServiceTests extends ESTestCase {
             HierarchyCircuitBreakerService.permitNegativeValues = false;
         }
     }
-    
+
     void assertCircuitBreakerLimitWarning() {
         assertWarnings(
             "[indices.breaker.total.limit] should be specified using a percentage of the heap. "

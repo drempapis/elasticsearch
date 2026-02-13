@@ -412,7 +412,7 @@ public class SearchServiceTests extends IndexShardTestCase {
                 long cbBefore = cb.getUsed();
 
                 WildcardQueryBuilder queryBuilder = new WildcardQueryBuilder("field", "*test*pattern*");
-                ParsedQuery result = SearchService.buildQueryWithCircuitBreaker(cb, context, queryBuilder, "main_query");
+                ParsedQuery result = SearchService.buildQueryWithMemoryAccounting(context, queryBuilder, "main_query");
 
                 assertNotNull(result);
                 long cbAfter = cb.getUsed();
@@ -443,7 +443,7 @@ public class SearchServiceTests extends IndexShardTestCase {
 
                 QueryShardException e = expectThrows(
                     QueryShardException.class,
-                    () -> SearchService.buildQueryWithCircuitBreaker(cb, context, boolQuery, "main_query")
+                    () -> SearchService.buildQueryWithMemoryAccounting(context, boolQuery, "main_query")
                 );
                 assertThat(e.getCause(), instanceOf(CircuitBreakingException.class));
                 assertThat(e.getCause().getMessage(), containsString("Data too large"));
@@ -463,8 +463,7 @@ public class SearchServiceTests extends IndexShardTestCase {
                 context.setCircuitBreaker(cb);
 
                 for (int i = 0; i < 3; i++) {
-                    SearchService.buildQueryWithCircuitBreaker(
-                        cb,
+                    SearchService.buildQueryWithMemoryAccounting(
                         context,
                         new WildcardQueryBuilder("field", "*test" + i + "*"),
                         "query_" + i
