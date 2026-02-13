@@ -2351,6 +2351,9 @@ public class TransportSearchAction extends HandledTransportAction<SearchRequest,
                     }
                 }
 
+                // Only track as missing if the original node is gone AND there are no fallback nodes.
+                // For retryable PITs (e.g., relocated PITs in serverless), fallback nodes will be
+                // populated above, allowing the search to proceed and the PIT ID to be rewritten.
                 if (nodeWasMissing && targetNodes.isEmpty()) {
                     missingNodes.add(perNode.getNode());
                 }
