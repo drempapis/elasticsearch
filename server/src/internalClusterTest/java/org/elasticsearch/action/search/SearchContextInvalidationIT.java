@@ -74,28 +74,17 @@ public class SearchContextInvalidationIT extends ESIntegTestCase {
             internalCluster().stopNode(nodeWithShard);
             ensureStableCluster(2);
 
-            try {
-                client().prepareSearchScroll(scrollId).setScroll(TimeValue.timeValueMinutes(1)).get();
-                fail("Expected SearchContextMissingNodesException");
-            } catch (Exception e) {
-                Throwable cause = e;
-                while (cause.getCause() != null && (cause instanceof SearchContextMissingNodesException) == false) {
-                    cause = cause.getCause();
-                }
-                assertThat(
-                    "Expected SearchContextMissingNodesException but got: " + e.getClass().getName(),
-                    cause,
-                    instanceOf(SearchContextMissingNodesException.class)
-                );
+            SearchContextMissingNodesException ex = expectThrows(
+                SearchContextMissingNodesException.class,
+                client().prepareSearchScroll(scrollId).setScroll(TimeValue.timeValueMinutes(1))
+            );
 
-                SearchContextMissingNodesException ex = (SearchContextMissingNodesException) cause;
-                assertThat(ex.status(), equalTo(RestStatus.NOT_FOUND));
-                assertThat(ex.getContextType(), equalTo("scroll"));
-                assertThat(
-                    ex.getMessage(),
-                    containsString("Search context of type [" + ex.getContextType() + "]" + " references nodes that have left the cluster")
-                );
-            }
+            assertThat(ex.status(), equalTo(RestStatus.NOT_FOUND));
+            assertThat(ex.getContextType(), equalTo("scroll"));
+            assertThat(
+                ex.getMessage(),
+                containsString("Search context of type [" + ex.getContextType() + "] references nodes that have left the cluster")
+            );
         } finally {
             if (searchResponse != null) {
                 searchResponse.decRef();
@@ -190,32 +179,20 @@ public class SearchContextInvalidationIT extends ESIntegTestCase {
         internalCluster().stopNode(dataNode1);
         ensureStableCluster(2);
 
-        try {
+        SearchContextMissingNodesException ex = expectThrows(
+            SearchContextMissingNodesException.class,
             prepareSearch().setPointInTime(new PointInTimeBuilder(pitId))
                 .setQuery(matchAllQuery())
                 .setSize(10)
                 .setAllowPartialSearchResults(false)
-                .get();
-            fail("Expected SearchContextMissingNodesException");
-        } catch (Exception e) {
-            Throwable cause = e;
-            while (cause.getCause() != null && (cause instanceof SearchContextMissingNodesException) == false) {
-                cause = cause.getCause();
-            }
-            assertThat(
-                "Expected SearchContextMissingNodesException but got: " + e.getClass().getName(),
-                cause,
-                instanceOf(SearchContextMissingNodesException.class)
-            );
+        );
 
-            SearchContextMissingNodesException ex = (SearchContextMissingNodesException) cause;
-            assertThat(ex.status(), equalTo(RestStatus.NOT_FOUND));
-            assertThat(ex.getContextType(), equalTo("pit"));
-            assertThat(
-                ex.getMessage(),
-                containsString("Search context of type [" + ex.getContextType() + "] references nodes that have left the cluster")
-            );
-        }
+        assertThat(ex.status(), equalTo(RestStatus.NOT_FOUND));
+        assertThat(ex.getContextType(), equalTo("pit"));
+        assertThat(
+            ex.getMessage(),
+            containsString("Search context of type [" + ex.getContextType() + "] references nodes that have left the cluster")
+        );
     }
 
     public void testPitWorksWhenUnrelatedNodeLeaves() throws Exception {
