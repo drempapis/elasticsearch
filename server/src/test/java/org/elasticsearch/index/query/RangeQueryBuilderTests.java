@@ -689,7 +689,7 @@ public class RangeQueryBuilderTests extends AbstractQueryTestCase<RangeQueryBuil
 
     public void testRangeQueryCircuitBreakerAccountingTextFields() throws Exception {
         SearchExecutionContext context = createSearchExecutionContext();
-        CircuitBreaker cb = createQueryConstructionBreaker("100mb");
+        CircuitBreaker cb = createCircuitBreakerService("100mb");
         context.setQueryConstructionCircuitBreaker(cb);
 
         long before = cb.getUsed();
@@ -702,26 +702,14 @@ public class RangeQueryBuilderTests extends AbstractQueryTestCase<RangeQueryBuil
         assertBusy(() -> assertEquals("QueryMemory should be equal to delta", queryMemory, after - before));
     }
 
-    public void testRangeQueryCircuitBreakerTripsOnLargeTextRange() throws IOException {
+    public void testRangeQueryCircuitBreakerTripsOnLargeTextRange() {
         SearchExecutionContext context = createSearchExecutionContext();
-        CircuitBreaker cb = createQueryConstructionBreaker("1kb");  // Very low limit
+        CircuitBreaker cb = createCircuitBreakerService("1kb");  // Very low limit
         context.setQueryConstructionCircuitBreaker(cb);
 
         RangeQueryBuilder rangeQuery = new RangeQueryBuilder(TEXT_FIELD_NAME).gte("a").lte("zzzzzzzzzzzzzzzzzzzz");
 
         CircuitBreakingException exception = expectThrows(CircuitBreakingException.class, () -> rangeQuery.toQuery(context));
         assertTrue("Error should mention Data too large", exception.getMessage().contains("Data too large"));
-    }
-
-    private CircuitBreaker createQueryConstructionBreaker(String limit) {
-        return new HierarchyCircuitBreakerService(
-            CircuitBreakerMetrics.NOOP,
-            Settings.builder()
-                .put(HierarchyCircuitBreakerService.QUERY_CONSTRUCTION_CIRCUIT_BREAKER_LIMIT_SETTING.getKey(), limit)
-                .put(HierarchyCircuitBreakerService.USE_REAL_MEMORY_USAGE_SETTING.getKey(), false)
-                .build(),
-            Collections.emptyList(),
-            new ClusterSettings(Settings.EMPTY, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS)
-        ).getBreaker(CircuitBreaker.QUERY_CONSTRUCTION);
     }
 }

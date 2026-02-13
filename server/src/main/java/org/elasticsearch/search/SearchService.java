@@ -347,7 +347,6 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
 
     private final FetchPhase fetchPhase;
     private final CircuitBreaker circuitBreaker;
-    private final CircuitBreaker queryConstructionCircuitBreaker;
     private final OnlinePrewarmingService onlinePrewarmingService;
     private final int prewarmingMaxPoolFactorThreshold;
     private volatile Executor searchExecutor;
@@ -410,7 +409,6 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
         this.bigArrays = bigArrays;
         this.fetchPhase = fetchPhase;
         this.circuitBreaker = circuitBreakerService.getBreaker(CircuitBreaker.REQUEST);
-        this.queryConstructionCircuitBreaker = circuitBreakerService.getBreaker(CircuitBreaker.QUERY_CONSTRUCTION);
         this.multiBucketConsumerService = new MultiBucketConsumerService(clusterService, settings, circuitBreaker);
         this.executorSelector = executorSelector;
         this.tracer = tracer;
@@ -483,10 +481,6 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
 
     public CircuitBreaker getCircuitBreaker() {
         return circuitBreaker;
-    }
-
-    public CircuitBreaker getQueryConstructionCircuitBreaker() {
-        return queryConstructionCircuitBreaker;
     }
 
     public BigArrays getBigArrays() {
@@ -1550,14 +1544,14 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
             // might end up with incorrect state since we are using now() or script services
             // during rewrite and normalized / evaluate templates etc.
             SearchExecutionContext context = new SearchExecutionContext(searchContext.getSearchExecutionContext());
-            context.setQueryConstructionCircuitBreaker(queryConstructionCircuitBreaker);
+            context.setQueryConstructionCircuitBreaker(circuitBreaker);
 
             try {
                 Rewriteable.rewrite(request.getRewriteable(), context, true);
             } finally {
                 long memoryUsed = context.getQueryConstructionMemoryUsed();
-                if (memoryUsed > 0 && queryConstructionCircuitBreaker != null) {
-                    queryConstructionCircuitBreaker.addWithoutBreaking(-memoryUsed);
+                if (memoryUsed > 0 && circuitBreaker != null) {
+                    circuitBreaker.addWithoutBreaking(-memoryUsed);
                 }
             }
 
@@ -1567,7 +1561,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
                 searchContext.getSearchExecutionContext().setTimeRangeFilterFromMillis(context.getTimeRangeFilterFromMillis());
             }
 
-            searchContext.getSearchExecutionContext().setQueryConstructionCircuitBreaker(queryConstructionCircuitBreaker);
+            searchContext.getSearchExecutionContext().setQueryConstructionCircuitBreaker(circuitBreaker);
             assert searchContext.getSearchExecutionContext().isCacheable();
             success = true;
         } finally {
@@ -2428,7 +2422,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
         QueryBuilder queryBuilder,
         String component
     ) {
-        return buildQueryWithCircuitBreaker(queryConstructionCircuitBreaker, searchExecutionContext, queryBuilder, component);
+        return buildQueryWithCircuitBreaker(circuitBreaker, searchExecutionContext, queryBuilder, component);
     }
 
     /**

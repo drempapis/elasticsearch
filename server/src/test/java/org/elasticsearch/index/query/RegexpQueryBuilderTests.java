@@ -151,7 +151,7 @@ public class RegexpQueryBuilderTests extends AbstractQueryTestCase<RegexpQueryBu
 
     public void testRegexpQueryCircuitBreakerAccounting() throws Exception {
         SearchExecutionContext context = createSearchExecutionContext();
-        CircuitBreaker cb = createQueryConstructionCircuitBreaker();
+        CircuitBreaker cb = createCircuitBreakerService();
         context.setQueryConstructionCircuitBreaker(cb);
 
         long before = cb.getUsed();
@@ -167,7 +167,7 @@ public class RegexpQueryBuilderTests extends AbstractQueryTestCase<RegexpQueryBu
 
     public void testRegexpCircuitBreakerTripsWithLowLimit() {
         SearchExecutionContext context = createSearchExecutionContext();
-        CircuitBreaker cb = createQueryConstructionCircuitBreaker("500kb"); // Low limit
+        CircuitBreaker cb = createCircuitBreakerService("500kb"); // Low limit
         context.setQueryConstructionCircuitBreaker(cb);
 
         BoolQueryBuilder boolQuery = new BoolQueryBuilder();

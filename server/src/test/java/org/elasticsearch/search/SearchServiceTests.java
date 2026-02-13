@@ -488,12 +488,12 @@ public class SearchServiceTests extends IndexShardTestCase {
 
     private CircuitBreaker createQueryConstructionBreaker(String limit) {
         Settings settings = Settings.builder()
-            .put(HierarchyCircuitBreakerService.QUERY_CONSTRUCTION_CIRCUIT_BREAKER_LIMIT_SETTING.getKey(), limit)
+            .put(HierarchyCircuitBreakerService.REQUEST_CIRCUIT_BREAKER_LIMIT_SETTING.getKey(), limit)
             .put(HierarchyCircuitBreakerService.USE_REAL_MEMORY_USAGE_SETTING.getKey(), false)
             .build();
         ClusterSettings clusterSettings = new ClusterSettings(settings, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS);
         return new HierarchyCircuitBreakerService(CircuitBreakerMetrics.NOOP, settings, Collections.emptyList(), clusterSettings)
-            .getBreaker(CircuitBreaker.QUERY_CONSTRUCTION);
+            .getBreaker(CircuitBreaker.REQUEST);
     }
 
     private SearchService.CanMatchContext doTestCanMatch(

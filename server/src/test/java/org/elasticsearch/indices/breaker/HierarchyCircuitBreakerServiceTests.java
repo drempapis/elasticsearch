@@ -944,45 +944,9 @@ public class HierarchyCircuitBreakerServiceTests extends ESTestCase {
         }
     }
 
-    public void testQueryConstructionBreakerDefaultSettings() {
-        Settings settings = Settings.EMPTY;
-        CircuitBreakerService service = new HierarchyCircuitBreakerService(
-            CircuitBreakerMetrics.NOOP,
-            settings,
-            Collections.emptyList(),
-            new ClusterSettings(settings, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS)
-        );
-
-        CircuitBreaker breaker = service.getBreaker(CircuitBreaker.QUERY_CONSTRUCTION);
-
-        long heapSize = JvmInfo.jvmInfo().getConfiguredMaxHeapSize();
-        long expectedLimit = (long) (heapSize * 0.1);
-
-        assertThat(breaker.getLimit(), equalTo(expectedLimit));
-        assertThat(breaker.getOverhead(), equalTo(1.0));
-    }
-
-    public void testQueryConstructionBreakerCustomSettings() {
-        Settings settings = Settings.builder()
-            .put(HierarchyCircuitBreakerService.QUERY_CONSTRUCTION_CIRCUIT_BREAKER_LIMIT_SETTING.getKey(), "50mb")
-            .put(HierarchyCircuitBreakerService.QUERY_CONSTRUCTION_CIRCUIT_BREAKER_OVERHEAD_SETTING.getKey(), 1.5)
-            .build();
-
-        CircuitBreakerService service = new HierarchyCircuitBreakerService(
-            CircuitBreakerMetrics.NOOP,
-            settings,
-            Collections.emptyList(),
-            new ClusterSettings(settings, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS)
-        );
-
-        CircuitBreaker breaker = service.getBreaker(CircuitBreaker.QUERY_CONSTRUCTION);
-        assertThat(breaker.getLimit(), equalTo(ByteSizeValue.of(50, ByteSizeUnit.MB).getBytes()));
-        assertThat(breaker.getOverhead(), equalTo(1.5));
-    }
-
     public void testQueryConstructionBreakerTrips() {
         Settings settings = Settings.builder()
-            .put(HierarchyCircuitBreakerService.QUERY_CONSTRUCTION_CIRCUIT_BREAKER_LIMIT_SETTING.getKey(), "100b")
+            .put(HierarchyCircuitBreakerService.REQUEST_CIRCUIT_BREAKER_LIMIT_SETTING.getKey(), "100b")
             .put(HierarchyCircuitBreakerService.USE_REAL_MEMORY_USAGE_SETTING.getKey(), false)
             .build();
 
@@ -993,7 +957,7 @@ public class HierarchyCircuitBreakerServiceTests extends ESTestCase {
             new ClusterSettings(settings, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS)
         );
 
-        CircuitBreaker breaker = service.getBreaker(CircuitBreaker.QUERY_CONSTRUCTION);
+        CircuitBreaker breaker = service.getBreaker(CircuitBreaker.REQUEST);
 
         breaker.addEstimateBytesAndMaybeBreak(50, "test1");
         assertThat(breaker.getUsed(), equalTo(50L));
@@ -1004,7 +968,7 @@ public class HierarchyCircuitBreakerServiceTests extends ESTestCase {
             () -> breaker.addEstimateBytesAndMaybeBreak(60, "test2")
         );
 
-        assertThat(exception.getMessage(), containsString("query_construction"));
+        assertThat(exception.getMessage(), containsString("request"));
         assertThat(breaker.getUsed(), equalTo(50L));
         assertThat(breaker.getTrippedCount(), equalTo(1L));
     }
@@ -1017,17 +981,17 @@ public class HierarchyCircuitBreakerServiceTests extends ESTestCase {
             new ClusterSettings(Settings.EMPTY, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS)
         );
 
-        CircuitBreaker breaker = service.getBreaker(CircuitBreaker.QUERY_CONSTRUCTION);
+        CircuitBreaker breaker = service.getBreaker(CircuitBreaker.REQUEST);
 
         breaker.addEstimateBytesAndMaybeBreak(1000, "test");
 
-        CircuitBreakerStats stats = service.stats().getStats(CircuitBreaker.QUERY_CONSTRUCTION);
+        CircuitBreakerStats stats = service.stats().getStats(CircuitBreaker.REQUEST);
         assertThat(stats, not(nullValue()));
         assertThat(stats.getEstimated(), equalTo(1000L));
         assertThat(stats.getTrippedCount(), equalTo(0L));
 
         breaker.addWithoutBreaking(-1000);
-        stats = service.stats().getStats(CircuitBreaker.QUERY_CONSTRUCTION);
+        stats = service.stats().getStats(CircuitBreaker.REQUEST);
         assertThat(stats.getEstimated(), equalTo(0L));
     }
 

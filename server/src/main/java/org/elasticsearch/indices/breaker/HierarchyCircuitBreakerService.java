@@ -122,28 +122,6 @@ public class HierarchyCircuitBreakerService extends CircuitBreakerService {
         Property.NodeScope
     );
 
-    public static final Setting<ByteSizeValue> QUERY_CONSTRUCTION_CIRCUIT_BREAKER_LIMIT_SETTING = Setting.memorySizeSetting(
-        "indices.breaker.query_construction.limit",
-        "10%",
-        Setting.Property.Dynamic,
-        Setting.Property.NodeScope
-    );
-
-    public static final Setting<Double> QUERY_CONSTRUCTION_CIRCUIT_BREAKER_OVERHEAD_SETTING = Setting.doubleSetting(
-        "indices.breaker.query_construction.overhead",
-        1.0d,
-        0.0d,
-        Setting.Property.Dynamic,
-        Setting.Property.NodeScope
-    );
-
-    public static final Setting<CircuitBreaker.Type> QUERY_CONSTRUCTION_CIRCUIT_BREAKER_TYPE_SETTING = new Setting<>(
-        "indices.breaker.query_construction.type",
-        "memory",
-        CircuitBreaker.Type::parseValue,
-        Setting.Property.NodeScope
-    );
-
     public static final Setting<ByteSizeValue> IN_FLIGHT_REQUESTS_CIRCUIT_BREAKER_LIMIT_SETTING = Setting.memorySizeSetting(
         "network.breaker.inflight_requests.limit",
         "100%",
@@ -233,19 +211,6 @@ public class HierarchyCircuitBreakerService extends CircuitBreakerService {
                 )
             )
         );
-        childCircuitBreakers.put(
-            CircuitBreaker.QUERY_CONSTRUCTION,
-            validateAndCreateBreaker(
-                metrics.getTripCount(),
-                new BreakerSettings(
-                    CircuitBreaker.QUERY_CONSTRUCTION,
-                    QUERY_CONSTRUCTION_CIRCUIT_BREAKER_LIMIT_SETTING.get(settings).getBytes(),
-                    QUERY_CONSTRUCTION_CIRCUIT_BREAKER_OVERHEAD_SETTING.get(settings),
-                    QUERY_CONSTRUCTION_CIRCUIT_BREAKER_TYPE_SETTING.get(settings),
-                    CircuitBreaker.Durability.TRANSIENT
-                )
-            )
-        );
         for (BreakerSettings breakerSettings : customBreakers) {
             if (childCircuitBreakers.containsKey(breakerSettings.getName())) {
                 throw new IllegalArgumentException(
@@ -287,11 +252,6 @@ public class HierarchyCircuitBreakerService extends CircuitBreakerService {
             REQUEST_CIRCUIT_BREAKER_LIMIT_SETTING,
             REQUEST_CIRCUIT_BREAKER_OVERHEAD_SETTING,
             (limit, overhead) -> updateCircuitBreakerSettings(CircuitBreaker.REQUEST, limit, overhead)
-        );
-        clusterSettings.addSettingsUpdateConsumer(
-            QUERY_CONSTRUCTION_CIRCUIT_BREAKER_LIMIT_SETTING,
-            QUERY_CONSTRUCTION_CIRCUIT_BREAKER_OVERHEAD_SETTING,
-            (limit, overhead) -> updateCircuitBreakerSettings(CircuitBreaker.QUERY_CONSTRUCTION, limit, overhead)
         );
         clusterSettings.addAffixUpdateConsumer(
             CIRCUIT_BREAKER_LIMIT_SETTING,

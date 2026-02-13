@@ -114,7 +114,7 @@ public class SearchExecutionContext extends QueryRewriteContext {
     private final Integer requestSize;
     private final MapperMetrics mapperMetrics;
     private final ShardSearchStats shardSearchStats;
-    private CircuitBreaker queryConstructionCircuitBreaker;
+    private CircuitBreaker circuitBreaker;
     private final AtomicLong queryConstructionMemoryUsed = new AtomicLong(0);
 
     public SearchExecutionContext(
@@ -727,15 +727,15 @@ public class SearchExecutionContext extends QueryRewriteContext {
      * Set the circuit breaker for query construction memory accounting
      */
     public void setQueryConstructionCircuitBreaker(CircuitBreaker breaker) {
-        this.queryConstructionCircuitBreaker = breaker;
+        this.circuitBreaker = breaker;
     }
 
     /**
      * Add to query construction memory.
      */
     public void addQueryConstructionMemory(long bytes, String label) {
-        if(queryConstructionCircuitBreaker != null) {
-            queryConstructionCircuitBreaker.addEstimateBytesAndMaybeBreak(bytes, label);
+        if(circuitBreaker != null) {
+            circuitBreaker.addEstimateBytesAndMaybeBreak(bytes, label);
             queryConstructionMemoryUsed.addAndGet(bytes);
         }
     }
@@ -752,8 +752,8 @@ public class SearchExecutionContext extends QueryRewriteContext {
      */
     public void releaseQueryConstructionMemory() {
         long memoryToRelease = queryConstructionMemoryUsed.getAndSet(0);
-        if (memoryToRelease > 0 && queryConstructionCircuitBreaker != null) {
-            queryConstructionCircuitBreaker.addWithoutBreaking(-memoryToRelease);
+        if (memoryToRelease > 0 && circuitBreaker != null) {
+            circuitBreaker.addWithoutBreaking(-memoryToRelease);
         }
     }
 }

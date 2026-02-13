@@ -402,7 +402,7 @@ public class CircuitBreakerServiceIT extends ESIntegTestCase {
         updateClusterSettings(Settings.builder().putNull(totalCircuitBreakerLimitSettingKey).putNull(useRealMemoryUsageSetting));
     }
 
-    public void testQueryConstructionCircuitBreaker() throws Exception {
+    public void testQueryConstructionCircuitBreaker() {
         assumeFalse("--> noop breakers used, skipping test", noopBreakerUsed());
 
         assertAcked(
@@ -421,8 +421,8 @@ public class CircuitBreakerServiceIT extends ESIntegTestCase {
 
         updateClusterSettings(
             Settings.builder()
-                .put(HierarchyCircuitBreakerService.QUERY_CONSTRUCTION_CIRCUIT_BREAKER_LIMIT_SETTING.getKey(), "10b")
-                .put(HierarchyCircuitBreakerService.QUERY_CONSTRUCTION_CIRCUIT_BREAKER_OVERHEAD_SETTING.getKey(), 1.0)
+                .put(HierarchyCircuitBreakerService.REQUEST_CIRCUIT_BREAKER_LIMIT_SETTING.getKey(), "10b")
+                .put(HierarchyCircuitBreakerService.REQUEST_CIRCUIT_BREAKER_OVERHEAD_SETTING.getKey(), 1.0)
         );
 
         BoolQueryBuilder boolQuery = new BoolQueryBuilder();
@@ -438,7 +438,7 @@ public class CircuitBreakerServiceIT extends ESIntegTestCase {
         NodesStatsResponse stats = client().admin().cluster().prepareNodesStats().setBreaker(true).get();
         long queryConstructionBreaks = 0;
         for (NodeStats stat : stats.getNodes()) {
-            CircuitBreakerStats breakerStats = stat.getBreaker().getStats(CircuitBreaker.QUERY_CONSTRUCTION);
+            CircuitBreakerStats breakerStats = stat.getBreaker().getStats(CircuitBreaker.REQUEST);
             if (breakerStats != null) {
                 queryConstructionBreaks += breakerStats.getTrippedCount();
             }
@@ -447,8 +447,8 @@ public class CircuitBreakerServiceIT extends ESIntegTestCase {
 
         updateClusterSettings(
             Settings.builder()
-                .putNull(HierarchyCircuitBreakerService.QUERY_CONSTRUCTION_CIRCUIT_BREAKER_LIMIT_SETTING.getKey())
-                .putNull(HierarchyCircuitBreakerService.QUERY_CONSTRUCTION_CIRCUIT_BREAKER_OVERHEAD_SETTING.getKey())
+                .putNull(HierarchyCircuitBreakerService.REQUEST_CIRCUIT_BREAKER_LIMIT_SETTING.getKey())
+                .putNull(HierarchyCircuitBreakerService.REQUEST_CIRCUIT_BREAKER_OVERHEAD_SETTING.getKey())
         );
     }
 

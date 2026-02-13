@@ -316,7 +316,7 @@ public class FuzzyQueryBuilderTests extends AbstractQueryTestCase<FuzzyQueryBuil
 
     public void testFuzzyQueryCircuitBreakerAccounting() throws Exception {
         SearchExecutionContext context = createSearchExecutionContext();
-        CircuitBreaker cb = createQueryConstructionCircuitBreaker();
+        CircuitBreaker cb = createCircuitBreakerService();
         context.setQueryConstructionCircuitBreaker(cb);
 
         long before = cb.getUsed();

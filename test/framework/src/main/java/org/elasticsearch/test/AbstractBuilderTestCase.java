@@ -387,32 +387,6 @@ public abstract class AbstractBuilderTestCase extends ESTestCase {
         return createSearchExecutionContext(null);
     }
 
-    protected static CircuitBreaker createQueryConstructionCircuitBreaker(String limit) {
-        Settings settings = Settings.builder()
-            .put("indices.breaker.query_construction.limit", limit)
-            .put("indices.breaker.query_construction.overhead", "1.0")
-            .build();
-
-        ClusterSettings clusterSettings = new ClusterSettings(settings, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS);
-        CircuitBreakerService service = new HierarchyCircuitBreakerService(
-            CircuitBreakerMetrics.NOOP,
-            settings,
-            Collections.emptyList(),
-            clusterSettings
-        );
-
-        return service.getBreaker(CircuitBreaker.QUERY_CONSTRUCTION);
-    }
-
-    /**
-     * Creates a circuit breaker for testing query construction with default limit (10% of heap).
-     *
-     * @return a configured CircuitBreaker instance
-     */
-    protected static CircuitBreaker createQueryConstructionCircuitBreaker() {
-        return createQueryConstructionCircuitBreaker("10%");
-    }
-
     protected static QueryRewriteContext createQueryRewriteContext() {
         return serviceHolder.createQueryRewriteContext();
     }
@@ -450,6 +424,32 @@ public abstract class AbstractBuilderTestCase extends ESTestCase {
             throw new UnsupportedOperationException("this test can't handle calls to: " + method);
         }
 
+    }
+
+    protected static CircuitBreaker createCircuitBreakerService(String limit) {
+        Settings settings = Settings.builder()
+            .put("indices.breaker.request.limit", limit)
+            .put("indices.breaker.request.overhead", "1.0")
+            .build();
+
+        ClusterSettings clusterSettings = new ClusterSettings(settings, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS);
+        CircuitBreakerService service = new HierarchyCircuitBreakerService(
+            CircuitBreakerMetrics.NOOP,
+            settings,
+            Collections.emptyList(),
+            clusterSettings
+        );
+
+        return service.getBreaker(CircuitBreaker.REQUEST);
+    }
+
+    /**
+     * Creates a circuit breaker for testing query construction with default limit (10% of heap).
+     *
+     * @return a configured CircuitBreaker instance
+     */
+    protected static CircuitBreaker createCircuitBreakerService() {
+        return createCircuitBreakerService("10%");
     }
 
     /**
