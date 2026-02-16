@@ -217,12 +217,12 @@ public class DfsPhase {
             opsListener.onQueryPhase(context, afterQueryTime - beforeQueryTime);
             opsListener = null;
         } catch (ContextIndexSearcher.TimeExceededException e) {
+            context.dfsResult().knnResults(List.of());
             SearchTimeoutException.handleTimeout(
                 context.request().allowPartialSearchResults(),
                 context.shardTarget(),
                 context.queryResult()
             );
-            context.dfsResult().knnResults(List.of());
             return;
         } finally {
             if (opsListener != null) {

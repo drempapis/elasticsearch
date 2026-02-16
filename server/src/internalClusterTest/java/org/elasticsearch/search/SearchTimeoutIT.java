@@ -43,6 +43,7 @@ import org.elasticsearch.index.query.SearchExecutionContext;
 import org.elasticsearch.index.query.TermQueryBuilder;
 import org.elasticsearch.plugins.Plugin;
 import org.elasticsearch.plugins.SearchPlugin;
+import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.search.aggregations.bucket.terms.StringTerms;
 import org.elasticsearch.search.aggregations.bucket.terms.TermsAggregationBuilder;
 import org.elasticsearch.search.internal.ContextIndexSearcher;
@@ -348,10 +349,6 @@ public class SearchTimeoutIT extends ESIntegTestCase {
         });
     }
 
-    /**
-     * Test that with DFS_QUERY_THEN_FETCH, when partial results are not allowed and a timeout occurs (in the
-     * query phase), a failure is reported rather than returning partial results.
-     */
     public void testPartialResultsIntolerantDfsKnnTimeout() {
         ElasticsearchException ex = expectThrows(
             ElasticsearchException.class,
@@ -361,10 +358,8 @@ public class SearchTimeoutIT extends ESIntegTestCase {
                 .setAllowPartialSearchResults(false)
         );
         assertTrue(ex.toString().contains("Time exceeded"));
-        assertEquals(429, ex.status().getStatus());
+        assertEquals(RestStatus.TOO_MANY_REQUESTS.getStatus(), ex.status().getStatus());
     }
-
-    // ---- Plugin and query / suggestion / rescorer builders ----
 
     public static final class SearchTimeoutPlugin extends Plugin implements SearchPlugin {
         @Override
@@ -559,8 +554,6 @@ public class SearchTimeoutIT extends ESIntegTestCase {
                     if (searcher instanceof ContextIndexSearcher contextIndexSearcher) {
                         contextIndexSearcher.throwTimeExceededException();
                     }
-                    // DFS phase uses a plain IndexSearcher in collectStatistics; return harmless weight so DFS completes
-                    // and timeout is triggered in the query phase when this query runs with ContextIndexSearcher
                     return new ConstantScoreWeight(this, boost) {
                         @Override
                         public ScorerSupplier scorerSupplier(LeafReaderContext ctx) throws IOException {

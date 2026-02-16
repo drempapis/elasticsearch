@@ -42,6 +42,7 @@ import org.elasticsearch.index.query.SearchExecutionContextHelper;
 import org.elasticsearch.index.shard.IndexShard;
 import org.elasticsearch.index.shard.IndexShardTestCase;
 import org.elasticsearch.indices.breaker.NoneCircuitBreakerService;
+import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.search.SearchException;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.elasticsearch.search.internal.AliasFilter;
@@ -60,6 +61,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.instanceOf;
 
 public class DfsPhaseTimeoutTests extends IndexShardTestCase {
@@ -207,6 +209,7 @@ public class DfsPhaseTimeoutTests extends IndexShardTestCase {
             DfsPhaseExecutionException ex = expectThrows(DfsPhaseExecutionException.class, () -> DfsPhase.execute(context));
             assertNotNull("expected a root cause", ex.getCause());
             assertTrue("expected the cause to be a SearchTimeoutException", ex.getCause() instanceof SearchTimeoutException);
+            assertThat(((SearchTimeoutException) ex.getCause()).status(), equalTo(RestStatus.TOO_MANY_REQUESTS));
         }
     }
 
