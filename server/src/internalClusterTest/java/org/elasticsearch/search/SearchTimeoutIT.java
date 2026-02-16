@@ -330,9 +330,10 @@ public class SearchTimeoutIT extends ESIntegTestCase {
     }
 
     /**
-     * Test that when a timeout occurs during the DFS phase (KNN vector search), the search is marked as timed out
-     * and partial results are returned. We use DFS_QUERY_THEN_FETCH search type to ensure the DFS phase runs.
-     * The timeout query triggers a timeout on the ContextIndexSearcher during the DFS KNN execution.
+     * Test that with DFS_QUERY_THEN_FETCH search type, when a timeout occurs (in the query phase), the search is
+     * marked as timed out and partial results are returned. DfsKnnTimeoutQuery triggers the timeout when the
+     * main query runs with ContextIndexSearcher in the query phase. DFS-phase KNN timeout is covered by
+     * {@link org.elasticsearch.search.dfs.DfsPhaseTimeoutTests}.
      */
     public void testDfsKnnTimeoutWithPartialResults() {
         SearchRequestBuilder searchRequestBuilder = prepareSearch("test_knn").setSearchType(SearchType.DFS_QUERY_THEN_FETCH)
@@ -348,8 +349,8 @@ public class SearchTimeoutIT extends ESIntegTestCase {
     }
 
     /**
-     * Test that when partial results are not allowed and the DFS phase times out, a failure is reported
-     * rather than returning partial results.
+     * Test that with DFS_QUERY_THEN_FETCH, when partial results are not allowed and a timeout occurs (in the
+     * query phase), a failure is reported rather than returning partial results.
      */
     public void testPartialResultsIntolerantDfsKnnTimeout() {
         ElasticsearchException ex = expectThrows(
@@ -531,8 +532,10 @@ public class SearchTimeoutIT extends ESIntegTestCase {
 
     /**
      * Query builder that triggers a {@link org.elasticsearch.search.internal.ContextIndexSearcher.TimeExceededException}
-     * during the DFS phase. It creates a Lucene query whose {@code createWeight} immediately throws a timeout,
-     * simulating a timeout during KNN query rewrite / execution in the DFS phase.
+     * when {@code createWeight} is called with a {@link org.elasticsearch.search.internal.ContextIndexSearcher}
+     * (i.e. in the query phase). When called with a plain IndexSearcher (e.g. in DFS phase collectStatistics),
+     * returns a harmless weight that matches no docs so the DFS phase completes. Used to test timeout handling
+     * with DFS_QUERY_THEN_FETCH search type.
      */
     public static final class DfsKnnTimeoutQuery extends AbstractQueryBuilder<DfsKnnTimeoutQuery> {
 
@@ -553,11 +556,32 @@ public class SearchTimeoutIT extends ESIntegTestCase {
             return new Query() {
                 @Override
                 public Weight createWeight(IndexSearcher searcher, ScoreMode scoreMode, float boost) {
-                    // Trigger timeout during weight creation (simulates timeout during DFS KNN rewrite/execution)
                     if (searcher instanceof ContextIndexSearcher contextIndexSearcher) {
                         contextIndexSearcher.throwTimeExceededException();
                     }
-                    throw new AssertionError("should have thrown TimeExceededException");
+                    // DFS phase uses a plain IndexSearcher in collectStatistics; return harmless weight so DFS completes
+                    // and timeout is triggered in the query phase when this query runs with ContextIndexSearcher
+                    return new ConstantScoreWeight(this, boost) {
+                        @Override
+                        public ScorerSupplier scorerSupplier(LeafReaderContext ctx) throws IOException {
+                            return new ScorerSupplier() {
+                                @Override
+                                public Scorer get(long leadCost) throws IOException {
+                                    return new ConstantScoreScorer(score(), scoreMode, DocIdSetIterator.empty());
+                                }
+
+                                @Override
+                                public long cost() {
+                                    return 0;
+                                }
+                            };
+                        }
+
+                        @Override
+                        public boolean isCacheable(LeafReaderContext ctx) {
+                            return false;
+                        }
+                    };
                 }
 
                 @Override

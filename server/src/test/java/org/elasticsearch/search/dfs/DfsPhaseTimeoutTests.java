@@ -17,11 +17,15 @@ import org.apache.lucene.document.StringField;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.IndexWriterConfig;
+import org.apache.lucene.search.CollectorManager;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.MatchAllDocsQuery;
+import org.apache.lucene.search.Query;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.tests.index.RandomIndexWriter;
 import org.apache.lucene.tests.util.LuceneTestCase;
+import org.elasticsearch.action.OriginalIndices;
+import org.elasticsearch.action.search.SearchRequest;
 import org.elasticsearch.action.search.SearchShardTask;
 import org.elasticsearch.cluster.metadata.IndexMetadata;
 import org.elasticsearch.common.settings.Settings;
@@ -32,24 +36,35 @@ import org.elasticsearch.index.cache.bitset.BitsetFilterCache;
 import org.elasticsearch.index.fielddata.IndexFieldDataCache;
 import org.elasticsearch.index.mapper.MapperMetrics;
 import org.elasticsearch.index.mapper.MappingLookup;
+import org.elasticsearch.index.query.ParsedQuery;
 import org.elasticsearch.index.query.SearchExecutionContext;
 import org.elasticsearch.index.query.SearchExecutionContextHelper;
 import org.elasticsearch.index.shard.IndexShard;
 import org.elasticsearch.index.shard.IndexShardTestCase;
 import org.elasticsearch.indices.breaker.NoneCircuitBreakerService;
-import org.elasticsearch.search.SearchService;
+import org.elasticsearch.search.SearchException;
+import org.elasticsearch.search.builder.SearchSourceBuilder;
+import org.elasticsearch.search.internal.AliasFilter;
 import org.elasticsearch.search.internal.ContextIndexSearcher;
-import org.elasticsearch.search.query.QueryPhase;
+import org.elasticsearch.search.internal.ShardSearchRequest;
+import org.elasticsearch.search.profile.Profilers;
+import org.elasticsearch.search.profile.SearchProfileDfsPhaseResult;
+import org.elasticsearch.search.query.SearchTimeoutException;
+import org.elasticsearch.search.vectors.KnnSearchBuilder;
 import org.elasticsearch.test.TestSearchContext;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 
 import java.io.IOException;
 import java.util.Collections;
-import java.util.concurrent.TimeUnit;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import static org.hamcrest.Matchers.instanceOf;
+
 public class DfsPhaseTimeoutTests extends IndexShardTestCase {
+
+    private static final int KNN_K = 10;
 
     private static Directory dir;
     private static IndexReader reader;
@@ -98,78 +113,164 @@ public class DfsPhaseTimeoutTests extends IndexShardTestCase {
         closeShards(indexShard);
     }
 
-    private static ContextIndexSearcher newContextSearcher(IndexReader reader) throws IOException {
-        return new ContextIndexSearcher(
-            reader,
-            IndexSearcher.getDefaultSimilarity(),
-            IndexSearcher.getDefaultQueryCache(),
-            LuceneTestCase.MAYBE_CACHE_POLICY,
-            true
-        );
-    }
-
-    public void testSingleKnnSearchNoTimeout() throws IOException {
-        ContextIndexSearcher cis = newContextSearcher(reader);
-        DfsKnnResults results = DfsPhase.singleKnnSearch(new MatchAllDocsQuery(), 10, null, cis, null);
-        assertNotNull(results);
-        assertEquals(10, results.scoreDocs().length);
-    }
-
-    public void testSingleKnnSearchWithTimeoutNotExceeded() throws Exception {
-        ContextIndexSearcher cis = newContextSearcher(reader);
+    /**
+     * Timeout during DFS KNN search (allow partial). The timeout runnable is active during {@code searcher.search()},
+     * which includes Lucene's query rewrite; so timeout during KNN query rewrite is covered implicitly.
+     */
+    public void testExecuteWithKnnTimeoutExceededAllowPartial() throws Exception {
+        DfsSearchResult dfsResult = new DfsSearchResult(null, null, null);
+        ContextIndexSearcher cis = newThrowingOnFirstSearchSearcher(reader);
 
         try (TestSearchContext context = new TestSearchContext(createSearchExecutionContext(), indexShard, cis) {
             @Override
-            public long getRelativeTimeInMillis() {
-                return 0L;
+            public TimeValue timeout() {
+                return TimeValue.ZERO;
             }
 
             @Override
-            public TimeValue timeout() {
-                return new TimeValue(100, TimeUnit.MILLISECONDS);
+            public DfsSearchResult dfsResult() {
+                return dfsResult;
             }
         }) {
             context.setTask(new SearchShardTask(123L, "", "", "", null, Collections.emptyMap()));
+            context.parsedQuery(new ParsedQuery(new MatchAllDocsQuery()));
+            context.request()
+                .source(
+                    new SearchSourceBuilder().knnSearch(
+                        List.of(
+                            new KnnSearchBuilder(
+                                "float_vector",
+                                new float[] { 0.1f, 0.2f, 0.3f },
+                                KNN_K,
+                                numDocs,
+                                100f,
+                                null,
+                                null
+                            )
+                        )
+                    )
+                );
 
-            Runnable timeoutRunnable = QueryPhase.getTimeoutCheck(context);
-            assertNotNull(timeoutRunnable);
-            cis.addQueryCancellation(timeoutRunnable);
+            DfsPhase.execute(context);
 
-            DfsKnnResults results = DfsPhase.singleKnnSearch(new MatchAllDocsQuery(), 10, null, cis, null);
-            assertNotNull(results);
-            assertEquals(10, results.scoreDocs().length);
+            // Timeout handled: empty kNN results, query result marked timed out
+            assertNotNull(dfsResult.knnResults());
+            assertTrue(dfsResult.knnResults().isEmpty());
+            assertTrue(context.queryResult().searchTimedOut());
         }
     }
 
-    public void testSingleKnnSearchTimesOut() throws Exception {
-        ContextIndexSearcher cis = newContextSearcher(reader);
-        final AtomicBoolean shouldTimeout = new AtomicBoolean(false);
+    public void testExecuteWithKnnTimeoutExceededDisallowPartial() throws Exception {
+        DfsSearchResult dfsResult = new DfsSearchResult(null, null, null);
+        ContextIndexSearcher cis = newThrowingOnFirstSearchSearcher(reader);
+
+        SearchRequest searchRequest = new SearchRequest();
+        searchRequest.allowPartialSearchResults(false);
+        searchRequest.source(
+            new SearchSourceBuilder().knnSearch(
+                List.of(
+                    new KnnSearchBuilder("float_vector", new float[] { 0.1f, 0.2f, 0.3f }, KNN_K, numDocs, 100f, null, null)
+                )
+            )
+        );
+        ShardSearchRequest shardRequest = new ShardSearchRequest(
+            OriginalIndices.NONE,
+            searchRequest,
+            indexShard.shardId(),
+            0,
+            1,
+            AliasFilter.EMPTY,
+            1.0f,
+            System.currentTimeMillis(),
+            null
+        );
 
         try (TestSearchContext context = new TestSearchContext(createSearchExecutionContext(), indexShard, cis) {
             @Override
-            public long getRelativeTimeInMillis() {
-                return shouldTimeout.get() ? 1L : 0L;
+            public ShardSearchRequest request() {
+                return shardRequest;
             }
 
             @Override
             public TimeValue timeout() {
                 return TimeValue.ZERO;
             }
+
+            @Override
+            public DfsSearchResult dfsResult() {
+                return dfsResult;
+            }
         }) {
             context.setTask(new SearchShardTask(123L, "", "", "", null, Collections.emptyMap()));
+            context.parsedQuery(new ParsedQuery(new MatchAllDocsQuery()));
 
-            // Install timeout check — same as our DfsPhase fix does
-            Runnable timeoutRunnable = QueryPhase.getTimeoutCheck(context);
-            assertNotNull(timeoutRunnable);
-            cis.addQueryCancellation(timeoutRunnable);
+            DfsPhaseExecutionException ex = expectThrows(DfsPhaseExecutionException.class, () -> DfsPhase.execute(context));
+            assertNotNull("expected a root cause", ex.getCause());
+            assertTrue("expected the cause to be a SearchTimeoutException", ex.getCause() instanceof SearchTimeoutException);
+        }
+    }
 
-            // Advance time past the timeout threshold before searching
-            shouldTimeout.set(true);
+    // --- Execution scenario: exception during dfs phase is wrapped ---
 
-            expectThrows(
-                ContextIndexSearcher.TimeExceededException.class,
-                () -> DfsPhase.singleKnnSearch(new MatchAllDocsQuery(), 10, null, cis, null)
-            );
+    public void testExecuteWrapsExceptionInDfsPhaseExecutionException() throws Exception {
+        ContextIndexSearcher cis = newContextSearcher(reader);
+        DfsSearchResult dfsResult = new DfsSearchResult(null, null, null);
+
+        try (TestSearchContext context = new TestSearchContext(createSearchExecutionContext(), indexShard, cis) {
+            @Override
+            public DfsSearchResult dfsResult() {
+                return dfsResult;
+            }
+        }) {
+            context.setTask(new SearchShardTask(123L, "", "", "", null, Collections.emptyMap()));
+            // Do not set parsedQuery so that rewrittenQuery() throws IllegalStateException
+            context.request().source(new SearchSourceBuilder());
+
+            SearchException e = expectThrows(DfsPhaseExecutionException.class, () -> DfsPhase.execute(context));
+            assertThat(e.getCause(), instanceOf(IllegalStateException.class));
+        }
+    }
+
+    public void testExecuteWithProfilersSetsProfileResult() throws Exception {
+        ContextIndexSearcher cis = newContextSearcher(reader);
+        DfsSearchResult dfsResult = new DfsSearchResult(null, null, null);
+        Profilers profilers = new Profilers(cis);
+
+        try (TestSearchContext context = new TestSearchContext(createSearchExecutionContext(), indexShard, cis) {
+            @Override
+            public DfsSearchResult dfsResult() {
+                return dfsResult;
+            }
+
+            @Override
+            public Profilers getProfilers() {
+                return profilers;
+            }
+        }) {
+            context.setTask(new SearchShardTask(123L, "", "", "", null, Collections.emptyMap()));
+            context.parsedQuery(new ParsedQuery(new MatchAllDocsQuery()));
+            context.request()
+                .source(
+                    new SearchSourceBuilder().knnSearch(
+                        List.of(
+                            new KnnSearchBuilder(
+                                "float_vector",
+                                new float[] { 0.1f, 0.2f, 0.3f },
+                                KNN_K,
+                                numDocs,
+                                100f,
+                                null,
+                                null
+                            )
+                        )
+                    )
+                );
+
+            DfsPhase.execute(context);
+
+            SearchProfileDfsPhaseResult profileResult = dfsResult.searchProfileDfsPhaseResult();
+            assertNotNull(profileResult);
+            assertNotNull(profileResult.getQueryProfileShardResult());
         }
     }
 
@@ -206,5 +307,38 @@ public class DfsPhaseTimeoutTests extends IndexShardTestCase {
             MapperMetrics.NOOP,
             SearchExecutionContextHelper.SHARD_SEARCH_STATS
         );
+    }
+
+    private static ContextIndexSearcher newContextSearcher(IndexReader reader) throws IOException {
+        return new ContextIndexSearcher(
+            reader,
+            IndexSearcher.getDefaultSimilarity(),
+            IndexSearcher.getDefaultQueryCache(),
+            LuceneTestCase.MAYBE_CACHE_POLICY,
+            true
+        );
+    }
+
+    private static ContextIndexSearcher newThrowingOnFirstSearchSearcher(IndexReader reader) throws IOException {
+        return new ContextIndexSearcher(
+            reader,
+            IndexSearcher.getDefaultSimilarity(),
+            IndexSearcher.getDefaultQueryCache(),
+            LuceneTestCase.MAYBE_CACHE_POLICY,
+            true
+        ) {
+            private final AtomicBoolean searchCalled = new AtomicBoolean(false);
+
+            @Override
+            public <C extends org.apache.lucene.search.Collector, T> T search(
+                Query query,
+                CollectorManager<C, T> collectorManager
+            ) throws IOException {
+                if (searchCalled.compareAndSet(false, true)) {
+                    throwTimeExceededException();
+                }
+                return super.search(query, collectorManager);
+            }
+        };
     }
 }
