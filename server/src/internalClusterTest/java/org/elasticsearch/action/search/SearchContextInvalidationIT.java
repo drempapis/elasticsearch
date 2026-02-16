@@ -253,12 +253,4 @@ public class SearchContextInvalidationIT extends ESIntegTestCase {
         }
         return null;
     }
-
-    private Throwable getRootCause(Throwable t) {
-        Throwable cause = t;
-        while (cause.getCause() != null && cause.getCause() != cause) {
-            cause = cause.getCause();
-        }
-        return cause;
-    }
 }
