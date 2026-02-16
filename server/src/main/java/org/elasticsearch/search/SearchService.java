@@ -1506,6 +1506,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
             // Use ResultsType.QUERY so that the created search context can execute queries correctly.
             DefaultSearchContext searchContext = createSearchContext(readerContext, request, timeout, ResultsType.QUERY);
             searchContext.addReleasable(readerContext.markAsUsed(0L));
+            searchContext.addReleasable(searchContext.getSearchExecutionContext()::releaseQueryConstructionMemory);
             return searchContext;
         }
     }
