@@ -15,7 +15,6 @@ import org.apache.logging.log4j.Logger;
 import org.apache.lucene.search.FieldDoc;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.TopDocs;
-import org.apache.lucene.util.Accountable;
 import org.elasticsearch.ElasticsearchException;
 import org.elasticsearch.ExceptionsHelper;
 import org.elasticsearch.TransportVersion;
@@ -69,7 +68,6 @@ import org.elasticsearch.index.query.InnerHitContextBuilder;
 import org.elasticsearch.index.query.InnerHitsRewriteContext;
 import org.elasticsearch.index.query.MatchAllQueryBuilder;
 import org.elasticsearch.index.query.MatchNoneQueryBuilder;
-import org.elasticsearch.index.query.ParsedQuery;
 import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryRewriteContext;
 import org.elasticsearch.index.query.Rewriteable;
@@ -1546,14 +1544,9 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
             SearchExecutionContext context = new SearchExecutionContext(searchContext.getSearchExecutionContext());
             context.setCircuitBreaker(circuitBreaker);
 
-            try {
-                Rewriteable.rewrite(request.getRewriteable(), context, true);
-            } finally {
-                long memoryUsed = context.getQueryConstructionMemoryUsed();
-                if (memoryUsed > 0 && circuitBreaker != null) {
-                    circuitBreaker.addWithoutBreaking(-memoryUsed);
-                }
-            }
+            Rewriteable.rewrite(request.getRewriteable(), context, true);
+            assert context.getQueryConstructionMemoryUsed() == 0
+                : "rewrite phase should not build queries; found " + context.getQueryConstructionMemoryUsed() + " bytes tracked";
 
             if (context.getTimeRangeFilterFromMillis() != null) {
                 // range queries may get rewritten to match_all or a range with open bounds. Rewriting in that case is the only place
@@ -1733,16 +1726,14 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
                 InnerHitContextBuilder.extractInnerHits(rewrittenForInnerHits, innerHitBuilders);
             }
             searchExecutionContext.setAliasFilter(context.request().getAliasFilter().getQueryBuilder());
-            ParsedQuery parsedQuery = buildQueryWithMemoryAccounting(searchExecutionContext, query, "main_query");
-            context.parsedQuery(parsedQuery);
+            context.parsedQuery(searchExecutionContext.toQuery(query));
         }
         if (source.postFilter() != null) {
             QueryBuilder rewrittenForInnerHits = Rewriteable.rewrite(source.postFilter(), innerHitsRewriteContext, true);
             if (false == source.skipInnerHits()) {
                 InnerHitContextBuilder.extractInnerHits(rewrittenForInnerHits, innerHitBuilders);
             }
-            ParsedQuery parsedPostFilter = buildQueryWithMemoryAccounting(searchExecutionContext, source.postFilter(), "post_filter");
-            context.parsedPostFilter(parsedPostFilter);
+            context.parsedPostFilter(searchExecutionContext.toQuery(source.postFilter()));
         }
         if (innerHitBuilders.size() > 0) {
             for (Map.Entry<String, InnerHitContextBuilder> entry : innerHitBuilders.entrySet()) {
@@ -2417,17 +2408,4 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
         };
     }
 
-    static ParsedQuery buildQueryWithMemoryAccounting(
-        SearchExecutionContext searchExecutionContext,
-        QueryBuilder queryBuilder,
-        String component
-    ) {
-        ParsedQuery parsedQuery = searchExecutionContext.toQuery(queryBuilder);
-        Query query = parsedQuery.query();
-
-        if (query instanceof Accountable accountableQuery) {
-            searchExecutionContext.addQueryConstructionMemory(accountableQuery.ramBytesUsed(), component);
-        }
-        return parsedQuery;
-    }
 }

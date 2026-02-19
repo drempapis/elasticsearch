@@ -48,7 +48,6 @@ import org.elasticsearch.index.mapper.RootObjectMapper;
 import org.elasticsearch.index.query.BoolQueryBuilder;
 import org.elasticsearch.index.query.MatchAllQueryBuilder;
 import org.elasticsearch.index.query.MatchNoneQueryBuilder;
-import org.elasticsearch.index.query.ParsedQuery;
 import org.elasticsearch.index.query.QueryRewriteContext;
 import org.elasticsearch.index.query.QueryShardException;
 import org.elasticsearch.index.query.RangeQueryBuilder;
@@ -412,9 +411,8 @@ public class SearchServiceTests extends IndexShardTestCase {
                 long cbBefore = cb.getUsed();
 
                 WildcardQueryBuilder queryBuilder = new WildcardQueryBuilder("field", "*test*pattern*");
-                ParsedQuery result = SearchService.buildQueryWithMemoryAccounting(context, queryBuilder, "main_query");
+                assertNotNull(queryBuilder.toQuery(context));
 
-                assertNotNull(result);
                 long cbAfter = cb.getUsed();
                 long tracked = context.getQueryConstructionMemoryUsed();
 
@@ -441,12 +439,7 @@ public class SearchServiceTests extends IndexShardTestCase {
                     boolQuery.should(new WildcardQueryBuilder("field", "*a*b*c*" + i + "*"));
                 }
 
-                QueryShardException e = expectThrows(
-                    QueryShardException.class,
-                    () -> SearchService.buildQueryWithMemoryAccounting(context, boolQuery, "main_query")
-                );
-                assertThat(e.getCause(), instanceOf(CircuitBreakingException.class));
-                assertThat(e.getCause().getMessage(), containsString("Data too large"));
+                expectThrows(CircuitBreakingException.class, () -> boolQuery.toQuery(context));
             }
         } finally {
             closeShards(indexShard);
@@ -463,11 +456,7 @@ public class SearchServiceTests extends IndexShardTestCase {
                 context.setCircuitBreaker(cb);
 
                 for (int i = 0; i < 3; i++) {
-                    SearchService.buildQueryWithMemoryAccounting(
-                        context,
-                        new WildcardQueryBuilder("field", "*test" + i + "*"),
-                        "query_" + i
-                    );
+                    new WildcardQueryBuilder("field", "*test" + i + "*").toQuery(context);
                 }
 
                 long cbAfterBuild = cb.getUsed();
