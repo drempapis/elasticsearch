@@ -374,7 +374,7 @@ public class ElasticsearchException extends RuntimeException implements ToXConte
     }
 
     @Override
-    public void writeTo(StreamOutput out) throws IOException {
+    public final void writeTo(StreamOutput out) throws IOException {
         writeTo(out, createNestingFunction(0, () -> {}));
     }
 

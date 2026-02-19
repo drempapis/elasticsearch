@@ -27,6 +27,7 @@ import org.elasticsearch.transport.Transport;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiFunction;
@@ -345,10 +346,7 @@ public class SearchScrollAsyncActionTests extends ESTestCase {
                     SearchContextMissingNodesException ex = (SearchContextMissingNodesException) e;
                     assertEquals(RestStatus.NOT_FOUND, ex.status());
                     assertEquals("scroll", ex.getContextType());
-
-                    String message = ex.getMessage();
-                    assertThat(message, containsString("scroll"));
-                    assertThat(message, containsString("Context type no longer valid"));
+                    assertEquals(Set.of("node3", "node2", "node1"), ex.getMissingNodeIds());
                 } finally {
                     latch.countDown();
                 }
@@ -428,17 +426,14 @@ public class SearchScrollAsyncActionTests extends ESTestCase {
             @Override
             public void onFailure(Exception e) {
                 try {
-                    assertTrue(e instanceof SearchContextMissingNodesException);
+                    assertTrue(
+                        "Expected SearchContextMissingNodesException but got: " + e.getClass().getName(),
+                        e instanceof SearchContextMissingNodesException
+                    );
                     SearchContextMissingNodesException ex = (SearchContextMissingNodesException) e;
-
                     assertEquals(RestStatus.NOT_FOUND, ex.status());
                     assertEquals("scroll", ex.getContextType());
                     assertTrue(ex.getMissingNodeIds().contains("missing-node"));
-
-                    String message = ex.getMessage();
-                    assertThat(message, containsString("scroll"));
-                    assertThat(message, containsString("missing-node"));
-                    assertThat(message, containsString("Context type no longer valid"));
                 } finally {
                     latch.countDown();
                 }

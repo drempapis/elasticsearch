@@ -37,7 +37,7 @@ public class SearchContextMissingNodesException extends ElasticsearchException {
     /**
      * The transport version at which this exception type was introduced.
      */
-    public static TransportVersion SEARCH_CONTEXT_MISSING_NODES_EXCEPTION_VERSION = TransportVersion.fromName(
+    public static final TransportVersion SEARCH_CONTEXT_MISSING_NODES_EXCEPTION_VERSION = TransportVersion.fromName(
         "search_context_missing_nodes_exception"
     );
 
@@ -71,14 +71,13 @@ public class SearchContextMissingNodesException extends ElasticsearchException {
 
     /**
      * Serializes this exception to a StreamOutput.
-     * Used for transport communication between nodes.
-     *
-     * @param out the output stream to write to
-     * @throws IOException if an I/O error occurs while writing to the stream
+     * Overrides the protected two-arg overload so that custom fields are written
+     * both on the direct {@code Writeable.writeTo} path and on the
+     * {@code ElasticsearchException.writeException} nesting path.
      */
     @Override
-    public void writeTo(StreamOutput out) throws IOException {
-        super.writeTo(out);
+    protected void writeTo(StreamOutput out, Writer<Throwable> nestedExceptionsWriter) throws IOException {
+        super.writeTo(out, nestedExceptionsWriter);
         out.writeString(contextType);
         out.writeStringCollection(missingNodeIds);
     }
@@ -137,10 +136,6 @@ public class SearchContextMissingNodesException extends ElasticsearchException {
      * @return a formatted error message describing the exception
      */
     private static String buildMessage(String contextType, Set<String> missingNodeIds) {
-        return "Search context of type ["
-            + contextType
-            + "] references nodes that have left the cluster: "
-            + missingNodeIds
-            + ". Context type no longer valid.";
+        return "Search context of type [" + contextType + "] references nodes that have left the cluster: " + missingNodeIds;
     }
 }

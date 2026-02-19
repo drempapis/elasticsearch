@@ -288,10 +288,17 @@ abstract class SearchScrollAsyncAction<T extends SearchPhaseResult> {
         assert successfulOperations >= 0 : "successfulOperations must be >= 0 but was: " + successfulOperations;
         if (counter.countDown()) {
             if (successfulOps.get() == 0) {
-                if (failure instanceof SearchContextMissingNodesException) {
-                    listener.onFailure(failure);
+                ShardSearchFailure[] failures = buildShardFailures();
+                Set<String> missingNodeIds = new HashSet<>();
+                for (ShardSearchFailure f : failures) {
+                    if (f.getCause() instanceof SearchContextMissingNodesException scmne) {
+                        missingNodeIds.addAll(scmne.getMissingNodeIds());
+                    }
+                }
+                if (missingNodeIds.isEmpty() == false) {
+                    listener.onFailure(new SearchContextMissingNodesException("scroll", missingNodeIds));
                 } else {
-                    listener.onFailure(new SearchPhaseExecutionException(phaseName, "all shards failed", failure, buildShardFailures()));
+                    listener.onFailure(new SearchPhaseExecutionException(phaseName, "all shards failed", failure, failures));
                 }
             } else {
                 SearchPhase phase = nextPhaseSupplier.get();
