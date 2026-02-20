@@ -30,7 +30,7 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.greaterThan;
 
-@ClusterScope(scope = Scope.TEST, numDataNodes = 0, numClientNodes = 0)
+@ClusterScope(scope = Scope.TEST)
 public class SearchContextInvalidationIT extends ESIntegTestCase {
 
     @Override
@@ -42,10 +42,6 @@ public class SearchContextInvalidationIT extends ESIntegTestCase {
     }
 
     public void testScrollReturns404WhenNodeLeavesCluster() throws Exception {
-        String masterNode = internalCluster().startMasterOnlyNode();
-        String dataNode1 = internalCluster().startDataOnlyNode();
-        String dataNode2 = internalCluster().startDataOnlyNode();
-
         assertAcked(
             prepareCreate("test-index").setSettings(Settings.builder().put("index.number_of_shards", 1).put("index.number_of_replicas", 0))
         );
@@ -71,7 +67,7 @@ public class SearchContextInvalidationIT extends ESIntegTestCase {
             assertThat(searchResponse.getHits().getHits().length, greaterThan(0));
 
             internalCluster().stopNode(nodeWithShard);
-            ensureStableCluster(2);
+            ensureStableCluster(internalCluster().size());
 
             SearchContextMissingNodesException ex = expectThrows(
                 SearchContextMissingNodesException.class,
@@ -92,7 +88,6 @@ public class SearchContextInvalidationIT extends ESIntegTestCase {
     }
 
     public void testScrollWorksWhenUnrelatedNodeLeaves() throws Exception {
-        String masterNode = internalCluster().startMasterOnlyNode();
         String dataNode1 = internalCluster().startDataOnlyNode();
         String dataNode2 = internalCluster().startDataOnlyNode();
 
@@ -125,7 +120,7 @@ public class SearchContextInvalidationIT extends ESIntegTestCase {
             assertNotNull(scrollId);
 
             internalCluster().stopNode(dataNode2);
-            ensureStableCluster(2);
+            ensureStableCluster(internalCluster().size());
 
             scrollResponse = client().prepareSearchScroll(scrollId).setScroll(TimeValue.timeValueMinutes(1)).get();
             assertNotNull(scrollResponse);
@@ -146,9 +141,7 @@ public class SearchContextInvalidationIT extends ESIntegTestCase {
      * see RetrySearchIntegTests for those scenarios.
      */
     public void testPitReturns404WhenNodeLeavesCluster() throws Exception {
-        String masterNode = internalCluster().startMasterOnlyNode();
         String dataNode1 = internalCluster().startDataOnlyNode();
-        String dataNode2 = internalCluster().startDataOnlyNode();
 
         assertAcked(
             prepareCreate("test-index").setSettings(
@@ -182,7 +175,7 @@ public class SearchContextInvalidationIT extends ESIntegTestCase {
         }
 
         internalCluster().stopNode(dataNode1);
-        ensureStableCluster(2);
+        ensureStableCluster(internalCluster().size());
 
         SearchContextMissingNodesException ex = expectThrows(
             SearchContextMissingNodesException.class,
@@ -201,7 +194,6 @@ public class SearchContextInvalidationIT extends ESIntegTestCase {
     }
 
     public void testPitWorksWhenUnrelatedNodeLeaves() throws Exception {
-        String masterNode = internalCluster().startMasterOnlyNode();
         String dataNode1 = internalCluster().startDataOnlyNode();
         String dataNode2 = internalCluster().startDataOnlyNode();
 
@@ -227,7 +219,7 @@ public class SearchContextInvalidationIT extends ESIntegTestCase {
         assertNotNull("Should have PIT ID", pitId);
 
         internalCluster().stopNode(dataNode2);
-        ensureStableCluster(2);
+        ensureStableCluster(internalCluster().size());
 
         SearchResponse searchResponse = prepareSearch().setPointInTime(new PointInTimeBuilder(pitId))
             .setQuery(matchAllQuery())
