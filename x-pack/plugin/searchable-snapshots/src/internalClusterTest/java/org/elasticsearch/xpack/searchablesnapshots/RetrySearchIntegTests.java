@@ -236,7 +236,6 @@ public class RetrySearchIntegTests extends BaseSearchableSnapshotsIntegTestCase 
         }
     }
 
-
     public void testRetryPointInTimeAfterNodeDrop() throws Exception {
         final String indexName = randomAlphaOfLength(10).toLowerCase(Locale.ROOT);
         final int docCount = between(0, 100);
