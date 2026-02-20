@@ -273,7 +273,6 @@ public class RetrySearchIntegTests extends BaseSearchableSnapshotsIntegTestCase 
 
             final String droppedNode = randomFrom(pitNodeNames);
             internalCluster().stopNode(droppedNode);
-            ensureGreen(indexName);
 
             assertNoFailuresAndResponse(
                 prepareSearch().setSearchType(SearchType.QUERY_THEN_FETCH)
