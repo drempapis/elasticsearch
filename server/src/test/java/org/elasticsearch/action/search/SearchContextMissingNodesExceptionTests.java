@@ -28,10 +28,13 @@ public class SearchContextMissingNodesExceptionTests extends ESTestCase {
 
     public void testScrollExceptionMessage() {
         Set<String> missingNodes = Set.of("node1", "node2");
-        SearchContextMissingNodesException ex = new SearchContextMissingNodesException("scroll", missingNodes);
+        SearchContextMissingNodesException ex = new SearchContextMissingNodesException(
+            SearchContextMissingNodesException.ContextType.SCROLL,
+            missingNodes
+        );
 
         assertThat(ex.status(), equalTo(RestStatus.NOT_FOUND));
-        assertThat(ex.getContextType(), equalTo("scroll"));
+        assertThat(ex.getContextType(), equalTo(SearchContextMissingNodesException.ContextType.SCROLL));
         assertThat(ex.getMissingNodeIds(), equalTo(missingNodes));
 
         assertThat(ex.getMessage(), containsString("Search context of type [scroll] references nodes that have left the cluster:"));
@@ -39,7 +42,10 @@ public class SearchContextMissingNodesExceptionTests extends ESTestCase {
 
     public void testSerialization() throws IOException {
         Set<String> missingNodes = Set.of("node1", "node2", "node3");
-        SearchContextMissingNodesException original = new SearchContextMissingNodesException("scroll", missingNodes);
+        SearchContextMissingNodesException original = new SearchContextMissingNodesException(
+            SearchContextMissingNodesException.ContextType.SCROLL,
+            missingNodes
+        );
 
         BytesStreamOutput out = new BytesStreamOutput();
         original.writeTo(out);
@@ -55,7 +61,10 @@ public class SearchContextMissingNodesExceptionTests extends ESTestCase {
 
     public void testToXContent() throws IOException {
         Set<String> missingNodes = Set.of("node1", "node2");
-        SearchContextMissingNodesException ex = new SearchContextMissingNodesException("scroll", missingNodes);
+        SearchContextMissingNodesException ex = new SearchContextMissingNodesException(
+            SearchContextMissingNodesException.ContextType.SCROLL,
+            missingNodes
+        );
 
         XContentBuilder builder = XContentFactory.jsonBuilder();
         builder.startObject();
@@ -71,7 +80,10 @@ public class SearchContextMissingNodesExceptionTests extends ESTestCase {
     }
 
     public void testStatus() {
-        SearchContextMissingNodesException ex = new SearchContextMissingNodesException("scroll", Set.of("node1"));
+        SearchContextMissingNodesException ex = new SearchContextMissingNodesException(
+            SearchContextMissingNodesException.ContextType.SCROLL,
+            Set.of("node1")
+        );
         assertThat(ex.status(), equalTo(RestStatus.NOT_FOUND));
         assertThat(ex.status().getStatus(), equalTo(404));
     }

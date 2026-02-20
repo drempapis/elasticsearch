@@ -2426,7 +2426,7 @@ public class TransportSearchAction extends HandledTransportAction<SearchRequest,
         }
 
         if (missingNodes.isEmpty() == false && allowPartialSearchResults == false) {
-            throw new SearchContextMissingNodesException("pit", missingNodes);
+            throw new SearchContextMissingNodesException(SearchContextMissingNodesException.ContextType.PIT, missingNodes);
         }
 
         return iterators;

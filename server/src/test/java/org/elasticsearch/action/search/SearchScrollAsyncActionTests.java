@@ -345,7 +345,7 @@ public class SearchScrollAsyncActionTests extends ESTestCase {
                     );
                     SearchContextMissingNodesException ex = (SearchContextMissingNodesException) e;
                     assertEquals(RestStatus.NOT_FOUND, ex.status());
-                    assertEquals("scroll", ex.getContextType());
+                    assertEquals(SearchContextMissingNodesException.ContextType.SCROLL, ex.getContextType());
                     assertEquals(Set.of("node3", "node2", "node1"), ex.getMissingNodeIds());
                 } finally {
                     latch.countDown();
@@ -432,7 +432,7 @@ public class SearchScrollAsyncActionTests extends ESTestCase {
                     );
                     SearchContextMissingNodesException ex = (SearchContextMissingNodesException) e;
                     assertEquals(RestStatus.NOT_FOUND, ex.status());
-                    assertEquals("scroll", ex.getContextType());
+                    assertEquals(SearchContextMissingNodesException.ContextType.SCROLL, ex.getContextType());
                     assertTrue(ex.getMissingNodeIds().contains("missing-node"));
                 } finally {
                     latch.countDown();

@@ -1840,7 +1840,7 @@ public class TransportSearchActionTests extends ESTestCase {
         );
 
         assertThat(exception.status(), equalTo(RestStatus.NOT_FOUND));
-        assertThat(exception.getContextType(), equalTo("pit"));
+        assertThat(exception.getContextType(), equalTo(SearchContextMissingNodesException.ContextType.PIT));
         assertThat(exception.getMissingNodeIds(), containsInAnyOrder(missingNodeId));
         assertThat(exception.getMessage(), containsString("pit"));
         assertThat(exception.getMessage(), containsString(missingNodeId));

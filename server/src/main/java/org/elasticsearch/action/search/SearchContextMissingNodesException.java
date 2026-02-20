@@ -17,6 +17,7 @@ import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.xcontent.XContentBuilder;
 
 import java.io.IOException;
+import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -35,6 +36,29 @@ import java.util.Set;
 public class SearchContextMissingNodesException extends ElasticsearchException {
 
     /**
+     * The type of search context that became invalid.
+     */
+    public enum ContextType {
+        SCROLL,
+        PIT;
+
+        private final String value;
+
+        ContextType() {
+            this.value = name().toLowerCase(Locale.ROOT);
+        }
+
+        @Override
+        public String toString() {
+            return value;
+        }
+
+        public static ContextType fromString(String value) {
+            return ContextType.valueOf(value.toUpperCase(Locale.ROOT));
+        }
+    }
+
+    /**
      * The transport version at which this exception type was introduced.
      */
     public static final TransportVersion SEARCH_CONTEXT_MISSING_NODES_EXCEPTION_VERSION = TransportVersion.fromName(
@@ -42,15 +66,15 @@ public class SearchContextMissingNodesException extends ElasticsearchException {
     );
 
     private final Set<String> missingNodeIds;
-    private final String contextType;
+    private final ContextType contextType;
 
     /**
      * Constructs a new SearchContextMissingNodesException.
      *
-     * @param contextType the type of search context (e.g., "pit", "scroll")
+     * @param contextType the type of search context
      * @param missingNodeIds the set of node IDs that have left the cluster
      */
-    public SearchContextMissingNodesException(String contextType, Set<String> missingNodeIds) {
+    public SearchContextMissingNodesException(ContextType contextType, Set<String> missingNodeIds) {
         super(buildMessage(contextType, missingNodeIds));
         this.contextType = contextType;
         this.missingNodeIds = Set.copyOf(missingNodeIds);
@@ -65,7 +89,7 @@ public class SearchContextMissingNodesException extends ElasticsearchException {
      */
     public SearchContextMissingNodesException(StreamInput in) throws IOException {
         super(in);
-        this.contextType = in.readString();
+        this.contextType = ContextType.fromString(in.readString());
         this.missingNodeIds = in.readCollectionAsImmutableSet(StreamInput::readString);
     }
 
@@ -78,7 +102,7 @@ public class SearchContextMissingNodesException extends ElasticsearchException {
     @Override
     protected void writeTo(StreamOutput out, Writer<Throwable> nestedExceptionsWriter) throws IOException {
         super.writeTo(out, nestedExceptionsWriter);
-        out.writeString(contextType);
+        out.writeString(contextType.toString());
         out.writeStringCollection(missingNodeIds);
     }
 
@@ -102,7 +126,7 @@ public class SearchContextMissingNodesException extends ElasticsearchException {
      */
     @Override
     protected void metadataToXContent(XContentBuilder builder, Params params) throws IOException {
-        builder.field("context_type", contextType);
+        builder.field("context_type", contextType.toString());
         builder.startArray("missing_nodes");
         for (String nodeId : missingNodeIds) {
             builder.value(nodeId);
@@ -122,20 +146,13 @@ public class SearchContextMissingNodesException extends ElasticsearchException {
     /**
      * Returns the type of search context that is no longer valid.
      *
-     * @return the context type (e.g., "pit", "scroll")
+     * @return the context type
      */
-    public String getContextType() {
+    public ContextType getContextType() {
         return contextType;
     }
 
-    /**
-     * Builds the exception message from the context information.
-     *
-     * @param contextType the type of search context
-     * @param missingNodeIds the set of node IDs that have left the cluster
-     * @return a formatted error message describing the exception
-     */
-    private static String buildMessage(String contextType, Set<String> missingNodeIds) {
+    private static String buildMessage(ContextType contextType, Set<String> missingNodeIds) {
         return "Search context of type [" + contextType + "] references nodes that have left the cluster: " + missingNodeIds;
     }
 }

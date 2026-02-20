@@ -135,7 +135,7 @@ abstract class SearchScrollAsyncAction<T extends SearchPhaseResult> {
             try {
                 DiscoveryNode node = clusterNodeLookup.apply(target.getClusterAlias(), target.getNode());
                 if (node == null) {
-                    throw new SearchContextMissingNodesException("scroll", Set.of(target.getNode()));
+                    throw new SearchContextMissingNodesException(SearchContextMissingNodesException.ContextType.SCROLL, Set.of(target.getNode()));
                 }
                 connection = getConnection(target.getClusterAlias(), node);
             } catch (Exception ex) {
@@ -296,7 +296,7 @@ abstract class SearchScrollAsyncAction<T extends SearchPhaseResult> {
                     }
                 }
                 if (missingNodeIds.isEmpty() == false) {
-                    listener.onFailure(new SearchContextMissingNodesException("scroll", missingNodeIds));
+                    listener.onFailure(new SearchContextMissingNodesException(SearchContextMissingNodesException.ContextType.SCROLL, missingNodeIds));
                 } else {
                     listener.onFailure(new SearchPhaseExecutionException(phaseName, "all shards failed", failure, failures));
                 }
