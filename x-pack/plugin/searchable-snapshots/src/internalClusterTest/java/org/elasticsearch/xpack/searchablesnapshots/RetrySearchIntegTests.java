@@ -246,10 +246,7 @@ public class RetrySearchIntegTests extends BaseSearchableSnapshotsIntegTestCase 
         final int numShards = between(1, 3);
         createTestIndex(indexName, docCount, numShards);
 
-        updateIndexSettings(
-            Settings.builder().put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, between(0, dataNodes.size() - 2)),
-            indexName
-        );
+        updateIndexSettings(Settings.builder().put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, between(0, dataNodes.size() - 2)), indexName);
         updateIndexSettings(Settings.builder().put("index.routing.allocation.include._name", String.join(",", dataNodes)), indexName);
         ensureGreen(indexName);
 
