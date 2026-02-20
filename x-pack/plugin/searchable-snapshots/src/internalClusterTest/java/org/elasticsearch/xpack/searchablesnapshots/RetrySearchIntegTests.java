@@ -37,6 +37,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Collectors;
 
 import static org.elasticsearch.common.bytes.BytesReferenceTestUtils.equalBytes;
 import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertAcked;
@@ -237,17 +238,23 @@ public class RetrySearchIntegTests extends BaseSearchableSnapshotsIntegTestCase 
     }
 
     public void testRetryPointInTimeAfterNodeDrop() throws Exception {
+        internalCluster().startMasterOnlyNode();
+        final List<String> dataNodes = internalCluster().startDataOnlyNodes(3);
+
         final String indexName = randomAlphaOfLength(10).toLowerCase(Locale.ROOT);
         final int docCount = between(0, 100);
         final int numShards = between(1, 3);
         createTestIndex(indexName, docCount, numShards);
-        internalCluster().ensureAtLeastNumDataNodes(internalCluster().numDataNodes() + 1);
+
+        updateIndexSettings(Settings.builder().put("index.routing.allocation.include._name", String.join(",", dataNodes)), indexName);
+        ensureGreen(indexName);
 
         final OpenPointInTimeRequest openRequest = new OpenPointInTimeRequest(indexName).indicesOptions(
             IndicesOptions.STRICT_EXPAND_OPEN_FORBID_CLOSED
         ).keepAlive(TimeValue.timeValueMinutes(2));
         final BytesReference pitId = client().execute(TransportOpenPointInTimeAction.TYPE, openRequest).actionGet().getPointInTimeId();
-        assertEquals(numShards, SearchContextId.decode(writableRegistry(), pitId).shards().size());
+        final SearchContextId searchContextId = SearchContextId.decode(writableRegistry(), pitId);
+        assertEquals(numShards, searchContextId.shards().size());
 
         SetOnce<BytesReference> updatedPit = new SetOnce<>();
         try {
@@ -256,10 +263,15 @@ public class RetrySearchIntegTests extends BaseSearchableSnapshotsIntegTestCase 
                 assertHitCount(resp, docCount);
             });
 
-            final Set<String> allocatedNodes = internalCluster().nodesInclude(indexName);
-            assertFalse("index should be allocated", allocatedNodes.isEmpty());
+            final var discoveryNodes = clusterService().state().nodes();
+            final Set<String> pitNodeNames = searchContextId.shards()
+                .values()
+                .stream()
+                .map(ctx -> discoveryNodes.get(ctx.getNode()).getName())
+                .collect(Collectors.toSet());
+            assertFalse("PIT should reference at least one node", pitNodeNames.isEmpty());
 
-            final String droppedNode = randomFrom(allocatedNodes);
+            final String droppedNode = randomFrom(pitNodeNames);
             internalCluster().stopNode(droppedNode);
             ensureGreen(indexName);
 
