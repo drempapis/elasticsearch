@@ -236,6 +236,66 @@ public class RetrySearchIntegTests extends BaseSearchableSnapshotsIntegTestCase 
         }
     }
 
+
+    public void testRetryPointInTimeAfterNodeDrop() throws Exception {
+        final String indexName = randomAlphaOfLength(10).toLowerCase(Locale.ROOT);
+        final int docCount = between(0, 100);
+        final int numShards = between(1, 3);
+        createTestIndex(indexName, docCount, numShards);
+        internalCluster().ensureAtLeastNumDataNodes(internalCluster().numDataNodes() + 1);
+
+        final OpenPointInTimeRequest openRequest = new OpenPointInTimeRequest(indexName).indicesOptions(
+            IndicesOptions.STRICT_EXPAND_OPEN_FORBID_CLOSED
+        ).keepAlive(TimeValue.timeValueMinutes(2));
+        final BytesReference pitId = client().execute(TransportOpenPointInTimeAction.TYPE, openRequest).actionGet().getPointInTimeId();
+        assertEquals(numShards, SearchContextId.decode(writableRegistry(), pitId).shards().size());
+
+        SetOnce<BytesReference> updatedPit = new SetOnce<>();
+        try {
+            assertNoFailuresAndResponse(prepareSearch().setPointInTime(new PointInTimeBuilder(pitId)), resp -> {
+                assertThat(resp.pointInTimeId(), equalBytes(pitId));
+                assertHitCount(resp, docCount);
+            });
+
+            final Set<String> allocatedNodes = internalCluster().nodesInclude(indexName);
+            assertFalse("index should be allocated", allocatedNodes.isEmpty());
+
+            final String droppedNode = randomFrom(allocatedNodes);
+            internalCluster().stopNode(droppedNode);
+            ensureGreen(indexName);
+
+            assertNoFailuresAndResponse(
+                prepareSearch().setSearchType(SearchType.QUERY_THEN_FETCH)
+                    .setAllowPartialSearchResults(randomBoolean())
+                    .setPointInTime(new PointInTimeBuilder(pitId).setKeepAlive(TimeValue.timeValueMinutes(2))),
+                resp -> {
+                    assertHitCount(resp, docCount);
+                    updatedPit.set(resp.pointInTimeId());
+                }
+            );
+            logger.info("---> first search after node drop finished");
+
+            assertNoFailuresAndResponse(
+                prepareSearch().setQuery(new RangeQueryBuilder("created_date").gte("2011-01-01").lte("2011-12-12"))
+                    .setSearchType(SearchType.QUERY_THEN_FETCH)
+                    .setPreFilterShardSize(between(1, 10))
+                    .setAllowPartialSearchResults(randomBoolean())
+                    .setPointInTime(new PointInTimeBuilder(updatedPit.get()).setKeepAlive(TimeValue.timeValueMinutes(2))),
+                resp -> {
+                    assertThat(resp.pointInTimeId(), equalBytes(updatedPit.get()));
+                    assertHitCount(resp, docCount);
+                }
+            );
+            logger.info("---> second search after node drop finished");
+        } catch (Exception e) {
+            logger.error("---> unexpected exception", e);
+            throw e;
+        } finally {
+            BytesReference pitToClose = updatedPit.get() != null ? updatedPit.get() : pitId;
+            client().execute(TransportClosePointInTimeAction.TYPE, new ClosePointInTimeRequest(pitToClose)).actionGet();
+        }
+    }
+
     private void createTestIndex(String indexName, int docCount, int numShards) throws Exception {
         assertAcked(
             indicesAdmin().prepareCreate(indexName)

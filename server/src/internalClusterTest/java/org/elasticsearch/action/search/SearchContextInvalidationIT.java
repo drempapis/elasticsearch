@@ -139,6 +139,12 @@ public class SearchContextInvalidationIT extends ESIntegTestCase {
         }
     }
 
+    /**
+     * Verifies that a PIT search returns 404 when the node holding the shard leaves the cluster
+     * and the PIT search context IDs are not retryable. For retryable PITs (e.g., searchable snapshots in stateful or
+     * relocated PITs in serverless), the search can be retried on other nodes holding the same data;
+     * see RetrySearchIntegTests for those scenarios.
+     */
     public void testPitReturns404WhenNodeLeavesCluster() throws Exception {
         String masterNode = internalCluster().startMasterOnlyNode();
         String dataNode1 = internalCluster().startDataOnlyNode();
