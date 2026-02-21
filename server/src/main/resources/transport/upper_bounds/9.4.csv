@@ -1,5 +1,0 @@
-<<<<<<< HEAD
-gpu_vector_indexing_telemetry,9288000
-=======
-search_context_missing_nodes_exception,9291000
->>>>>>> d70ecdac316 (Return 404 instead of 500 when scroll/PIT references nodes that have left the cluster (#142405))
