@@ -155,10 +155,9 @@ public class DfsPhaseTimeoutTests extends IndexShardTestCase {
 
             DfsPhase.execute(context);
 
-            // Timeout handled: empty kNN results, query result marked timed out
             assertNotNull(dfsResult.knnResults());
             assertTrue(dfsResult.knnResults().isEmpty());
-            assertTrue(context.queryResult().searchTimedOut());
+            assertTrue(dfsResult.searchTimedOut());
         }
     }
 
@@ -206,10 +205,9 @@ public class DfsPhaseTimeoutTests extends IndexShardTestCase {
             context.setTask(new SearchShardTask(123L, "", "", "", null, Collections.emptyMap()));
             context.parsedQuery(new ParsedQuery(new MatchAllDocsQuery()));
 
-            DfsPhaseExecutionException ex = expectThrows(DfsPhaseExecutionException.class, () -> DfsPhase.execute(context));
-            assertNotNull("expected a root cause", ex.getCause());
-            assertTrue("expected the cause to be a SearchTimeoutException", ex.getCause() instanceof SearchTimeoutException);
-            assertThat(((SearchTimeoutException) ex.getCause()).status(), equalTo(RestStatus.TOO_MANY_REQUESTS));
+            SearchTimeoutException ex = expectThrows(SearchTimeoutException.class, () -> DfsPhase.execute(context));
+            assertThat(ex.status(), equalTo(RestStatus.TOO_MANY_REQUESTS));
+            assertTrue(ex.isTimeout());
         }
     }
 

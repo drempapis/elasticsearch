@@ -65,6 +65,8 @@ public class DfsPhase {
             if (context.getProfilers() != null) {
                 context.dfsResult().profileResult(context.getProfilers().getDfsProfiler().buildDfsPhaseResults());
             }
+        } catch (SearchTimeoutException e) {
+            throw e;
         } catch (Exception e) {
             throw new DfsPhaseExecutionException(context.shardTarget(), "Exception during dfs phase", e);
         }
@@ -218,13 +220,17 @@ public class DfsPhase {
             opsListener = null;
         } catch (ContextIndexSearcher.TimeExceededException e) {
             context.dfsResult().knnResults(List.of());
-            SearchTimeoutException.handleTimeout(
-                context.request().allowPartialSearchResults(),
-                context.shardTarget(),
-                context.queryResult()
-            );
+            if (context.request().allowPartialSearchResults() == false) {
+                throw new SearchTimeoutException(context.shardTarget(), "Time exceeded");
+            }
+            context.dfsResult().searchTimedOut(true);
+            opsListener.onQueryPhase(context, System.nanoTime() - beforeQueryTime);
+            opsListener = null;
             return;
         } finally {
+            if (timeoutRunnable != null) {
+                context.searcher().removeQueryCancellation(timeoutRunnable);
+            }
             if (opsListener != null) {
                 opsListener.onFailedQueryPhase(context);
             }
