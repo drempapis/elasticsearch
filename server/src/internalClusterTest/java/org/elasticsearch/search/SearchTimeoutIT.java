@@ -47,6 +47,7 @@ import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.search.aggregations.bucket.terms.StringTerms;
 import org.elasticsearch.search.aggregations.bucket.terms.TermsAggregationBuilder;
 import org.elasticsearch.search.internal.ContextIndexSearcher;
+import org.elasticsearch.search.vectors.KnnSearchBuilder;
 import org.elasticsearch.search.rescore.RescoreContext;
 import org.elasticsearch.search.rescore.Rescorer;
 import org.elasticsearch.search.rescore.RescorerBuilder;
@@ -333,7 +334,13 @@ public class SearchTimeoutIT extends ESIntegTestCase {
     public void testDfsKnnTimeoutWithPartialResults() {
         SearchRequestBuilder searchRequestBuilder = prepareSearch("test_knn").setSearchType(SearchType.DFS_QUERY_THEN_FETCH)
             .setTimeout(new TimeValue(10, TimeUnit.SECONDS))
-            .setQuery(new DfsKnnTimeoutQuery());
+            .setKnnSearch(
+                List.of(
+                    new KnnSearchBuilder("vector", new float[] { 0.1f, 0.2f, 0.3f }, 10, 100, null, null, null).addFilterQuery(
+                        new DfsKnnTimeoutQuery()
+                    )
+                )
+            );
         ElasticsearchAssertions.assertResponse(searchRequestBuilder, searchResponse -> {
             assertThat(searchResponse.isTimedOut(), equalTo(true));
             assertEquals(0, searchResponse.getShardFailures().length);
@@ -348,7 +355,13 @@ public class SearchTimeoutIT extends ESIntegTestCase {
             ElasticsearchException.class,
             prepareSearch("test_knn").setSearchType(SearchType.DFS_QUERY_THEN_FETCH)
                 .setTimeout(new TimeValue(10, TimeUnit.SECONDS))
-                .setQuery(new DfsKnnTimeoutQuery())
+                .setKnnSearch(
+                    List.of(
+                        new KnnSearchBuilder("vector", new float[] { 0.1f, 0.2f, 0.3f }, 10, 100, null, null, null).addFilterQuery(
+                            new DfsKnnTimeoutQuery()
+                        )
+                    )
+                )
                 .setAllowPartialSearchResults(false)
         );
         assertTrue(ex.toString().contains("Time exceeded"));
