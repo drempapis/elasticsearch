@@ -115,10 +115,6 @@ public class DfsPhaseTimeoutTests extends IndexShardTestCase {
         closeShards(indexShard);
     }
 
-    /**
-     * Timeout during DFS KNN search (allow partial). The timeout runnable is active during {@code searcher.search()},
-     * which includes Lucene's query rewrite; so timeout during KNN query rewrite is covered implicitly.
-     */
     public void testExecuteWithKnnTimeoutExceededAllowPartial() throws Exception {
         DfsSearchResult dfsResult = new DfsSearchResult(null, null, null);
         ContextIndexSearcher cis = newThrowingOnFirstSearchSearcher(reader);
@@ -211,8 +207,6 @@ public class DfsPhaseTimeoutTests extends IndexShardTestCase {
         }
     }
 
-    // --- Execution scenario: exception during dfs phase is wrapped ---
-
     public void testExecuteWrapsExceptionInDfsPhaseExecutionException() throws Exception {
         ContextIndexSearcher cis = newContextSearcher(reader);
         DfsSearchResult dfsResult = new DfsSearchResult(null, null, null);
@@ -224,7 +218,6 @@ public class DfsPhaseTimeoutTests extends IndexShardTestCase {
             }
         }) {
             context.setTask(new SearchShardTask(123L, "", "", "", null, Collections.emptyMap()));
-            // Do not set parsedQuery so that rewrittenQuery() throws IllegalStateException
             context.request().source(new SearchSourceBuilder());
 
             SearchException e = expectThrows(DfsPhaseExecutionException.class, () -> DfsPhase.execute(context));

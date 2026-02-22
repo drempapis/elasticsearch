@@ -330,12 +330,6 @@ public class SearchTimeoutIT extends ESIntegTestCase {
         assertEquals(429, ex.status().getStatus());
     }
 
-    /**
-     * Test that with DFS_QUERY_THEN_FETCH search type, when a timeout occurs (in the query phase), the search is
-     * marked as timed out and partial results are returned. DfsKnnTimeoutQuery triggers the timeout when the
-     * main query runs with ContextIndexSearcher in the query phase. DFS-phase KNN timeout is covered by
-     * {@link org.elasticsearch.search.dfs.DfsPhaseTimeoutTests}.
-     */
     public void testDfsKnnTimeoutWithPartialResults() {
         SearchRequestBuilder searchRequestBuilder = prepareSearch("test_knn").setSearchType(SearchType.DFS_QUERY_THEN_FETCH)
             .setTimeout(new TimeValue(10, TimeUnit.SECONDS))
@@ -525,13 +519,6 @@ public class SearchTimeoutIT extends ESIntegTestCase {
         }
     }
 
-    /**
-     * Query builder that triggers a {@link org.elasticsearch.search.internal.ContextIndexSearcher.TimeExceededException}
-     * when {@code createWeight} is called with a {@link org.elasticsearch.search.internal.ContextIndexSearcher}
-     * (i.e. in the query phase). When called with a plain IndexSearcher (e.g. in DFS phase collectStatistics),
-     * returns a harmless weight that matches no docs so the DFS phase completes. Used to test timeout handling
-     * with DFS_QUERY_THEN_FETCH search type.
-     */
     public static final class DfsKnnTimeoutQuery extends AbstractQueryBuilder<DfsKnnTimeoutQuery> {
 
         DfsKnnTimeoutQuery() {}
@@ -541,7 +528,7 @@ public class SearchTimeoutIT extends ESIntegTestCase {
         }
 
         @Override
-        protected void doWriteTo(StreamOutput out) throws IOException {}
+        protected void doWriteTo(StreamOutput out) {}
 
         @Override
         protected void doXContent(XContentBuilder builder, Params params) {}
@@ -556,7 +543,7 @@ public class SearchTimeoutIT extends ESIntegTestCase {
                     }
                     return new ConstantScoreWeight(this, boost) {
                         @Override
-                        public ScorerSupplier scorerSupplier(LeafReaderContext ctx) throws IOException {
+                        public ScorerSupplier scorerSupplier(LeafReaderContext ctx) {
                             return new ScorerSupplier() {
                                 @Override
                                 public Scorer get(long leadCost) throws IOException {
