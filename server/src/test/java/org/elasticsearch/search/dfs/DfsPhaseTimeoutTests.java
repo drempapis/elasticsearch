@@ -82,12 +82,7 @@ public class DfsPhaseTimeoutTests extends IndexShardTestCase {
         for (int i = 0; i < numDocs; ++i) {
             Document doc = new Document();
             doc.add(new StringField("field", Integer.toString(i), Field.Store.NO));
-            doc.add(
-                new KnnByteVectorField(
-                    "byte_vector",
-                    new byte[] { (byte) (i % 128), (byte) ((i + 1) % 128), (byte) ((i + 2) % 128) }
-                )
-            );
+            doc.add(new KnnByteVectorField("byte_vector", new byte[] { (byte) (i % 128), (byte) ((i + 1) % 128), (byte) ((i + 2) % 128) }));
             doc.add(new KnnFloatVectorField("float_vector", new float[] { i * 0.1f, (i + 1) * 0.1f, (i + 2) * 0.1f }));
             w.addDocument(doc);
         }
@@ -135,17 +130,7 @@ public class DfsPhaseTimeoutTests extends IndexShardTestCase {
             context.request()
                 .source(
                     new SearchSourceBuilder().knnSearch(
-                        List.of(
-                            new KnnSearchBuilder(
-                                "float_vector",
-                                new float[] { 0.1f, 0.2f, 0.3f },
-                                KNN_K,
-                                numDocs,
-                                100f,
-                                null,
-                                null
-                            )
-                        )
+                        List.of(new KnnSearchBuilder("float_vector", new float[] { 0.1f, 0.2f, 0.3f }, KNN_K, numDocs, 100f, null, null))
                     )
                 );
 
@@ -165,9 +150,7 @@ public class DfsPhaseTimeoutTests extends IndexShardTestCase {
         searchRequest.allowPartialSearchResults(false);
         searchRequest.source(
             new SearchSourceBuilder().knnSearch(
-                List.of(
-                    new KnnSearchBuilder("float_vector", new float[] { 0.1f, 0.2f, 0.3f }, KNN_K, numDocs, 100f, null, null)
-                )
+                List.of(new KnnSearchBuilder("float_vector", new float[] { 0.1f, 0.2f, 0.3f }, KNN_K, numDocs, 100f, null, null))
             )
         );
         ShardSearchRequest shardRequest = new ShardSearchRequest(
@@ -246,17 +229,7 @@ public class DfsPhaseTimeoutTests extends IndexShardTestCase {
             context.request()
                 .source(
                     new SearchSourceBuilder().knnSearch(
-                        List.of(
-                            new KnnSearchBuilder(
-                                "float_vector",
-                                new float[] { 0.1f, 0.2f, 0.3f },
-                                KNN_K,
-                                numDocs,
-                                100f,
-                                null,
-                                null
-                            )
-                        )
+                        List.of(new KnnSearchBuilder("float_vector", new float[] { 0.1f, 0.2f, 0.3f }, KNN_K, numDocs, 100f, null, null))
                     )
                 );
 
@@ -324,10 +297,8 @@ public class DfsPhaseTimeoutTests extends IndexShardTestCase {
             private final AtomicBoolean searchCalled = new AtomicBoolean(false);
 
             @Override
-            public <C extends org.apache.lucene.search.Collector, T> T search(
-                Query query,
-                CollectorManager<C, T> collectorManager
-            ) throws IOException {
+            public <C extends org.apache.lucene.search.Collector, T> T search(Query query, CollectorManager<C, T> collectorManager)
+                throws IOException {
                 if (searchCalled.compareAndSet(false, true)) {
                     throwTimeExceededException();
                 }

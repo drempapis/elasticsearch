@@ -342,15 +342,11 @@ public class DfsQueryPhaseTests extends ESTestCase {
         AtomicReference<AtomicArray<SearchPhaseResult>> responseRef = new AtomicReference<>();
         results.set(
             0,
-            newSearchResult(0,
-                new ShardSearchContextId("", 1),
-                new SearchShardTarget("node1", new ShardId("test", "na", 0), null))
+            newSearchResult(0, new ShardSearchContextId("", 1), new SearchShardTarget("node1", new ShardId("test", "na", 0), null))
         );
         results.set(
             1,
-            newSearchResult(1,
-                new ShardSearchContextId("", 2),
-                new SearchShardTarget("node2", new ShardId("test", "na", 0), null))
+            newSearchResult(1, new ShardSearchContextId("", 2), new SearchShardTarget("node2", new ShardId("test", "na", 0), null))
         );
         results.get(0).termsStatistics(new Term[0], new TermStatistics[0]);
         results.get(1).termsStatistics(new Term[0], new TermStatistics[0]);
@@ -369,11 +365,7 @@ public class DfsQueryPhaseTests extends ESTestCase {
             ) {
                 QuerySearchResult queryResult = new QuerySearchResult(
                     request.contextId(),
-                    new SearchShardTarget(
-                        request.contextId().getId() == 1 ? "node1" : "node2",
-                        new ShardId("test", "na", 0),
-                        null
-                    ),
+                    new SearchShardTarget(request.contextId().getId() == 1 ? "node1" : "node2", new ShardId("test", "na", 0), null),
                     null
                 );
                 try {
