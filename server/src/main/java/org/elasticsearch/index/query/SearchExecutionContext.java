@@ -736,12 +736,10 @@ public class SearchExecutionContext extends QueryRewriteContext {
      * and to break if the memory usage exceeds the limit set by the circuit breaker.
      */
     public void addQueryConstructionMemory(Query query, String label) {
-        if (query instanceof Accountable accountable) {
-            if (circuitBreaker != null) {
-                long bytes = accountable.ramBytesUsed();
-                circuitBreaker.addEstimateBytesAndMaybeBreak(bytes, label);
-                queryConstructionMemoryUsed.addAndGet(bytes);
-            }
+        if (circuitBreaker != null && query instanceof Accountable accountable) {
+            long bytes = accountable.ramBytesUsed();
+            circuitBreaker.addEstimateBytesAndMaybeBreak(bytes, label);
+            queryConstructionMemoryUsed.addAndGet(bytes);
         }
     }
 
