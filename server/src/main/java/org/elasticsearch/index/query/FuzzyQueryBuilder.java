@@ -11,7 +11,6 @@ package org.elasticsearch.index.query;
 
 import org.apache.lucene.search.FuzzyQuery;
 import org.apache.lucene.search.Query;
-import org.apache.lucene.util.Accountable;
 import org.elasticsearch.TransportVersion;
 import org.elasticsearch.common.ParsingException;
 import org.elasticsearch.common.Strings;
@@ -271,8 +270,7 @@ public class FuzzyQueryBuilder extends AbstractQueryBuilder<FuzzyQueryBuilder> i
             throw new IllegalStateException("Rewrite first");
         }
         String rewrite = this.rewrite;
-
-        Query query = fieldType.fuzzyQuery(
+        return fieldType.fuzzyQuery(
             value,
             fuzziness,
             prefixLength,
@@ -281,11 +279,6 @@ public class FuzzyQueryBuilder extends AbstractQueryBuilder<FuzzyQueryBuilder> i
             context,
             QueryParsers.parseRewriteMethod(rewrite, null, LoggingDeprecationHandler.INSTANCE)
         );
-
-        if (query instanceof Accountable accountable) {
-            context.addQueryConstructionMemory(accountable.ramBytesUsed(), "fuzzy:" + fieldName);
-        }
-        return query;
     }
 
     @Override

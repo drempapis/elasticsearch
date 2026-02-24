@@ -205,7 +205,7 @@ public class WildcardQueryBuilderTests extends AbstractQueryTestCase<WildcardQue
         assertThat(rewritten, CoreMatchers.instanceOf(MatchNoneQueryBuilder.class));
     }
 
-    public void testWildcardQueryCircuitBreakerAccounting() throws Exception {
+    public void testWildcardQueryCircuitBreakerAccounting() throws IOException {
         SearchExecutionContext context = createSearchExecutionContext();
         CircuitBreaker cb = createCircuitBreakerService();
         context.setCircuitBreaker(cb);
@@ -221,7 +221,7 @@ public class WildcardQueryBuilderTests extends AbstractQueryTestCase<WildcardQue
 
             if (queryMemory > 0) {
                 assertTrue("Circuit breaker should account for query memory", after >= before);
-                assertBusy(() -> assertEquals("QueryMemory should be equal to delta", queryMemory, cbDelta));
+                assertEquals("QueryMemory should be equal to delta", queryMemory, cbDelta);
             }
         }
     }

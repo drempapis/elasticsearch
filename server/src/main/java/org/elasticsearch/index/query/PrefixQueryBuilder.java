@@ -13,7 +13,6 @@ import org.apache.lucene.search.MatchAllDocsQuery;
 import org.apache.lucene.search.MatchNoDocsQuery;
 import org.apache.lucene.search.MultiTermQuery;
 import org.apache.lucene.search.Query;
-import org.apache.lucene.util.Accountable;
 import org.elasticsearch.TransportVersion;
 import org.elasticsearch.common.ParsingException;
 import org.elasticsearch.common.Strings;
@@ -241,12 +240,7 @@ public class PrefixQueryBuilder extends AbstractQueryBuilder<PrefixQueryBuilder>
         if (fieldType == null) {
             throw new IllegalStateException("Rewrite first");
         }
-        Query query = fieldType.prefixQuery(value, method, caseInsensitive, context);
-
-        if (query instanceof Accountable accountable) {
-            context.addQueryConstructionMemory(accountable.ramBytesUsed(), "prefix:" + fieldName);
-        }
-        return query;
+        return fieldType.prefixQuery(value, method, caseInsensitive, context);
     }
 
     @Override

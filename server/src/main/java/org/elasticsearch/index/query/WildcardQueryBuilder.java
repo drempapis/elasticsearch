@@ -13,7 +13,6 @@ import org.apache.lucene.search.MatchAllDocsQuery;
 import org.apache.lucene.search.MatchNoDocsQuery;
 import org.apache.lucene.search.MultiTermQuery;
 import org.apache.lucene.search.Query;
-import org.apache.lucene.util.Accountable;
 import org.elasticsearch.TransportVersion;
 import org.elasticsearch.common.ParsingException;
 import org.elasticsearch.common.Strings;
@@ -277,12 +276,7 @@ public class WildcardQueryBuilder extends AbstractQueryBuilder<WildcardQueryBuil
         }
 
         MultiTermQuery.RewriteMethod method = QueryParsers.parseRewriteMethod(rewrite, null, LoggingDeprecationHandler.INSTANCE);
-        Query query = fieldType.wildcardQuery(value, method, caseInsensitive, context);
-
-        if (query instanceof Accountable accountable) {
-            context.addQueryConstructionMemory(accountable.ramBytesUsed(), "wildcard:" + fieldName);
-        }
-        return query;
+        return fieldType.wildcardQuery(value, method, caseInsensitive, context);
     }
 
     @Override

@@ -18,6 +18,7 @@ import org.apache.lucene.search.Query;
 import org.apache.lucene.search.RegexpQuery;
 import org.apache.lucene.search.TermRangeQuery;
 import org.apache.lucene.search.WildcardQuery;
+import org.apache.lucene.util.Accountable;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.BytesRefBuilder;
 import org.apache.lucene.util.automaton.Operations;
@@ -63,7 +64,7 @@ public abstract class StringFieldType extends TermBasedFieldType {
             );
         }
         failIfNotIndexed();
-        return rewriteMethod == null
+        Query query = rewriteMethod == null
             ? new FuzzyQuery(
                 new Term(name(), indexedValueForSearch(value)),
                 fuzziness.asDistance(BytesRefs.toString(value)),
@@ -79,6 +80,8 @@ public abstract class StringFieldType extends TermBasedFieldType {
                 transpositions,
                 rewriteMethod
             );
+        accountQueryMemory(query, context, "fuzzy:" + name());
+        return query;
     }
 
     @Override
@@ -93,10 +96,14 @@ public abstract class StringFieldType extends TermBasedFieldType {
         }
         failIfNotIndexed();
         Term prefix = new Term(name(), indexedValueForSearch(value));
+        Query query;
         if (caseInsensitive) {
-            return method == null ? new CaseInsensitivePrefixQuery(prefix, false) : new CaseInsensitivePrefixQuery(prefix, false, method);
+            query = method == null ? new CaseInsensitivePrefixQuery(prefix, false) : new CaseInsensitivePrefixQuery(prefix, false, method);
+        } else {
+            query = method == null ? new PrefixQuery(prefix) : new PrefixQuery(prefix, method);
         }
-        return method == null ? new PrefixQuery(prefix) : new PrefixQuery(prefix, method);
+        accountQueryMemory(query, context, "prefix:" + name());
+        return query;
     }
 
     public static final String normalizeWildcardPattern(String fieldname, String value, Analyzer normalizer) {
@@ -160,10 +167,14 @@ public abstract class StringFieldType extends TermBasedFieldType {
         } else {
             term = new Term(name(), indexedValueForSearch(value));
         }
+        Query query;
         if (caseInsensitive) {
-            return method == null ? new CaseInsensitiveWildcardQuery(term) : new CaseInsensitiveWildcardQuery(term, false, method);
+            query = method == null ? new CaseInsensitiveWildcardQuery(term) : new CaseInsensitiveWildcardQuery(term, false, method);
+        } else {
+            query = method == null ? new WildcardQuery(term) : new WildcardQuery(term, Operations.DEFAULT_DETERMINIZE_WORK_LIMIT, method);
         }
-        return method == null ? new WildcardQuery(term) : new WildcardQuery(term, Operations.DEFAULT_DETERMINIZE_WORK_LIMIT, method);
+        accountQueryMemory(query, context, "wildcard:" + name());
+        return query;
     }
 
     @Override
@@ -181,7 +192,7 @@ public abstract class StringFieldType extends TermBasedFieldType {
             );
         }
         failIfNotIndexed();
-        return method == null
+        Query query = method == null
             ? new RegexpQuery(new Term(name(), indexedValueForSearch(value)), syntaxFlags, matchFlags, maxDeterminizedStates)
             : new RegexpQuery(
                 new Term(name(), indexedValueForSearch(value)),
@@ -191,6 +202,8 @@ public abstract class StringFieldType extends TermBasedFieldType {
                 maxDeterminizedStates,
                 method
             );
+        accountQueryMemory(query, context, "regexp:" + name());
+        return query;
     }
 
     @Override
@@ -209,12 +222,18 @@ public abstract class StringFieldType extends TermBasedFieldType {
             );
         }
         failIfNotIndexed();
-        return new TermRangeQuery(
+        Query query = new TermRangeQuery(
             name(),
             lowerTerm == null ? null : indexedValueForSearch(lowerTerm),
             upperTerm == null ? null : indexedValueForSearch(upperTerm),
             includeLower,
             includeUpper
         );
+        accountQueryMemory(query, context, "range:" + name());
+        return query;
+    }
+
+    public static void accountQueryMemory(Query query, SearchExecutionContext context, String label) {
+        context.addQueryConstructionMemory(query, label);
     }
 }

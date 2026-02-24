@@ -149,7 +149,7 @@ public class RegexpQueryBuilderTests extends AbstractQueryTestCase<RegexpQueryBu
         assertEquals("[regexp] query doesn't support multiple fields, found [user1] and [user2]", e.getMessage());
     }
 
-    public void testRegexpQueryCircuitBreakerAccounting() throws Exception {
+    public void testRegexpQueryCircuitBreakerAccounting() throws IOException {
         SearchExecutionContext context = createSearchExecutionContext();
         CircuitBreaker cb = createCircuitBreakerService();
         context.setCircuitBreaker(cb);
@@ -162,7 +162,7 @@ public class RegexpQueryBuilderTests extends AbstractQueryTestCase<RegexpQueryBu
         long after = cb.getUsed();
         long queryMemory = ((Accountable) query).ramBytesUsed();
         assertTrue("Circuit breaker should account for regexp query memory", after >= before);
-        assertBusy(() -> assertEquals("QueryMemory should be equal to delta", queryMemory, after - before));
+        assertEquals("QueryMemory should be equal to delta", queryMemory, after - before);
     }
 
     public void testRegexpCircuitBreakerTripsWithLowLimit() {

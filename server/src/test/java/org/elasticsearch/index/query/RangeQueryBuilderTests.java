@@ -682,7 +682,7 @@ public class RangeQueryBuilderTests extends AbstractQueryTestCase<RangeQueryBuil
         assertFalse("query should not be cacheable: " + queryBuilder.toString(), context.isCacheable());
     }
 
-    public void testRangeQueryCircuitBreakerAccountingTextFields() throws Exception {
+    public void testRangeQueryCircuitBreakerAccountingTextFields() throws IOException {
         SearchExecutionContext context = createSearchExecutionContext();
         CircuitBreaker cb = createCircuitBreakerService("100mb");
         context.setCircuitBreaker(cb);
@@ -694,7 +694,7 @@ public class RangeQueryBuilderTests extends AbstractQueryTestCase<RangeQueryBuil
 
         long queryMemory = ((Accountable) query).ramBytesUsed();
         assertTrue("Circuit breaker should account for regexp query memory", after >= before);
-        assertBusy(() -> assertEquals("QueryMemory should be equal to delta", queryMemory, after - before));
+        assertEquals("QueryMemory should be equal to delta", queryMemory, after - before);
     }
 
     public void testRangeQueryCircuitBreakerTripsOnLargeTextRange() {

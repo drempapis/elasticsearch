@@ -215,7 +215,7 @@ public class PrefixQueryBuilderTests extends AbstractQueryTestCase<PrefixQueryBu
         assertThat(rewritten, CoreMatchers.instanceOf(MatchNoneQueryBuilder.class));
     }
 
-    public void testPrefixQueryCircuitBreakerAccounting() throws Exception {
+    public void testPrefixQueryCircuitBreakerAccounting() throws IOException {
         SearchExecutionContext context = createSearchExecutionContext();
         CircuitBreaker cb = createCircuitBreakerService();
         context.setCircuitBreaker(cb);
@@ -228,7 +228,7 @@ public class PrefixQueryBuilderTests extends AbstractQueryTestCase<PrefixQueryBu
         long after = cb.getUsed();
         long queryMemory = ((Accountable) query).ramBytesUsed();
         assertTrue("Circuit breaker should account for regexp query memory", after >= before);
-        assertBusy(() -> assertEquals("QueryMemory should be equal to delta", queryMemory, after - before));
+        assertEquals("QueryMemory should be equal to delta", queryMemory, after - before);
     }
 
     public void testPrefixCircuitBreakerTripsWithLowLimit() {

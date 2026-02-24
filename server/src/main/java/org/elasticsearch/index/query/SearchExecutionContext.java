@@ -19,6 +19,7 @@ import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.join.BitSetProducer;
 import org.apache.lucene.search.similarities.Similarity;
+import org.apache.lucene.util.Accountable;
 import org.apache.lucene.util.SetOnce;
 import org.elasticsearch.action.ActionListener;
 import org.elasticsearch.client.internal.Client;
@@ -734,10 +735,13 @@ public class SearchExecutionContext extends QueryRewriteContext {
      * Account on memory during query construction. This is used to track memory usage of queries that are being built,
      * and to break if the memory usage exceeds the limit set by the circuit breaker.
      */
-    public void addQueryConstructionMemory(long bytes, String label) {
-        if (circuitBreaker != null) {
-            circuitBreaker.addEstimateBytesAndMaybeBreak(bytes, label);
-            queryConstructionMemoryUsed.addAndGet(bytes);
+    public void addQueryConstructionMemory(Query query, String label) {
+        if (query instanceof Accountable accountable) {
+            if (circuitBreaker != null) {
+                long bytes = accountable.ramBytesUsed();
+                circuitBreaker.addEstimateBytesAndMaybeBreak(bytes, label);
+                queryConstructionMemoryUsed.addAndGet(bytes);
+            }
         }
     }
 

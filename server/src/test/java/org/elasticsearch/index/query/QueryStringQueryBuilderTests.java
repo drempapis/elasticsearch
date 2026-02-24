@@ -44,6 +44,8 @@ import org.apache.lucene.util.automaton.Operations;
 import org.apache.lucene.util.automaton.TooComplexToDeterminizeException;
 import org.elasticsearch.cluster.metadata.IndexMetadata;
 import org.elasticsearch.common.Strings;
+import org.elasticsearch.common.breaker.CircuitBreaker;
+import org.elasticsearch.common.breaker.CircuitBreakingException;
 import org.elasticsearch.common.compress.CompressedXContent;
 import org.elasticsearch.common.lucene.search.Queries;
 import org.elasticsearch.common.settings.Settings;
@@ -1434,5 +1436,37 @@ public class QueryStringQueryBuilderTests extends AbstractQueryTestCase<QueryStr
         b.field("ww_keyword");
         Query q = b.doToQuery(createSearchExecutionContext());
         assertEquals(new TermQuery(new Term("ww_keyword", "query with spaces")), q);
+    }
+
+    public void testQueryStringCircuitBreakerTripsWithManyWildcards() {
+        SearchExecutionContext context = createSearchExecutionContext();
+        CircuitBreaker cb = createCircuitBreakerService("1mb");
+        context.setCircuitBreaker(cb);
+
+        StringBuilder queryStr = new StringBuilder();
+        for (int i = 0; i < 100; i++) {
+            if (i > 0) queryStr.append(" OR ");
+            queryStr.append("*a*b*c*d*e*f*g*h*").append(i).append("*");
+        }
+
+        QueryStringQueryBuilder qsBuilder = queryStringQuery(queryStr.toString()).defaultField(TEXT_FIELD_NAME);
+        CircuitBreakingException exception = expectThrows(CircuitBreakingException.class, () -> qsBuilder.toQuery(context));
+        assertTrue("Error should mention Data too large", exception.getMessage().contains("Data too large"));
+    }
+
+    public void testQueryStringCircuitBreakerTripsWithManyRegexps() {
+        SearchExecutionContext context = createSearchExecutionContext();
+        CircuitBreaker cb = createCircuitBreakerService("500kb");
+        context.setCircuitBreaker(cb);
+
+        StringBuilder queryStr = new StringBuilder();
+        for (int i = 0; i < 50; i++) {
+            if (i > 0) queryStr.append(" OR ");
+            queryStr.append("/(pattern").append(i).append("|alternate").append(i).append("|option").append(i).append(").*/");
+        }
+
+        QueryStringQueryBuilder qsBuilder = queryStringQuery(queryStr.toString()).defaultField(TEXT_FIELD_NAME);
+        CircuitBreakingException exception = expectThrows(CircuitBreakingException.class, () -> qsBuilder.toQuery(context));
+        assertTrue("Error should mention Data too large", exception.getMessage().contains("Data too large"));
     }
 }

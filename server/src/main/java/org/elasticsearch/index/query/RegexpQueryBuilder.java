@@ -13,7 +13,6 @@ import org.apache.lucene.index.Term;
 import org.apache.lucene.search.MultiTermQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.RegexpQuery;
-import org.apache.lucene.util.Accountable;
 import org.apache.lucene.util.automaton.Operations;
 import org.apache.lucene.util.automaton.RegExp;
 import org.elasticsearch.TransportVersion;
@@ -25,6 +24,7 @@ import org.elasticsearch.common.lucene.BytesRefs;
 import org.elasticsearch.common.xcontent.LoggingDeprecationHandler;
 import org.elasticsearch.index.IndexSettings;
 import org.elasticsearch.index.mapper.MappedFieldType;
+import org.elasticsearch.index.mapper.StringFieldType;
 import org.elasticsearch.index.query.support.QueryParsers;
 import org.elasticsearch.xcontent.ParseField;
 import org.elasticsearch.xcontent.XContentBuilder;
@@ -285,7 +285,7 @@ public class RegexpQueryBuilder extends AbstractQueryBuilder<RegexpQueryBuilder>
             query = fieldType.regexpQuery(value, sanitisedSyntaxFlag, matchFlagsValue, maxDeterminizedStates, method, context);
         }
         if (query == null) {
-            return method == null
+            query = method == null
                 ? new RegexpQuery(
                     new Term(fieldName, BytesRefs.toBytesRef(value)),
                     sanitisedSyntaxFlag,
@@ -300,10 +300,7 @@ public class RegexpQueryBuilder extends AbstractQueryBuilder<RegexpQueryBuilder>
                     maxDeterminizedStates,
                     method
                 );
-        }
-
-        if (query instanceof Accountable accountable) {
-            context.addQueryConstructionMemory(accountable.ramBytesUsed(), "regexp:" + fieldName);
+            StringFieldType.accountQueryMemory(query, context, "regexp:" + fieldName);
         }
         return query;
     }
