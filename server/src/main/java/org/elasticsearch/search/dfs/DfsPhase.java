@@ -214,7 +214,11 @@ public class DfsPhase {
                 String knnNestedPath = searchExecutionContext.nestedLookup().getNestedParent(knnField);
                 Query knnQuery = searchExecutionContext.toQuery(knnVectorQueryBuilders.get(i)).query();
                 knnResults.add(singleKnnSearch(knnQuery, knnSearch.get(i).k(), context.getProfilers(), context.searcher(), knnNestedPath));
+<<<<<<< HEAD
                 // Re-throw so the catch block below can handle KNN timeout consistently.
+=======
+
+>>>>>>> 85142aa2d50e59a4c4dd7e3003f880a5599e41fd
                 if (context.searcher().timeExceeded()) {
                     context.searcher().throwTimeExceededException();
                 }
