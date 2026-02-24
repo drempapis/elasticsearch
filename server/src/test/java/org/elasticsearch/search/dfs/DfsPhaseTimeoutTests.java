@@ -19,7 +19,6 @@ import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.search.CollectorManager;
 import org.apache.lucene.search.IndexSearcher;
-import org.apache.lucene.search.MatchAllDocsQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.tests.index.RandomIndexWriter;
@@ -61,6 +60,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import static org.elasticsearch.common.lucene.search.Queries.ALL_DOCS_INSTANCE;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.instanceOf;
 
@@ -126,7 +126,7 @@ public class DfsPhaseTimeoutTests extends IndexShardTestCase {
             }
         }) {
             context.setTask(new SearchShardTask(123L, "", "", "", null, Collections.emptyMap()));
-            context.parsedQuery(new ParsedQuery(new MatchAllDocsQuery()));
+            context.parsedQuery(new ParsedQuery(ALL_DOCS_INSTANCE));
             context.request()
                 .source(
                     new SearchSourceBuilder().knnSearch(
@@ -182,7 +182,7 @@ public class DfsPhaseTimeoutTests extends IndexShardTestCase {
             }
         }) {
             context.setTask(new SearchShardTask(123L, "", "", "", null, Collections.emptyMap()));
-            context.parsedQuery(new ParsedQuery(new MatchAllDocsQuery()));
+            context.parsedQuery(new ParsedQuery(ALL_DOCS_INSTANCE));
 
             SearchTimeoutException ex = expectThrows(SearchTimeoutException.class, () -> DfsPhase.execute(context));
             assertThat(ex.status(), equalTo(RestStatus.TOO_MANY_REQUESTS));
@@ -225,7 +225,7 @@ public class DfsPhaseTimeoutTests extends IndexShardTestCase {
             }
         }) {
             context.setTask(new SearchShardTask(123L, "", "", "", null, Collections.emptyMap()));
-            context.parsedQuery(new ParsedQuery(new MatchAllDocsQuery()));
+            context.parsedQuery(new ParsedQuery(ALL_DOCS_INSTANCE));
             context.request()
                 .source(
                     new SearchSourceBuilder().knnSearch(
