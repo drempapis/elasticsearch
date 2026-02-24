@@ -138,5 +138,13 @@ public class ShardFetchSearchRequest extends ShardFetchRequest implements Indice
 
     public void setCoordinatingTaskId(long coordinatingTaskId) {
         this.coordinatingTaskId = coordinatingTaskId;
+
+    @Override
+    public String getDescription() {
+        StringBuilder sb = new StringBuilder(super.getDescription());
+        if (shardSearchRequest != null) {
+            sb.append(", shardId[").append(shardSearchRequest.shardId()).append(']');
+        }
+        return sb.toString();
     }
 }
