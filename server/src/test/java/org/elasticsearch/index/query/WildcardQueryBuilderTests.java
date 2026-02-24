@@ -12,10 +12,7 @@ package org.elasticsearch.index.query;
 import org.apache.lucene.search.AutomatonQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.WildcardQuery;
-import org.apache.lucene.util.Accountable;
 import org.elasticsearch.common.ParsingException;
-import org.elasticsearch.common.breaker.CircuitBreaker;
-import org.elasticsearch.common.breaker.CircuitBreakingException;
 import org.elasticsearch.common.lucene.search.Queries;
 import org.elasticsearch.core.Strings;
 import org.elasticsearch.index.mapper.DateFieldMapper;
@@ -206,37 +203,16 @@ public class WildcardQueryBuilderTests extends AbstractQueryTestCase<WildcardQue
     }
 
     public void testWildcardQueryCircuitBreakerAccounting() throws IOException {
-        SearchExecutionContext context = createSearchExecutionContext();
-        CircuitBreaker cb = createCircuitBreakerService();
-        context.setCircuitBreaker(cb);
-
-        long before = cb.getUsed();
-        WildcardQueryBuilder queryBuilder = new WildcardQueryBuilder(TEXT_FIELD_NAME, "test*pattern*with*wildcards*");
-        Query query = queryBuilder.toQuery(context);
-
-        long after = cb.getUsed();
-        if (query instanceof Accountable) {
-            long queryMemory = ((Accountable) query).ramBytesUsed();
-            long cbDelta = after - before;
-
-            if (queryMemory > 0) {
-                assertTrue("Circuit breaker should account for query memory", after >= before);
-                assertEquals("QueryMemory should be equal to delta", queryMemory, cbDelta);
-            }
-        }
+        assertCircuitBreakerAccountsForQuery(new WildcardQueryBuilder(TEXT_FIELD_NAME, "test*pattern*with*wildcards*"));
     }
 
     public void testCircuitBreakerTripsWithLowLimit() {
-        SearchExecutionContext context = createSearchExecutionContext();
-        CircuitBreaker cb = createCircuitBreakerService("1mb"); // Low limit
-        context.setCircuitBreaker(cb);
-
-        BoolQueryBuilder boolQuery = new BoolQueryBuilder();
-        for (int i = 0; i < 100; i++) {
-            boolQuery.should(new WildcardQueryBuilder(TEXT_FIELD_NAME, "*a*b*c*d*e*f*g*h*i*j*k*l*m*n*o*p*" + i + "*"));
-        }
-
-        CircuitBreakingException exception = expectThrows(CircuitBreakingException.class, () -> boolQuery.toQuery(context));
-        assertTrue("Error should mention Data too large", exception.getMessage().contains("Data too large"));
+        assertCircuitBreakerTripsOnQueryConstruction("1mb", () -> {
+            BoolQueryBuilder boolQuery = new BoolQueryBuilder();
+            for (int i = 0; i < 100; i++) {
+                boolQuery.should(new WildcardQueryBuilder(TEXT_FIELD_NAME, "*a*b*c*d*e*f*g*h*i*j*k*l*m*n*o*p*" + i + "*"));
+            }
+            return boolQuery;
+        });
     }
 }

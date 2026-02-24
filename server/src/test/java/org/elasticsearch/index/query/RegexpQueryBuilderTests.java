@@ -11,10 +11,7 @@ package org.elasticsearch.index.query;
 
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.RegexpQuery;
-import org.apache.lucene.util.Accountable;
 import org.elasticsearch.common.ParsingException;
-import org.elasticsearch.common.breaker.CircuitBreaker;
-import org.elasticsearch.common.breaker.CircuitBreakingException;
 import org.elasticsearch.core.Strings;
 import org.elasticsearch.test.AbstractQueryTestCase;
 
@@ -150,32 +147,16 @@ public class RegexpQueryBuilderTests extends AbstractQueryTestCase<RegexpQueryBu
     }
 
     public void testRegexpQueryCircuitBreakerAccounting() throws IOException {
-        SearchExecutionContext context = createSearchExecutionContext();
-        CircuitBreaker cb = createCircuitBreakerService();
-        context.setCircuitBreaker(cb);
-
-        long before = cb.getUsed();
-        RegexpQueryBuilder queryBuilder = new RegexpQueryBuilder(TEXT_FIELD_NAME, ".*test.*pattern.*");
-        Query query = queryBuilder.toQuery(context);
-        assertTrue(query instanceof Accountable);
-
-        long after = cb.getUsed();
-        long queryMemory = ((Accountable) query).ramBytesUsed();
-        assertTrue("Circuit breaker should account for regexp query memory", after >= before);
-        assertEquals("QueryMemory should be equal to delta", queryMemory, after - before);
+        assertCircuitBreakerAccountsForQuery(new RegexpQueryBuilder(TEXT_FIELD_NAME, ".*test.*pattern.*"));
     }
 
     public void testRegexpCircuitBreakerTripsWithLowLimit() {
-        SearchExecutionContext context = createSearchExecutionContext();
-        CircuitBreaker cb = createCircuitBreakerService("500kb"); // Low limit
-        context.setCircuitBreaker(cb);
-
-        BoolQueryBuilder boolQuery = new BoolQueryBuilder();
-        for (int i = 0; i < 50; i++) {
-            boolQuery.should(new RegexpQueryBuilder(TEXT_FIELD_NAME, "(pattern" + i + "|alternate" + i + "|option" + i + ").*"));
-        }
-
-        CircuitBreakingException exception = expectThrows(CircuitBreakingException.class, () -> boolQuery.toQuery(context));
-        assertTrue("Error should mention Data too large", exception.getMessage().contains("Data too large"));
+        assertCircuitBreakerTripsOnQueryConstruction("500kb", () -> {
+            BoolQueryBuilder boolQuery = new BoolQueryBuilder();
+            for (int i = 0; i < 50; i++) {
+                boolQuery.should(new RegexpQueryBuilder(TEXT_FIELD_NAME, "(pattern" + i + "|alternate" + i + "|option" + i + ").*"));
+            }
+            return boolQuery;
+        });
     }
 }

@@ -19,11 +19,8 @@ import org.apache.lucene.search.PointRangeQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.search.TermRangeQuery;
-import org.apache.lucene.util.Accountable;
 import org.elasticsearch.ElasticsearchParseException;
 import org.elasticsearch.common.ParsingException;
-import org.elasticsearch.common.breaker.CircuitBreaker;
-import org.elasticsearch.common.breaker.CircuitBreakingException;
 import org.elasticsearch.common.geo.ShapeRelation;
 import org.elasticsearch.common.lucene.BytesRefs;
 import org.elasticsearch.common.lucene.search.Queries;
@@ -683,28 +680,13 @@ public class RangeQueryBuilderTests extends AbstractQueryTestCase<RangeQueryBuil
     }
 
     public void testRangeQueryCircuitBreakerAccountingTextFields() throws IOException {
-        SearchExecutionContext context = createSearchExecutionContext();
-        CircuitBreaker cb = createCircuitBreakerService("100mb");
-        context.setCircuitBreaker(cb);
-
-        long before = cb.getUsed();
-        RangeQueryBuilder rangeQuery = new RangeQueryBuilder(TEXT_FIELD_NAME).gte("aaa").lte("zzz");
-        Query query = rangeQuery.toQuery(context);
-        long after = cb.getUsed();
-
-        long queryMemory = ((Accountable) query).ramBytesUsed();
-        assertTrue("Circuit breaker should account for regexp query memory", after >= before);
-        assertEquals("QueryMemory should be equal to delta", queryMemory, after - before);
+        assertCircuitBreakerAccountsForQuery(new RangeQueryBuilder(TEXT_FIELD_NAME).gte("aaa").lte("zzz"));
     }
 
     public void testRangeQueryCircuitBreakerTripsOnLargeTextRange() {
-        SearchExecutionContext context = createSearchExecutionContext();
-        CircuitBreaker cb = createCircuitBreakerService("1kb");  // Very low limit
-        context.setCircuitBreaker(cb);
-
-        RangeQueryBuilder rangeQuery = new RangeQueryBuilder(TEXT_FIELD_NAME).gte("a").lte("zzzzzzzzzzzzzzzzzzzz");
-
-        CircuitBreakingException exception = expectThrows(CircuitBreakingException.class, () -> rangeQuery.toQuery(context));
-        assertTrue("Error should mention Data too large", exception.getMessage().contains("Data too large"));
+        assertCircuitBreakerTripsOnQueryConstruction(
+            "1kb",
+            () -> new RangeQueryBuilder(TEXT_FIELD_NAME).gte("a").lte("zzzzzzzzzzzzzzzzzzzz")
+        );
     }
 }

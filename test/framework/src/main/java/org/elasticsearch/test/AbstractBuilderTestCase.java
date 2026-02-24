@@ -13,6 +13,8 @@ import com.carrotsearch.randomizedtesting.RandomizedTest;
 import com.carrotsearch.randomizedtesting.SeedUtils;
 
 import org.apache.lucene.search.IndexSearcher;
+import org.apache.lucene.search.Query;
+import org.apache.lucene.util.Accountable;
 import org.elasticsearch.TransportVersion;
 import org.elasticsearch.action.ActionListener;
 import org.elasticsearch.action.MockResolvedIndices;
@@ -30,6 +32,7 @@ import org.elasticsearch.cluster.metadata.IndexMetadata;
 import org.elasticsearch.cluster.service.ClusterService;
 import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.breaker.CircuitBreaker;
+import org.elasticsearch.common.breaker.CircuitBreakingException;
 import org.elasticsearch.common.compress.CompressedXContent;
 import org.elasticsearch.common.io.stream.NamedWriteableRegistry;
 import org.elasticsearch.common.regex.Regex;
@@ -56,6 +59,7 @@ import org.elasticsearch.index.mapper.MapperRegistry;
 import org.elasticsearch.index.mapper.MapperService;
 import org.elasticsearch.index.query.CoordinatorRewriteContext;
 import org.elasticsearch.index.query.DataRewriteContext;
+import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryRewriteContext;
 import org.elasticsearch.index.query.SearchExecutionContext;
 import org.elasticsearch.index.query.SearchExecutionContextHelper;
@@ -113,12 +117,14 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 
 import static java.util.Collections.emptyList;
 import static java.util.Collections.emptyMap;
 import static java.util.Collections.singletonList;
 import static java.util.stream.Collectors.toList;
+import static org.hamcrest.Matchers.containsString;
 
 public abstract class AbstractBuilderTestCase extends ESTestCase {
 
@@ -462,6 +468,40 @@ public abstract class AbstractBuilderTestCase extends ESTestCase {
      */
     protected CircuitBreakerService createCircuitBreakerService(Settings nodeSettings, ClusterSettings clusterSettings) {
         return new NoneCircuitBreakerService();
+    }
+
+    /**
+     * Asserts that building the supplied query trips the circuit breaker with a "Data too large" message.
+     */
+    protected static void assertCircuitBreakerTripsOnQueryConstruction(String breakerLimit, Supplier<QueryBuilder> querySupplier) {
+        SearchExecutionContext context = createSearchExecutionContext();
+        CircuitBreaker cb = createCircuitBreakerService(breakerLimit);
+        context.setCircuitBreaker(cb);
+
+        QueryBuilder query = querySupplier.get();
+        CircuitBreakingException exception = expectThrows(CircuitBreakingException.class, () -> query.toQuery(context));
+        assertThat(exception.getMessage(), containsString("Data too large"));
+    }
+
+    /**
+     * Asserts that the circuit breaker correctly accounts for the memory used by the given query.
+     */
+    protected static void assertCircuitBreakerAccountsForQuery(QueryBuilder queryBuilder) throws IOException {
+        SearchExecutionContext context = createSearchExecutionContext();
+        CircuitBreaker cb = createCircuitBreakerService();
+        context.setCircuitBreaker(cb);
+
+        long before = cb.getUsed();
+        Query query = queryBuilder.toQuery(context);
+        long after = cb.getUsed();
+
+        if (query instanceof Accountable accountable) {
+            long queryMemory = accountable.ramBytesUsed();
+            if (queryMemory > 0) {
+                assertTrue("Circuit breaker should account for query memory", after >= before);
+                assertEquals("Circuit breaker delta should equal query ramBytesUsed", queryMemory, after - before);
+            }
+        }
     }
 
     private static class ServiceHolder implements Closeable {
