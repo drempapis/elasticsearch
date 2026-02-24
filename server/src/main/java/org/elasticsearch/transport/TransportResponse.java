@@ -10,8 +10,6 @@
 package org.elasticsearch.transport;
 
 import org.elasticsearch.core.Releasable;
-import org.elasticsearch.core.Releasables;
-
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 
 public abstract class TransportResponse extends TransportMessage {
@@ -21,6 +19,8 @@ public abstract class TransportResponse extends TransportMessage {
         AtomicReferenceFieldUpdater.newUpdater(TransportResponse.class, Releasable.class, "afterSendRelease");
 
     private transient volatile Releasable afterSendRelease;
+
+
 
     /**
      * Constructs a new empty transport response
@@ -32,21 +32,15 @@ public abstract class TransportResponse extends TransportMessage {
      * This allows callers to defer resource cleanup (e.g. circuit breaker release) until the serialized bytes
      * have actually been sent, rather than releasing as soon as the send is queued.
      *
-     * <p>If a releasable has already been set (and not yet consumed), the new releasable is composed with
-     * the existing one so that both are released together when the transport layer consumes the after-send
-     * releasable. This supports multiple wrapper layers each attaching their own cleanup.
-     *
      * <p>Thread-safe: uses an {@link AtomicReferenceFieldUpdater} so that a set on one thread
      * is visible to a consume on another (e.g. search-service thread sets, transport thread consumes),
      * without allocating an {@code AtomicReference} per instance.
+     *
+     * @throws IllegalStateException if a releasable has already been set and not yet consumed
      */
     public void setAfterSendRelease(Releasable afterSendRelease) {
-        while (true) {
-            Releasable existing = AFTER_SEND_RELEASE_UPDATER.get(this);
-            Releasable combined = existing == null ? afterSendRelease : Releasables.wrap(existing, afterSendRelease);
-            if (AFTER_SEND_RELEASE_UPDATER.compareAndSet(this, existing, combined)) {
-                return;
-            }
+        if (AFTER_SEND_RELEASE_UPDATER.compareAndSet(this, null, afterSendRelease) == false) {
+            throw new IllegalStateException("afterSendRelease already set");
         }
     }
 

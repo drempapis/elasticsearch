@@ -222,11 +222,6 @@ public final class OutboundHandler {
         RESPONSE_ERROR
     }
 
-    /**
-     * @param onAfter released when the channel write completes (success or failure). On serialization failure, {@code onAfter}
-     *                is <b>not</b> released by this method; the caller is responsible for any cleanup (e.g. releasing resources
-     *                that were composed into {@code onAfter}).
-     */
     private void sendMessage(
         TcpChannel channel,
         MessageDirection messageDirection,
