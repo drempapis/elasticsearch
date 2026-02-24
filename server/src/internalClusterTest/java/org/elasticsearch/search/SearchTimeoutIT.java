@@ -47,7 +47,6 @@ import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.search.aggregations.bucket.terms.StringTerms;
 import org.elasticsearch.search.aggregations.bucket.terms.TermsAggregationBuilder;
 import org.elasticsearch.search.internal.ContextIndexSearcher;
-import org.elasticsearch.search.vectors.KnnSearchBuilder;
 import org.elasticsearch.search.rescore.RescoreContext;
 import org.elasticsearch.search.rescore.Rescorer;
 import org.elasticsearch.search.rescore.RescorerBuilder;
@@ -57,6 +56,7 @@ import org.elasticsearch.search.suggest.Suggester;
 import org.elasticsearch.search.suggest.SuggestionSearchContext;
 import org.elasticsearch.search.suggest.term.TermSuggestion;
 import org.elasticsearch.search.suggest.term.TermSuggestionBuilder;
+import org.elasticsearch.search.vectors.KnnSearchBuilder;
 import org.elasticsearch.test.ESIntegTestCase;
 import org.elasticsearch.test.hamcrest.ElasticsearchAssertions;
 import org.elasticsearch.xcontent.XContentBuilder;
@@ -299,7 +299,7 @@ public class SearchTimeoutIT extends ESIntegTestCase {
         ElasticsearchException ex = expectThrows(
             ElasticsearchException.class,
             prepareSearch("test").suggest(suggestBuilder).setAllowPartialSearchResults(false) // this line causes timeouts to report
-                                                                                                       // failures
+                                                                                              // failures
         );
         assertTrue(ex.toString().contains("Time exceeded"));
         assertEquals(429, ex.status().getStatus());
@@ -372,9 +372,11 @@ public class SearchTimeoutIT extends ESIntegTestCase {
         @Override
         public List<QuerySpec<?>> getQueries() {
             return List.of(
-                new QuerySpec<QueryBuilder>("timeout", BulkScorerTimeoutQuery::new, parser -> {
-                    throw new UnsupportedOperationException();
-                }),
+                new QuerySpec<QueryBuilder>(
+                    "timeout",
+                    BulkScorerTimeoutQuery::new,
+                    parser -> { throw new UnsupportedOperationException(); }
+                ),
                 new QuerySpec<QueryBuilder>("dfs_knn_timeout", DfsKnnTimeoutQuery::new, parser -> {
                     throw new UnsupportedOperationException();
                 })
