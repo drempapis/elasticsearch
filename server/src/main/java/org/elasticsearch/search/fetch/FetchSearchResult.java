@@ -23,12 +23,13 @@ import org.elasticsearch.search.profile.ProfileResult;
 import org.elasticsearch.transport.LeakTracker;
 
 import java.io.IOException;
+import java.util.concurrent.atomic.AtomicLong;
 
 public final class FetchSearchResult extends SearchPhaseResult {
 
     private SearchHits hits;
 
-    private transient long searchHitsSizeBytes = 0L;
+    private final transient AtomicLong searchHitsSizeBytes = new AtomicLong(0L);
 
     // client side counter
     private transient int counter;
@@ -88,17 +89,17 @@ public final class FetchSearchResult extends SearchPhaseResult {
     }
 
     public void setSearchHitsSizeBytes(long bytes) {
-        this.searchHitsSizeBytes = bytes;
+        this.searchHitsSizeBytes.set(bytes);
     }
 
     public long getSearchHitsSizeBytes() {
-        return searchHitsSizeBytes;
+        return searchHitsSizeBytes.get();
     }
 
     public void releaseCircuitBreakerBytes(CircuitBreaker circuitBreaker) {
-        if (searchHitsSizeBytes > 0L) {
-            circuitBreaker.addWithoutBreaking(-searchHitsSizeBytes);
-            searchHitsSizeBytes = 0L;
+        long bytes = searchHitsSizeBytes.getAndSet(0L);
+        if (bytes > 0L) {
+            circuitBreaker.addWithoutBreaking(-bytes);
         }
     }
 

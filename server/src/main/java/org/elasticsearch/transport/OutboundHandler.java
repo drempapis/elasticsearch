@@ -146,6 +146,10 @@ public final class OutboundHandler {
     ) {
         assert assertValidTransportVersion(transportVersion);
         assert response.hasReferences();
+        final Releasable afterSendRelease = response.consumeAfterSendRelease();
+        final Releasable onAfter = afterSendRelease != null
+            ? Releasables.wrap(() -> messageListener.onResponseSent(requestId, action), afterSendRelease)
+            : () -> messageListener.onResponseSent(requestId, action);
         try {
             sendMessage(
                 channel,
@@ -157,9 +161,10 @@ public final class OutboundHandler {
                 compressionScheme,
                 transportVersion,
                 responseStatsConsumer,
-                () -> messageListener.onResponseSent(requestId, action)
+                onAfter
             );
         } catch (Exception ex) {
+            Releasables.closeExpectNoException(afterSendRelease);
             if (isHandshake) {
                 logger.error(
                     () -> format(
@@ -217,6 +222,11 @@ public final class OutboundHandler {
         RESPONSE_ERROR
     }
 
+    /**
+     * @param onAfter released when the channel write completes (success or failure). On serialization failure, {@code onAfter}
+     *                is <b>not</b> released by this method; the caller is responsible for any cleanup (e.g. releasing resources
+     *                that were composed into {@code onAfter}).
+     */
     private void sendMessage(
         TcpChannel channel,
         MessageDirection messageDirection,
@@ -253,7 +263,7 @@ public final class OutboundHandler {
             throw e;
         } finally {
             if (serializeSuccess == false) {
-                Releasables.close(byteStreamOutput, onAfter);
+                Releasables.close(byteStreamOutput);
             }
         }
         responseStatsConsumer.addResponseStats(message.length());

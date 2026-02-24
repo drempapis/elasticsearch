@@ -139,6 +139,7 @@ import org.elasticsearch.threadpool.Scheduler.Cancellable;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.threadpool.ThreadPool.Names;
 import org.elasticsearch.transport.TransportRequest;
+import org.elasticsearch.transport.TransportResponse;
 import org.elasticsearch.transport.Transports;
 
 import java.io.IOException;
@@ -1637,21 +1638,29 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
     }
 
     /**
-     * Wraps a listener to release circuit breaker bytes from a FetchSearchResult after the response is sent.
-     * The fetchResultExtractor function extracts the FetchSearchResult from the response type.
+     * Wraps a listener to defer circuit breaker release until after the response has been fully written to the network.
+     * Sets an {@code afterSendRelease} on the {@link TransportResponse} so that {@code OutboundHandler} releases
+     * the circuit breaker bytes only when the Netty write promise completes.
      */
-    private <T> ActionListener<T> releaseCircuitBreakerOnResponse(
+    private <T extends TransportResponse> ActionListener<T> releaseCircuitBreakerOnResponse(
         ActionListener<T> listener,
         Function<T, FetchSearchResult> fetchResultExtractor
     ) {
         return ActionListener.wrap(response -> {
+            FetchSearchResult fetchResult = fetchResultExtractor.apply(response);
+            if (fetchResult != null && fetchResult.getSearchHitsSizeBytes() > 0) {
+                response.setAfterSendRelease(() -> fetchResult.releaseCircuitBreakerBytes(circuitBreaker));
+            }
             try {
                 listener.onResponse(response);
             } finally {
-                // Release bytes after the response handler completes
-                FetchSearchResult fetchResult = fetchResultExtractor.apply(response);
-                if (fetchResult != null) {
-                    fetchResult.releaseCircuitBreakerBytes(circuitBreaker);
+                // If the transport layer consumed afterSendRelease, it owns the release and will
+                // fire it on write completion. Otherwise, release now as a safety net (e.g. the
+                // channel doesn't support the mechanism, or listener.onResponse() threw before
+                // the transport could consume it).
+                Releasable unconsumed = response.consumeAfterSendRelease();
+                if (unconsumed != null) {
+                    Releasables.closeExpectNoException(unconsumed);
                 }
             }
         }, listener::onFailure);

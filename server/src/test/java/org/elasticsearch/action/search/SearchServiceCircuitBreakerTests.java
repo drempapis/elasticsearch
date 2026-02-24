@@ -12,11 +12,14 @@ import org.elasticsearch.action.ActionListener;
 import org.elasticsearch.common.breaker.CircuitBreaker;
 import org.elasticsearch.common.breaker.CircuitBreakingException;
 import org.elasticsearch.common.breaker.NoopCircuitBreaker;
+import org.elasticsearch.core.Releasable;
+import org.elasticsearch.core.Releasables;
 import org.elasticsearch.search.fetch.FetchSearchResult;
 import org.elasticsearch.search.fetch.QueryFetchSearchResult;
 import org.elasticsearch.search.fetch.ScrollQueryFetchSearchResult;
 import org.elasticsearch.search.query.QuerySearchResult;
 import org.elasticsearch.test.ESTestCase;
+import org.elasticsearch.transport.TransportResponse;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -24,6 +27,8 @@ import java.util.function.Function;
 
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.notNullValue;
+import static org.hamcrest.Matchers.nullValue;
 
 /**
  * Unit tests for circuit breaker release logic in SearchService.
@@ -47,8 +52,14 @@ public class SearchServiceCircuitBreakerTests extends ESTestCase {
 
             assertThat(successCalled.get(), is(true));
             assertThat(failureCalled.get(), is(false));
+            // Safety-net finally block consumed and released afterSendRelease because the
+            // tracking listener doesn't simulate a transport layer that consumes it
             assertThat(breakerUsed.get(), equalTo(0L));
             assertThat(result.getSearchHitsSizeBytes(), equalTo(0L));
+
+            // afterSendRelease was already consumed by the safety-net finally block
+            Releasable afterSend = result.consumeAfterSendRelease();
+            assertThat(afterSend, nullValue());
         } finally {
             result.decRef();
         }
@@ -74,6 +85,9 @@ public class SearchServiceCircuitBreakerTests extends ESTestCase {
             assertThat(failureCalled.get(), is(false));
             assertThat(breakerUsed.get(), equalTo(0L));
             assertThat(fetchResult.getSearchHitsSizeBytes(), equalTo(0L));
+
+            Releasable afterSend = queryFetchResult.consumeAfterSendRelease();
+            assertThat(afterSend, nullValue());
         } finally {
             if (queryFetchResult != null) {
                 queryFetchResult.decRef();
@@ -104,6 +118,9 @@ public class SearchServiceCircuitBreakerTests extends ESTestCase {
             assertThat(failureCalled.get(), is(false));
             assertThat(breakerUsed.get(), equalTo(0L));
             assertThat(fetchResult.getSearchHitsSizeBytes(), equalTo(0L));
+
+            Releasable afterSend = scrollResult.consumeAfterSendRelease();
+            assertThat(afterSend, nullValue());
         } finally {
             if (scrollResult != null) {
                 scrollResult.decRef();
@@ -134,11 +151,61 @@ public class SearchServiceCircuitBreakerTests extends ESTestCase {
         AtomicBoolean successCalled = new AtomicBoolean(false);
         AtomicBoolean failureCalled = new AtomicBoolean(false);
 
-        querySearchResultListener(successCalled, failureCalled, breaker).onResponse(new QuerySearchResult());
+        QuerySearchResult result = new QuerySearchResult();
+        querySearchResultListener(successCalled, failureCalled, breaker).onResponse(result);
 
         assertThat(successCalled.get(), is(true));
         assertThat(failureCalled.get(), is(false));
-        // No breaker to release, should complete normally
+        assertThat(result.consumeAfterSendRelease(), nullValue());
+    }
+
+    /**
+     * Simulates the network path where the transport layer consumes afterSendRelease
+     * during listener.onResponse(). The safety-net finally block should see that
+     * afterSendRelease was already consumed and not release the bytes itself.
+     * The transport layer (simulated here) owns the release and fires it later
+     * when the network write completes.
+     */
+    public void testTransportConsumesAfterSendRelease() {
+        AtomicLong breakerUsed = new AtomicLong(5000);
+        CircuitBreaker breaker = new TestCircuitBreaker(breakerUsed);
+
+        FetchSearchResult result = new FetchSearchResult();
+        try {
+            result.setSearchHitsSizeBytes(5000L);
+            AtomicBoolean successCalled = new AtomicBoolean(false);
+
+            // Simulate a transport layer listener that consumes afterSendRelease
+            // (like OutboundHandler.sendResponse does for the network path)
+            Releasable[] captured = new Releasable[1];
+            ActionListener<FetchSearchResult> transportSimulator = new ActionListener<>() {
+                @Override
+                public void onResponse(FetchSearchResult response) {
+                    captured[0] = response.consumeAfterSendRelease();
+                    successCalled.set(true);
+                }
+
+                @Override
+                public void onFailure(Exception e) {
+                    fail("unexpected failure");
+                }
+            };
+
+            fetchSearchResultListenerWithCustomInner(transportSimulator, breaker).onResponse(result);
+
+            assertThat(successCalled.get(), is(true));
+            // Bytes must still be reserved: the transport owns the release
+            assertThat(breakerUsed.get(), equalTo(5000L));
+            assertThat(result.getSearchHitsSizeBytes(), equalTo(5000L));
+            assertThat(captured[0], notNullValue());
+
+            // Simulate Netty write completion
+            captured[0].close();
+            assertThat(breakerUsed.get(), equalTo(0L));
+            assertThat(result.getSearchHitsSizeBytes(), equalTo(0L));
+        } finally {
+            result.decRef();
+        }
     }
 
     public void testMultipleReleasesAreIdempotent() {
@@ -180,6 +247,9 @@ public class SearchServiceCircuitBreakerTests extends ESTestCase {
             assertThat(successCalled.get(), is(true));
             assertThat(breakerUsed.get(), equalTo(0L));
             assertThat(result.getSearchHitsSizeBytes(), equalTo(0L));
+
+            Releasable afterSend = result.consumeAfterSendRelease();
+            assertThat(afterSend, nullValue());
         } finally {
             result.decRef();
         }
@@ -231,31 +301,28 @@ public class SearchServiceCircuitBreakerTests extends ESTestCase {
     }
 
     /**
-     * Wrap a listener with circuit breaker release.
+     * Wrap a listener with deferred circuit breaker release via afterSendRelease on the response.
+     * Mirrors the behavior of {@code SearchService.releaseCircuitBreakerOnResponse()}.
      */
-    private <T> ActionListener<T> withCircuitBreakerRelease(
+    private <T extends TransportResponse> ActionListener<T> withCircuitBreakerRelease(
         ActionListener<T> listener,
         CircuitBreaker breaker,
         Function<T, FetchSearchResult> fetchResultExtractor
     ) {
-        return new ActionListener<>() {
-            @Override
-            public void onResponse(T response) {
-                try {
-                    listener.onResponse(response);
-                } finally {
-                    FetchSearchResult fetchResult = fetchResultExtractor.apply(response);
-                    if (fetchResult != null) {
-                        fetchResult.releaseCircuitBreakerBytes(breaker);
-                    }
+        return ActionListener.wrap(response -> {
+            FetchSearchResult fetchResult = fetchResultExtractor.apply(response);
+            if (fetchResult != null && fetchResult.getSearchHitsSizeBytes() > 0) {
+                response.setAfterSendRelease(() -> fetchResult.releaseCircuitBreakerBytes(breaker));
+            }
+            try {
+                listener.onResponse(response);
+            } finally {
+                Releasable unconsumed = response.consumeAfterSendRelease();
+                if (unconsumed != null) {
+                    Releasables.closeExpectNoException(unconsumed);
                 }
             }
-
-            @Override
-            public void onFailure(Exception e) {
-                listener.onFailure(e);
-            }
-        };
+        }, listener::onFailure);
     }
 
     private ActionListener<QuerySearchResult> querySearchResultListener(
@@ -272,6 +339,13 @@ public class SearchServiceCircuitBreakerTests extends ESTestCase {
         CircuitBreaker breaker
     ) {
         return withCircuitBreakerRelease(trackingListener(successCalled, failureCalled), breaker, Function.identity());
+    }
+
+    private ActionListener<FetchSearchResult> fetchSearchResultListenerWithCustomInner(
+        ActionListener<FetchSearchResult> inner,
+        CircuitBreaker breaker
+    ) {
+        return withCircuitBreakerRelease(inner, breaker, Function.identity());
     }
 
     private ActionListener<QueryFetchSearchResult> queryFetchSearchResultListener(

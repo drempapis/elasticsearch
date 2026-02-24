@@ -272,6 +272,119 @@ public class OutboundHandlerTests extends ESTestCase {
         assertEquals("header_value", header.getHeaders().v1().get("header"));
     }
 
+    /**
+     * Verifies that {@code afterSendRelease} set on a {@link TransportResponse} is NOT released when
+     * {@code sendResponse} returns (the send is only queued), but IS released when the write-completion
+     * listener fires with success.
+     */
+    public void testAfterSendReleaseOnWriteSuccess() {
+        TransportVersion version = TransportVersionUtils.randomCompatibleVersion();
+        String action = randomAlphaOfLength(10);
+        long requestId = randomLongBetween(0, 300);
+        TestResponse response = new TestResponse(randomAlphaOfLength(10));
+
+        AtomicBoolean released = new AtomicBoolean(false);
+        response.setAfterSendRelease(() -> assertTrue(released.compareAndSet(false, true)));
+
+        AtomicBoolean onResponseSentCalled = new AtomicBoolean(false);
+        handler.setMessageListener(new TransportMessageListener() {
+            @Override
+            public void onResponseSent(long requestId, String action) {
+                onResponseSentCalled.set(true);
+            }
+        });
+
+        Compression.Scheme compress = randomFrom(compressionScheme, null);
+        handler.sendResponse(version, channel, requestId, action, response, compress, false, ResponseStatsConsumer.NONE);
+
+        assertFalse("afterSendRelease must not be released before write completes", released.get());
+        assertFalse("onResponseSent must not fire before write completes", onResponseSentCalled.get());
+        assertNull("afterSendRelease should have been consumed from the response", response.consumeAfterSendRelease());
+
+        ActionListener<Void> sendListener = channel.getListenerCaptor().get();
+        sendListener.onResponse(null);
+
+        assertTrue("afterSendRelease must be released on write success", released.get());
+        assertTrue("onResponseSent must fire on write success", onResponseSentCalled.get());
+    }
+
+    /**
+     * Verifies that {@code afterSendRelease} set on a {@link TransportResponse} is released when the
+     * write-completion listener fires with a failure (e.g. network error during write).
+     */
+    public void testAfterSendReleaseOnWriteFailure() {
+        TransportVersion version = TransportVersionUtils.randomCompatibleVersion();
+        String action = randomAlphaOfLength(10);
+        long requestId = randomLongBetween(0, 300);
+        TestResponse response = new TestResponse(randomAlphaOfLength(10));
+
+        AtomicBoolean released = new AtomicBoolean(false);
+        response.setAfterSendRelease(() -> assertTrue(released.compareAndSet(false, true)));
+
+        AtomicBoolean onResponseSentCalled = new AtomicBoolean(false);
+        handler.setMessageListener(new TransportMessageListener() {
+            @Override
+            public void onResponseSent(long requestId, String action) {
+                onResponseSentCalled.set(true);
+            }
+        });
+
+        Compression.Scheme compress = randomFrom(compressionScheme, null);
+        handler.sendResponse(version, channel, requestId, action, response, compress, false, ResponseStatsConsumer.NONE);
+
+        assertFalse("afterSendRelease must not be released before write completes", released.get());
+        assertFalse("onResponseSent must not fire before write completes", onResponseSentCalled.get());
+
+        ActionListener<Void> sendListener = channel.getListenerCaptor().get();
+        sendListener.onFailure(new IOException("write failed"));
+
+        assertTrue("afterSendRelease must be released on write failure", released.get());
+        assertTrue("onResponseSent must fire on write failure", onResponseSentCalled.get());
+    }
+
+    /**
+     * Verifies that {@code afterSendRelease} set on a {@link TransportResponse} is released immediately
+     * when serialization fails (before the write is ever attempted), via the catch block in
+     * {@link OutboundHandler#sendResponse}.
+     */
+    public void testAfterSendReleaseOnSerializationFailure() {
+        TransportVersion version = TransportVersionUtils.randomCompatibleVersion();
+        String action = randomAlphaOfLength(10);
+        long requestId = randomLongBetween(0, 300);
+
+        var response = new ReleasbleTestResponse(randomAlphaOfLength(10)) {
+            @Override
+            public void writeTo(StreamOutput out) {
+                throw new CircuitBreakingException("simulated cbe", CircuitBreaker.Durability.TRANSIENT);
+            }
+        };
+
+        AtomicBoolean released = new AtomicBoolean(false);
+        response.setAfterSendRelease(() -> assertTrue(released.compareAndSet(false, true)));
+
+        handler.setMessageListener(new TransportMessageListener() {
+            @Override
+            public void onResponseSent(long requestId, String action) {
+                throw new AssertionError("onResponseSent(success) must not be called on serialization failure");
+            }
+
+            @Override
+            public void onResponseSent(long requestId, String action, Exception error) {
+                // expected — error response is sent instead
+            }
+        });
+
+        Compression.Scheme compress = randomFrom(compressionScheme, null);
+        try {
+            handler.sendResponse(version, channel, requestId, action, response, compress, false, ResponseStatsConsumer.NONE);
+        } finally {
+            response.decRef();
+        }
+
+        assertTrue("afterSendRelease must be released on serialization failure", released.get());
+        assertTrue("response resources must be released on serialization failure", response.released.get());
+    }
+
     public void testErrorResponse() throws IOException {
         ThreadContext threadContext = threadPool.getThreadContext();
         TransportVersion version = TransportVersionUtils.randomCompatibleVersion();
@@ -353,8 +466,8 @@ public class OutboundHandlerTests extends ESTestCase {
             @Override
             public void onResponseSent(long requestId, String action, Exception error) {
                 assertNotNull(channel.getMessageCaptor().get());
-                assertThat(requestIdRef.get(), equalTo(requestId));
-                assertThat(actionRef.get(), equalTo(action));
+                requestIdRef.set(requestId);
+                actionRef.set(action);
                 exceptionRef.set(error);
             }
         });
@@ -404,18 +517,14 @@ public class OutboundHandlerTests extends ESTestCase {
         handler.setMessageListener(new TransportMessageListener() {
             @Override
             public void onResponseSent(long requestId, String action) {
-                assertNull(channel.getMessageCaptor().get());
-                assertThat(requestIdRef.get(), equalTo(0L));
-                requestIdRef.set(requestId);
-                assertNull(actionRef.get());
-                actionRef.set(action);
+                throw new AssertionError("onResponseSent(success) must not be called on serialization failure");
             }
 
             @Override
             public void onResponseSent(long requestId, String action, Exception error) {
                 assertNull(channel.getMessageCaptor().get());
-                assertThat(requestIdRef.get(), equalTo(requestId));
-                assertThat(actionRef.get(), equalTo(action));
+                requestIdRef.set(requestId);
+                actionRef.set(action);
                 exceptionRef.set(error);
             }
         });
@@ -453,16 +562,10 @@ public class OutboundHandlerTests extends ESTestCase {
             }
         };
 
-        AtomicLong requestIdRef = new AtomicLong();
-        AtomicReference<String> actionRef = new AtomicReference<>();
         handler.setMessageListener(new TransportMessageListener() {
             @Override
             public void onResponseSent(long requestId, String action) {
-                assertNull(channel.getMessageCaptor().get());
-                assertThat(requestIdRef.get(), equalTo(0L));
-                requestIdRef.set(requestId);
-                assertNull(actionRef.get());
-                actionRef.set(action);
+                throw new AssertionError("onResponseSent(success) must not be called on serialization failure");
             }
 
             @Override
@@ -478,8 +581,6 @@ public class OutboundHandlerTests extends ESTestCase {
         }
         assertNull(channel.getMessageCaptor().get());
         assertNull(channel.getListenerCaptor().get());
-        assertEquals(requestId, requestIdRef.get());
-        assertEquals(action, actionRef.get());
         assertTrue(response.released.get());
         assertFalse(channel.isOpen());
         assertTrue(closeListener.isDone());
