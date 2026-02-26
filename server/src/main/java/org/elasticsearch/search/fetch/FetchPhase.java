@@ -101,7 +101,7 @@ public final class FetchPhase {
     }
 
     /**
-     * Executes the fetch phase with optional memory checking and no streaming
+     * Executes the fetch phase with an optional caller-supplied memory tracking callback and no streaming
      *
      * @param context the search context
      * @param docIdsToLoad document IDs to fetch
@@ -122,7 +122,7 @@ public final class FetchPhase {
     }
 
     /**
-     * Executes the fetch phase withwith an optional caller-supplied memory tracking callback and optional streaming.
+     * Executes the fetch phase with an optional caller-supplied memory tracking callback and optional streaming.
      *
      * <p>When {@code writer} is {@code null} (non-streaming), all hits are accumulated in memory and returned at once.
      * When {@code writer} is provided (streaming), hits are emitted in chunks to reduce peak memory usage. In streaming mode,
