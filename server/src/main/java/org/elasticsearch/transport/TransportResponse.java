@@ -10,13 +10,14 @@
 package org.elasticsearch.transport;
 
 import org.elasticsearch.core.Releasable;
+
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 
 public abstract class TransportResponse extends TransportMessage {
 
     @SuppressWarnings("rawtypes")
-    private static final AtomicReferenceFieldUpdater<TransportResponse, Releasable> AFTER_SEND_RELEASE_UPDATER =
-        AtomicReferenceFieldUpdater.newUpdater(TransportResponse.class, Releasable.class, "afterSendRelease");
+    private static final AtomicReferenceFieldUpdater<TransportResponse, Releasable> AFTER_SEND_RELEASE_UPDATER = AtomicReferenceFieldUpdater
+        .newUpdater(TransportResponse.class, Releasable.class, "afterSendRelease");
 
     private transient volatile Releasable afterSendRelease;
 
