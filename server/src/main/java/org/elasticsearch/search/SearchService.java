@@ -1638,9 +1638,10 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
     }
 
     /**
-     * Wraps a listener to defer circuit breaker release until after the response has been fully written to the network.
-     * Sets an {@code afterSendRelease} on the {@link TransportResponse} so that {@code OutboundHandler} releases
-     * the circuit breaker bytes only when the Netty write promise completes.
+     * Wraps a listener so that circuit breaker bytes are released after the response bytes have been
+     * written to the network, rather than immediately after the send is queued. The release is attached
+     * to the {@link TransportResponse} via {@code afterSendRelease} and executed by the transport layer
+     * on write completion.
      */
     private <T extends TransportResponse> ActionListener<T> releaseCircuitBreakerOnResponse(
         ActionListener<T> listener,
@@ -1654,10 +1655,10 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
             try {
                 listener.onResponse(response);
             } finally {
-                // If the transport layer consumed afterSendRelease, it owns the release and will
-                // fire it on write completion. Otherwise, release now as a safety net (e.g. the
-                // channel doesn't support the mechanism, or listener.onResponse() threw before
-                // the transport could consume it).
+                // The transport layer normally consumes afterSendRelease and releases it
+                // when the network write completes. If it was not consumed (e.g. an
+                // exception prevented the response from reaching the transport), release
+                // it here to avoid leaking circuit breaker bytes.
                 Releasable unconsumed = response.consumeAfterSendRelease();
                 if (unconsumed != null) {
                     Releasables.closeExpectNoException(unconsumed);

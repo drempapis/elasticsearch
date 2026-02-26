@@ -20,21 +20,15 @@ public abstract class TransportResponse extends TransportMessage {
 
     private transient volatile Releasable afterSendRelease;
 
-
-
     /**
      * Constructs a new empty transport response
      */
     protected TransportResponse() {}
 
     /**
-     * Sets a {@link Releasable} that will be released after the response has been fully written to the network.
-     * This allows callers to defer resource cleanup (e.g. circuit breaker release) until the serialized bytes
-     * have actually been sent, rather than releasing as soon as the send is queued.
-     *
-     * <p>Thread-safe: uses an {@link AtomicReferenceFieldUpdater} so that a set on one thread
-     * is visible to a consume on another (e.g. search-service thread sets, transport thread consumes),
-     * without allocating an {@code AtomicReference} per instance.
+     * Attaches a {@link Releasable} to this response that the transport layer will release once the
+     * response bytes have been fully written to the network. This is used to defer resource cleanup
+     * (e.g. circuit breaker release) until after the write completes.
      *
      * @throws IllegalStateException if a releasable has already been set and not yet consumed
      */
@@ -45,8 +39,8 @@ public abstract class TransportResponse extends TransportMessage {
     }
 
     /**
-     * Atomically returns and clears the after-send {@link Releasable}. Returns {@code null} if none was set.
-     * Called by the transport layer to extract the releasable and compose it into the send-completion callback.
+     * Atomically returns and clears the after-send {@link Releasable}, or {@code null} if none was set.
+     * The transport layer calls this to take ownership of the releasable and release it on write completion.
      */
     public Releasable consumeAfterSendRelease() {
         return AFTER_SEND_RELEASE_UPDATER.getAndSet(this, null);

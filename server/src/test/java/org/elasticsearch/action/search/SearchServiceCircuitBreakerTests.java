@@ -52,12 +52,9 @@ public class SearchServiceCircuitBreakerTests extends ESTestCase {
 
             assertThat(successCalled.get(), is(true));
             assertThat(failureCalled.get(), is(false));
-            // Safety-net finally block consumed and released afterSendRelease because the
-            // tracking listener doesn't simulate a transport layer that consumes it
             assertThat(breakerUsed.get(), equalTo(0L));
             assertThat(result.getSearchHitsSizeBytes(), equalTo(0L));
 
-            // afterSendRelease was already consumed by the safety-net finally block
             Releasable afterSend = result.consumeAfterSendRelease();
             assertThat(afterSend, nullValue());
         } finally {
@@ -159,13 +156,6 @@ public class SearchServiceCircuitBreakerTests extends ESTestCase {
         assertThat(result.consumeAfterSendRelease(), nullValue());
     }
 
-    /**
-     * Simulates the network path where the transport layer consumes afterSendRelease
-     * during listener.onResponse(). The safety-net finally block should see that
-     * afterSendRelease was already consumed and not release the bytes itself.
-     * The transport layer (simulated here) owns the release and fires it later
-     * when the network write completes.
-     */
     public void testTransportConsumesAfterSendRelease() {
         AtomicLong breakerUsed = new AtomicLong(5000);
         CircuitBreaker breaker = new TestCircuitBreaker(breakerUsed);
@@ -175,8 +165,6 @@ public class SearchServiceCircuitBreakerTests extends ESTestCase {
             result.setSearchHitsSizeBytes(5000L);
             AtomicBoolean successCalled = new AtomicBoolean(false);
 
-            // Simulate a transport layer listener that consumes afterSendRelease
-            // (like OutboundHandler.sendResponse does for the network path)
             Releasable[] captured = new Releasable[1];
             ActionListener<FetchSearchResult> transportSimulator = new ActionListener<>() {
                 @Override
@@ -191,15 +179,13 @@ public class SearchServiceCircuitBreakerTests extends ESTestCase {
                 }
             };
 
-            fetchSearchResultListenerWithCustomInner(transportSimulator, breaker).onResponse(result);
+            withCircuitBreakerRelease(transportSimulator, breaker, Function.identity()).onResponse(result);
 
             assertThat(successCalled.get(), is(true));
-            // Bytes must still be reserved: the transport owns the release
             assertThat(breakerUsed.get(), equalTo(5000L));
             assertThat(result.getSearchHitsSizeBytes(), equalTo(5000L));
             assertThat(captured[0], notNullValue());
 
-            // Simulate Netty write completion
             captured[0].close();
             assertThat(breakerUsed.get(), equalTo(0L));
             assertThat(result.getSearchHitsSizeBytes(), equalTo(0L));
@@ -302,7 +288,6 @@ public class SearchServiceCircuitBreakerTests extends ESTestCase {
 
     /**
      * Wrap a listener with deferred circuit breaker release via afterSendRelease on the response.
-     * Mirrors the behavior of {@code SearchService.releaseCircuitBreakerOnResponse()}.
      */
     private <T extends TransportResponse> ActionListener<T> withCircuitBreakerRelease(
         ActionListener<T> listener,
@@ -339,13 +324,6 @@ public class SearchServiceCircuitBreakerTests extends ESTestCase {
         CircuitBreaker breaker
     ) {
         return withCircuitBreakerRelease(trackingListener(successCalled, failureCalled), breaker, Function.identity());
-    }
-
-    private ActionListener<FetchSearchResult> fetchSearchResultListenerWithCustomInner(
-        ActionListener<FetchSearchResult> inner,
-        CircuitBreaker breaker
-    ) {
-        return withCircuitBreakerRelease(inner, breaker, Function.identity());
     }
 
     private ActionListener<QueryFetchSearchResult> queryFetchSearchResultListener(

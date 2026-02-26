@@ -222,6 +222,7 @@ public final class OutboundHandler {
         RESPONSE_ERROR
     }
 
+
     private void sendMessage(
         TcpChannel channel,
         MessageDirection messageDirection,

@@ -272,11 +272,6 @@ public class OutboundHandlerTests extends ESTestCase {
         assertEquals("header_value", header.getHeaders().v1().get("header"));
     }
 
-    /**
-     * Verifies that {@code afterSendRelease} set on a {@link TransportResponse} is NOT released when
-     * {@code sendResponse} returns (the send is only queued), but IS released when the write-completion
-     * listener fires with success.
-     */
     public void testAfterSendReleaseOnWriteSuccess() {
         TransportVersion version = TransportVersionUtils.randomCompatibleVersion();
         String action = randomAlphaOfLength(10);
@@ -308,10 +303,6 @@ public class OutboundHandlerTests extends ESTestCase {
         assertTrue("onResponseSent must fire on write success", onResponseSentCalled.get());
     }
 
-    /**
-     * Verifies that {@code afterSendRelease} set on a {@link TransportResponse} is released when the
-     * write-completion listener fires with a failure (e.g. network error during write).
-     */
     public void testAfterSendReleaseOnWriteFailure() {
         TransportVersion version = TransportVersionUtils.randomCompatibleVersion();
         String action = randomAlphaOfLength(10);
@@ -342,11 +333,6 @@ public class OutboundHandlerTests extends ESTestCase {
         assertTrue("onResponseSent must fire on write failure", onResponseSentCalled.get());
     }
 
-    /**
-     * Verifies that {@code afterSendRelease} set on a {@link TransportResponse} is released immediately
-     * when serialization fails (before the write is ever attempted), via the catch block in
-     * {@link OutboundHandler#sendResponse}.
-     */
     public void testAfterSendReleaseOnSerializationFailure() {
         TransportVersion version = TransportVersionUtils.randomCompatibleVersion();
         String action = randomAlphaOfLength(10);
