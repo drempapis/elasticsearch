@@ -134,8 +134,11 @@ public final class FetchPhase {
      * @param rankDocs ranking information
      * @param memoryChecker optional callback for memory tracking, may be {@code null}
      * @param writer optional chunk writer for streaming mode, may be {@code null}
-     * @param buildListener optional listener invoked when the fetch build completes (success/failure). In streaming mode this
-     *                      fires when hits are built and chunks are dispatched, without waiting for chunk ACKs.
+     * @param buildListener optional listener invoked when all {@link SearchHit} objects have been constructed
+     *                      (and, in streaming mode, serialized into chunks and dispatched to the writer).
+     *                      In non-streaming mode this fires immediately after the hits are built, just like {@code listener}.
+     *                      In streaming mode this fires before chunk ACKs arrive, allowing the caller to release
+     *                      shard resources (e.g. close the SearchContext) without waiting for network acknowledgements.
      * @param listener final completion listener. In streaming mode this is invoked only after all chunks are ACKed; in
      *                 non-streaming mode it is invoked immediately after hits are built.
      *
@@ -200,10 +203,9 @@ public final class FetchPhase {
                         context.fetchResult().setSearchHitsSizeBytes(hitsAndBytes.searchHitsBytesSize);
                     }
 
-                    hitsToRelease = null; // Ownership transferred
+                    hitsToRelease = null;
                     listener.onResponse(null);
                 } finally {
-                    // Release if shardResult() threw an exception before taking ownership.
                     if (hitsToRelease != null) {
                         hitsToRelease.decRef();
                     }
