@@ -23,6 +23,8 @@ import java.util.concurrent.ConcurrentMap;
 
 public final class ActiveFetchPhaseTasks {
 
+    record ResponseStreamKey(long coordinatingTaskId, ShardId shardId) {}
+
     private final ConcurrentMap<ResponseStreamKey, FetchPhaseResponseStream> tasks = ConcurrentCollections.newConcurrentMap();
 
     /**
