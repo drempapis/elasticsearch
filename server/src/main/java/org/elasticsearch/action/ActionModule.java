@@ -773,7 +773,7 @@ public class ActionModule extends AbstractModule {
         actions.register(TransportExplainAction.TYPE, TransportExplainAction.class);
         actions.register(TransportClearScrollAction.TYPE, TransportClearScrollAction.class);
         actions.register(TransportFetchPhaseCoordinationAction.TYPE, TransportFetchPhaseCoordinationAction.class);
-        actions.register(TransportFetchPhaseResponseChunkAction.TYPE, TransportFetchPhaseResponseChunkAction.class);
+
         actions.register(RecoveryAction.INSTANCE, TransportRecoveryAction.class);
         actions.register(TransportNodesReloadSecureSettingsAction.TYPE, TransportNodesReloadSecureSettingsAction.class);
         actions.register(AutoCreateAction.INSTANCE, AutoCreateAction.TransportAction.class);
@@ -1103,6 +1103,7 @@ public class ActionModule extends AbstractModule {
         bind(new TypeLiteral<RequestValidators<IndicesAliasesRequest>>() {}).toInstance(indicesAliasesRequestRequestValidators);
         bind(AutoCreateIndex.class).toInstance(autoCreateIndex);
         bind(ActiveFetchPhaseTasks.class).asEagerSingleton();
+        bind(TransportFetchPhaseResponseChunkAction.class).asEagerSingleton();
 
         // register ActionType -> transportAction Map used by NodeClient
         @SuppressWarnings("rawtypes")

@@ -10,43 +10,26 @@
 package org.elasticsearch.search.fetch.chunk;
 
 import org.elasticsearch.action.ActionListener;
-import org.elasticsearch.action.ActionRequestValidationException;
 import org.elasticsearch.action.ActionResponse;
-import org.elasticsearch.action.ActionType;
-import org.elasticsearch.action.LegacyActionRequest;
-import org.elasticsearch.action.support.ActionFilters;
-import org.elasticsearch.action.support.HandledTransportAction;
 import org.elasticsearch.common.bytes.ReleasableBytesReference;
 import org.elasticsearch.common.io.stream.NamedWriteableAwareStreamInput;
 import org.elasticsearch.common.io.stream.NamedWriteableRegistry;
 import org.elasticsearch.common.io.stream.StreamInput;
-import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.util.concurrent.EsExecutors;
 import org.elasticsearch.index.shard.ShardId;
 import org.elasticsearch.injection.guice.Inject;
-import org.elasticsearch.tasks.Task;
 import org.elasticsearch.transport.BytesTransportRequest;
 import org.elasticsearch.transport.TransportService;
 
-import java.io.IOException;
-import java.util.Objects;
-
 /**
- * Transport action that receives fetch result chunks from data nodes. This action runs on the
+ * Receives fetch result chunks from data nodes via zero-copy transport. This component runs on the
  * coordinator node and serves as the receiver endpoint for {@link FetchPhaseResponseChunk}
  * messages sent by data nodes during chunked fetch operations.
  *
- * <p>Supports two transport modes:
- * <ul>
- *   <li><b>Zero-copy mode ({@link #ZERO_COPY_ACTION_NAME})</b>: Chunks arrive as {@link BytesTransportRequest}.
- *          Bytes flow directly from Netty buffers without copying.</li>
- *   <li><b>Standard mode ({@link #TYPE})</b>: Chunks arrive as {@link Request} objects via
- *       standard HandledTransportAction path.</li>
- * </ul>
+ * <p>Chunks arrive as {@link BytesTransportRequest} on the {@link #ZERO_COPY_ACTION_NAME} endpoint.
+ * Bytes flow directly from Netty buffers without an intermediate deserialization/re-serialization step.
  */
-public class TransportFetchPhaseResponseChunkAction extends HandledTransportAction<
-    TransportFetchPhaseResponseChunkAction.Request,
-    ActionResponse.Empty> {
+public class TransportFetchPhaseResponseChunkAction {
 
     /*
      * [Data Node]                                   [Coordinator]
@@ -62,13 +45,11 @@ public class TransportFetchPhaseResponseChunkAction extends HandledTransportActi
      *    |<------------- [ACK (Empty)]-------------------|
      */
 
-    public static final ActionType<ActionResponse.Empty> TYPE = new ActionType<>("internal:data/read/search/fetch/chunk");
-
     /**
      * Action name for zero-copy BytesTransportRequest path.
      * Sender uses this action name when sending via BytesTransportRequest.
      */
-    public static final String ZERO_COPY_ACTION_NAME = TYPE.name() + "[bytes]";
+    public static final String ZERO_COPY_ACTION_NAME = "internal:data/read/search/fetch/chunk[bytes]";
 
     private final ActiveFetchPhaseTasks activeFetchPhaseTasks;
 
@@ -84,20 +65,18 @@ public class TransportFetchPhaseResponseChunkAction extends HandledTransportActi
     private final NamedWriteableRegistry namedWriteableRegistry;
 
     /**
-     * Creates a new chunk receiver action.
+     * Creates a new chunk receiver and registers the zero-copy transport handler.
      *
-     * @param transportService the transport service
-     * @param actionFilters the action filters
+     * @param transportService the transport service used to register the handler
      * @param activeFetchPhaseTasks the registry of active fetch response streams
+     * @param namedWriteableRegistry registry for deserializing NamedWriteable types in chunks
      */
     @Inject
     public TransportFetchPhaseResponseChunkAction(
         TransportService transportService,
-        ActionFilters actionFilters,
         ActiveFetchPhaseTasks activeFetchPhaseTasks,
         NamedWriteableRegistry namedWriteableRegistry
     ) {
-        super(TYPE.name(), transportService, actionFilters, Request::new, EsExecutors.DIRECT_EXECUTOR_SERVICE);
         this.activeFetchPhaseTasks = activeFetchPhaseTasks;
         this.namedWriteableRegistry = namedWriteableRegistry;
         registerZeroCopyHandler(transportService);
@@ -140,59 +119,6 @@ public class TransportFetchPhaseResponseChunkAction extends HandledTransportActi
                 }
             }
         );
-    }
-
-    /**
-     * Request wrapper containing the coordinating task ID and the chunk contents.
-     */
-    public static class Request extends LegacyActionRequest {
-        private long coordinatingTaskId;
-        private FetchPhaseResponseChunk chunkContents;
-
-        /**
-         * Creates a new chunk request.
-         *
-         * @param coordinatingTaskId the ID of the coordinating search task
-         * @param chunkContents the chunk to deliver
-         */
-        public Request(long coordinatingTaskId, FetchPhaseResponseChunk chunkContents) {
-            this.coordinatingTaskId = coordinatingTaskId;
-            this.chunkContents = Objects.requireNonNull(chunkContents);
-        }
-
-        Request(StreamInput in) throws IOException {
-            super(in);
-            coordinatingTaskId = in.readVLong();
-            chunkContents = new FetchPhaseResponseChunk(in);
-        }
-
-        @Override
-        public void writeTo(StreamOutput out) throws IOException {
-            super.writeTo(out);
-            out.writeVLong(coordinatingTaskId);
-            chunkContents.writeTo(out);
-        }
-
-        @Override
-        public ActionRequestValidationException validate() {
-            return null;
-        }
-
-        public FetchPhaseResponseChunk chunkContents() {
-            return chunkContents;
-        }
-    }
-
-    /**
-     * Processes Request directly via HandledTransportAction.
-     *
-     * @param task the current task
-     * @param request the chunk request
-     * @param listener callback for sending the acknowledgment
-     */
-    @Override
-    protected void doExecute(Task task, Request request, ActionListener<ActionResponse.Empty> listener) {
-        processChunk(request.coordinatingTaskId, request.chunkContents(), listener);
     }
 
     /**
