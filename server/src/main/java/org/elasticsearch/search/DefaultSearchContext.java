@@ -227,9 +227,7 @@ final class DefaultSearchContext extends SearchContext {
                 request.source() == null ? null : request.source().size(),
                 indexShard.shardSearchStats()
             );
-            searchExecutionContext = circuitBreaker != null
-                ? new SearchExecutionContext(baseContext, circuitBreaker)
-                : baseContext;
+            searchExecutionContext = circuitBreaker != null ? new SearchExecutionContext(baseContext, circuitBreaker) : baseContext;
             queryBoost = request.indexBoost();
             this.lowLevelCancellation = lowLevelCancellation;
             success = true;
