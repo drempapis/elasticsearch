@@ -1536,13 +1536,13 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
                 resultsType,
                 enableQueryPhaseParallelCollection,
                 minimumDocsPerSlice,
-                memoryAccountingBufferSize
+                memoryAccountingBufferSize,
+                circuitBreaker
             );
             // we clone the query shard context here just for rewriting otherwise we
             // might end up with incorrect state since we are using now() or script services
             // during rewrite and normalized / evaluate templates etc.
             SearchExecutionContext context = new SearchExecutionContext(searchContext.getSearchExecutionContext());
-            context.setCircuitBreaker(circuitBreaker);
 
             Rewriteable.rewrite(request.getRewriteable(), context, true);
             assert context.getQueryConstructionMemoryUsed() == 0
@@ -1554,7 +1554,6 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
                 searchContext.getSearchExecutionContext().setTimeRangeFilterFromMillis(context.getTimeRangeFilterFromMillis());
             }
 
-            searchContext.getSearchExecutionContext().setCircuitBreaker(circuitBreaker);
             assert searchContext.getSearchExecutionContext().isCacheable();
             success = true;
         } finally {

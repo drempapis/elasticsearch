@@ -115,7 +115,8 @@ public class SearchExecutionContext extends QueryRewriteContext {
     private final Integer requestSize;
     private final MapperMetrics mapperMetrics;
     private final ShardSearchStats shardSearchStats;
-    private CircuitBreaker circuitBreaker;
+    @Nullable
+    private final CircuitBreaker circuitBreaker;
     private final AtomicLong queryConstructionMemoryUsed = new AtomicLong(0);
 
     public SearchExecutionContext(
@@ -168,11 +169,22 @@ public class SearchExecutionContext extends QueryRewriteContext {
             parseRuntimeMappings(runtimeMappings, mapperService, indexSettings, mappingLookup),
             requestSize,
             mapperMetrics,
-            shardSearchStats
+            shardSearchStats,
+            null
         );
     }
 
+    /**
+     * Copy constructor that preserves the circuit breaker from the source context.
+     */
     public SearchExecutionContext(SearchExecutionContext source) {
+        this(source, source.circuitBreaker);
+    }
+
+    /**
+     * Copy constructor that overrides the circuit breaker.
+     */
+    public SearchExecutionContext(SearchExecutionContext source, @Nullable CircuitBreaker circuitBreaker) {
         this(
             source.shardId,
             source.shardRequestIndex,
@@ -196,7 +208,8 @@ public class SearchExecutionContext extends QueryRewriteContext {
             source.runtimeMappings,
             source.requestSize,
             source.mapperMetrics,
-            source.shardSearchStats
+            source.shardSearchStats,
+            circuitBreaker
         );
     }
 
@@ -223,7 +236,8 @@ public class SearchExecutionContext extends QueryRewriteContext {
         Map<String, MappedFieldType> runtimeMappings,
         Integer requestSize,
         MapperMetrics mapperMetrics,
-        ShardSearchStats shardSearchStats
+        ShardSearchStats shardSearchStats,
+        @Nullable CircuitBreaker circuitBreaker
     ) {
         super(
             parserConfig,
@@ -259,6 +273,7 @@ public class SearchExecutionContext extends QueryRewriteContext {
         this.requestSize = requestSize;
         this.mapperMetrics = mapperMetrics;
         this.shardSearchStats = shardSearchStats;
+        this.circuitBreaker = circuitBreaker;
     }
 
     private void reset() {
@@ -725,17 +740,10 @@ public class SearchExecutionContext extends QueryRewriteContext {
     }
 
     /**
-     * Set the circuit breaker for memory accounting
-     */
-    public void setCircuitBreaker(CircuitBreaker breaker) {
-        this.circuitBreaker = breaker;
-    }
-
-    /**
      * Account on memory during query construction. This is used to track memory usage of queries that are being built,
      * and to break if the memory usage exceeds the limit set by the circuit breaker.
      */
-    public void addQueryConstructionMemory(Query query, String label) {
+    public void addCircuitBreakerMemory(Query query, String label) {
         if (circuitBreaker != null && query instanceof Accountable accountable) {
             long bytes = accountable.ramBytesUsed();
             circuitBreaker.addEstimateBytesAndMaybeBreak(bytes, label);

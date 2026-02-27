@@ -79,7 +79,7 @@ public abstract class StringFieldType extends TermBasedFieldType {
                 transpositions,
                 rewriteMethod
             );
-        accountQueryMemory(query, context, "fuzzy:" + name());
+        context.addCircuitBreakerMemory(query, "fuzzy:" + name());
         return query;
     }
 
@@ -101,7 +101,7 @@ public abstract class StringFieldType extends TermBasedFieldType {
         } else {
             query = method == null ? new PrefixQuery(prefix) : new PrefixQuery(prefix, method);
         }
-        accountQueryMemory(query, context, "prefix:" + name());
+        context.addCircuitBreakerMemory(query, "prefix:" + name());
         return query;
     }
 
@@ -172,7 +172,7 @@ public abstract class StringFieldType extends TermBasedFieldType {
         } else {
             query = method == null ? new WildcardQuery(term) : new WildcardQuery(term, Operations.DEFAULT_DETERMINIZE_WORK_LIMIT, method);
         }
-        accountQueryMemory(query, context, "wildcard:" + name());
+        context.addCircuitBreakerMemory(query, "wildcard:" + name());
         return query;
     }
 
@@ -201,7 +201,7 @@ public abstract class StringFieldType extends TermBasedFieldType {
                 maxDeterminizedStates,
                 method
             );
-        accountQueryMemory(query, context, "regexp:" + name());
+        context.addCircuitBreakerMemory(query, "regexp:" + name());
         return query;
     }
 
@@ -228,11 +228,7 @@ public abstract class StringFieldType extends TermBasedFieldType {
             includeLower,
             includeUpper
         );
-        accountQueryMemory(query, context, "range:" + name());
+        context.addCircuitBreakerMemory(query, "range:" + name());
         return query;
-    }
-
-    public static void accountQueryMemory(Query query, SearchExecutionContext context, String label) {
-        context.addQueryConstructionMemory(query, label);
     }
 }

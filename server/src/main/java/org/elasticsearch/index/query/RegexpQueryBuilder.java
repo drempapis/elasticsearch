@@ -300,7 +300,7 @@ public class RegexpQueryBuilder extends AbstractQueryBuilder<RegexpQueryBuilder>
                     maxDeterminizedStates,
                     method
                 );
-            StringFieldType.accountQueryMemory(query, context, "regexp:" + fieldName);
+            context.addCircuitBreakerMemory(query, "regexp:" + fieldName);
         }
         return query;
     }

@@ -401,9 +401,11 @@ public class SearchServiceTests extends IndexShardTestCase {
         try {
             recoverShardFromStore(indexShard);
             try (Engine.Searcher searcher = indexShard.acquireSearcher("test")) {
-                SearchExecutionContext context = createSearchExecutionContext((mappedFieldType, fieldDataContext) -> null, searcher);
                 CircuitBreaker cb = createQueryConstructionBreaker("100mb");
-                context.setCircuitBreaker(cb);
+                SearchExecutionContext context = new SearchExecutionContext(
+                    createSearchExecutionContext((mappedFieldType, fieldDataContext) -> null, searcher),
+                    cb
+                );
 
                 long cbBefore = cb.getUsed();
                 assertEquals("Freshly created breaker must start at zero", 0L, cbBefore);
@@ -428,9 +430,11 @@ public class SearchServiceTests extends IndexShardTestCase {
         try {
             recoverShardFromStore(indexShard);
             try (Engine.Searcher searcher = indexShard.acquireSearcher("test")) {
-                SearchExecutionContext context = createSearchExecutionContext((mappedFieldType, fieldDataContext) -> null, searcher);
                 CircuitBreaker cb = createQueryConstructionBreaker("1kb");
-                context.setCircuitBreaker(cb);
+                SearchExecutionContext context = new SearchExecutionContext(
+                    createSearchExecutionContext((mappedFieldType, fieldDataContext) -> null, searcher),
+                    cb
+                );
 
                 BoolQueryBuilder boolQuery = new BoolQueryBuilder();
                 for (int i = 0; i < 50; i++) {
@@ -449,9 +453,11 @@ public class SearchServiceTests extends IndexShardTestCase {
         try {
             recoverShardFromStore(indexShard);
             try (Engine.Searcher searcher = indexShard.acquireSearcher("test")) {
-                SearchExecutionContext context = createSearchExecutionContext((mappedFieldType, fieldDataContext) -> null, searcher);
                 CircuitBreaker cb = createQueryConstructionBreaker("100mb");
-                context.setCircuitBreaker(cb);
+                SearchExecutionContext context = new SearchExecutionContext(
+                    createSearchExecutionContext((mappedFieldType, fieldDataContext) -> null, searcher),
+                    cb
+                );
 
                 for (int i = 0; i < 3; i++) {
                     new WildcardQueryBuilder("field", "*test" + i + "*").toQuery(context);
