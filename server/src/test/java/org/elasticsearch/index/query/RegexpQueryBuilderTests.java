@@ -20,6 +20,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.IntStream;
 
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.instanceOf;
@@ -153,9 +154,12 @@ public class RegexpQueryBuilderTests extends AbstractQueryTestCase<RegexpQueryBu
     public void testRegexpCircuitBreakerTripsWithLowLimit() {
         assertCircuitBreakerTripsOnQueryConstruction("500kb", () -> {
             BoolQueryBuilder boolQuery = new BoolQueryBuilder();
-            for (int i = 0; i < 50; i++) {
-                boolQuery.should(new RegexpQueryBuilder(TEXT_FIELD_NAME, "(pattern" + i + "|alternate" + i + "|option" + i + ").*"));
-            }
+            IntStream.range(0, 50)
+                .forEach(
+                    i -> boolQuery.should(
+                        new RegexpQueryBuilder(TEXT_FIELD_NAME, "(pattern" + i + "|alternate" + i + "|option" + i + ").*")
+                    )
+                );
             return boolQuery;
         });
     }

@@ -406,6 +406,7 @@ public class SearchServiceTests extends IndexShardTestCase {
                 context.setCircuitBreaker(cb);
 
                 long cbBefore = cb.getUsed();
+                assertEquals("Freshly created breaker must start at zero", 0L, cbBefore);
 
                 WildcardQueryBuilder queryBuilder = new WildcardQueryBuilder("field", "*test*pattern*");
                 assertNotNull(queryBuilder.toQuery(context));

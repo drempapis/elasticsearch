@@ -66,6 +66,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.StringJoiner;
+import java.util.stream.IntStream;
 
 import static org.elasticsearch.index.query.AbstractQueryBuilder.parseTopLevelQuery;
 import static org.elasticsearch.index.query.QueryBuilders.queryStringQuery;
@@ -1438,23 +1440,17 @@ public class QueryStringQueryBuilderTests extends AbstractQueryTestCase<QueryStr
 
     public void testQueryStringCircuitBreakerTripsWithManyWildcards() {
         assertCircuitBreakerTripsOnQueryConstruction("1mb", () -> {
-            StringBuilder queryStr = new StringBuilder();
-            for (int i = 0; i < 100; i++) {
-                if (i > 0) queryStr.append(" OR ");
-                queryStr.append("*a*b*c*d*e*f*g*h*").append(i).append("*");
-            }
-            return queryStringQuery(queryStr.toString()).defaultField(TEXT_FIELD_NAME);
+            StringJoiner joiner = new StringJoiner(" OR ");
+            IntStream.range(0, 100).forEach(i -> joiner.add("*a*b*c*d*e*f*g*h*" + i + "*"));
+            return queryStringQuery(joiner.toString()).defaultField(TEXT_FIELD_NAME);
         });
     }
 
     public void testQueryStringCircuitBreakerTripsWithManyRegexps() {
         assertCircuitBreakerTripsOnQueryConstruction("500kb", () -> {
-            StringBuilder queryStr = new StringBuilder();
-            for (int i = 0; i < 50; i++) {
-                if (i > 0) queryStr.append(" OR ");
-                queryStr.append("/(pattern").append(i).append("|alternate").append(i).append("|option").append(i).append(").*/");
-            }
-            return queryStringQuery(queryStr.toString()).defaultField(TEXT_FIELD_NAME);
+            StringJoiner joiner = new StringJoiner(" OR ");
+            IntStream.range(0, 50).forEach(i -> joiner.add("/(pattern" + i + "|alternate" + i + "|option" + i + ").*/"));
+            return queryStringQuery(joiner.toString()).defaultField(TEXT_FIELD_NAME);
         });
     }
 }

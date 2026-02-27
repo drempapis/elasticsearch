@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.stream.IntStream;
 
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.instanceOf;
@@ -209,9 +210,8 @@ public class WildcardQueryBuilderTests extends AbstractQueryTestCase<WildcardQue
     public void testCircuitBreakerTripsWithLowLimit() {
         assertCircuitBreakerTripsOnQueryConstruction("1mb", () -> {
             BoolQueryBuilder boolQuery = new BoolQueryBuilder();
-            for (int i = 0; i < 100; i++) {
-                boolQuery.should(new WildcardQueryBuilder(TEXT_FIELD_NAME, "*a*b*c*d*e*f*g*h*i*j*k*l*m*n*o*p*" + i + "*"));
-            }
+            IntStream.range(0, 100)
+                .forEach(i -> boolQuery.should(new WildcardQueryBuilder(TEXT_FIELD_NAME, "*a*b*c*d*e*f*g*h*i*j*k*l*m*n*o*p*" + i + "*")));
             return boolQuery;
         });
     }

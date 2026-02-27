@@ -25,6 +25,7 @@ import org.hamcrest.Matchers;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.stream.IntStream;
 
 import static org.elasticsearch.index.query.QueryBuilders.prefixQuery;
 import static org.hamcrest.Matchers.equalTo;
@@ -219,13 +220,13 @@ public class PrefixQueryBuilderTests extends AbstractQueryTestCase<PrefixQueryBu
     public void testPrefixCircuitBreakerTripsWithLowLimit() {
         assertCircuitBreakerTripsOnQueryConstruction("500kb", () -> {
             BoolQueryBuilder boolQuery = new BoolQueryBuilder();
-            for (int i = 0; i < 100; i++) {
+            IntStream.range(0, 100).forEach(i -> {
                 PrefixQueryBuilder prefixQuery = new PrefixQueryBuilder(TEXT_FIELD_NAME, "prefix" + i);
                 if (randomBoolean()) {
                     prefixQuery.caseInsensitive(true);
                 }
                 boolQuery.should(prefixQuery);
-            }
+            });
             return boolQuery;
         });
     }
