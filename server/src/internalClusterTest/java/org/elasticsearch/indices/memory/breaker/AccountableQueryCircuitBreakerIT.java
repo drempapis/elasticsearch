@@ -28,13 +28,10 @@ import org.elasticsearch.indices.breaker.HierarchyCircuitBreakerService;
 import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.test.ESIntegTestCase;
 import org.elasticsearch.test.ESIntegTestCase.ClusterScope;
-import org.junit.After;
-import org.junit.Before;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.IntFunction;
-import java.util.stream.Stream;
 
 import static org.elasticsearch.cluster.metadata.IndexMetadata.SETTING_NUMBER_OF_REPLICAS;
 import static org.elasticsearch.test.ESIntegTestCase.Scope.TEST;
@@ -56,28 +53,23 @@ public class AccountableQueryCircuitBreakerIT extends ESIntegTestCase {
     private static final String KEYWORD_FIELD = "keyword_field";
 
     public void testWildcardQueryTripsCircuitBreaker() {
-        assertBulkQueryTripsBreaker(100,
-            i -> new WildcardQueryBuilder(TEXT_FIELD, "*pattern*" + i + "*"));
+        assertBulkQueryTripsBreaker(100, i -> new WildcardQueryBuilder(TEXT_FIELD, "*pattern*" + i + "*"));
     }
 
     public void testPrefixQueryTripsCircuitBreaker() {
-        assertBulkQueryTripsBreaker(100,
-            i -> new PrefixQueryBuilder(TEXT_FIELD, "prefix" + i));
+        assertBulkQueryTripsBreaker(100, i -> new PrefixQueryBuilder(TEXT_FIELD, "prefix" + i));
     }
 
     public void testRegexpQueryTripsCircuitBreaker() {
-        assertBulkQueryTripsBreaker(50,
-            i -> new RegexpQueryBuilder(TEXT_FIELD, "(pattern" + i + "|alternate" + i + "|option" + i + ").*"));
+        assertBulkQueryTripsBreaker(50, i -> new RegexpQueryBuilder(TEXT_FIELD, "(pattern" + i + "|alternate" + i + "|option" + i + ").*"));
     }
 
     public void testQueryStringTripsCircuitBreaker() {
-        assertBulkQueryTripsBreaker(100,
-            i -> new QueryStringQueryBuilder("*pattern" + i + "*").defaultField(TEXT_FIELD));
+        assertBulkQueryTripsBreaker(100, i -> new QueryStringQueryBuilder("*pattern" + i + "*").defaultField(TEXT_FIELD));
     }
 
     public void testRangeQueryTripsCircuitBreaker() {
-        assertBulkQueryTripsBreaker(100,
-            i -> new RangeQueryBuilder(KEYWORD_FIELD).gte("key" + i).lte("key" + (i + 100)));
+        assertBulkQueryTripsBreaker(100, i -> new RangeQueryBuilder(KEYWORD_FIELD).gte("key" + i).lte("key" + (i + 100)));
     }
 
     public void testWildcardQueryMemoryReleased() throws Exception {
