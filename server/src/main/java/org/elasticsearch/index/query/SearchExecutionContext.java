@@ -738,10 +738,11 @@ public class SearchExecutionContext extends QueryRewriteContext {
     public ShardSearchStats stats() {
         return shardSearchStats;
     }
-
+    
     /**
-     * Account on memory during query construction. This is used to track memory usage of queries that are being built,
-     * and to break if the memory usage exceeds the limit set by the circuit breaker.
+     * Track memory usage of an {@link Accountable} query (e.g. automaton-based queries like prefix, wildcard,
+     * regexp, range) during query construction, and trip the circuit breaker if the accumulated usage exceeds
+     * the configured limit.
      */
     public void addCircuitBreakerMemory(Accountable accountable, String label) {
         if (circuitBreaker != null) {
