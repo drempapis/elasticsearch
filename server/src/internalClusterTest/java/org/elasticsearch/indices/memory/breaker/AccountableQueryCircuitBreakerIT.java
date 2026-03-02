@@ -28,6 +28,8 @@ import org.elasticsearch.indices.breaker.HierarchyCircuitBreakerService;
 import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.test.ESIntegTestCase;
 import org.elasticsearch.test.ESIntegTestCase.ClusterScope;
+import org.junit.After;
+import org.junit.Before;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -52,24 +54,38 @@ public class AccountableQueryCircuitBreakerIT extends ESIntegTestCase {
     private static final String TEXT_FIELD = "text_field";
     private static final String KEYWORD_FIELD = "keyword_field";
 
+    @Before
+    public void checkBreakerType() {
+        assumeFalse("--> noop breakers used, skipping test", noopBreakerUsed());
+    }
+
+    @After
+    public void resetBreakerSettings() {
+        updateClusterSettings(
+            Settings.builder()
+                .putNull(HierarchyCircuitBreakerService.REQUEST_CIRCUIT_BREAKER_LIMIT_SETTING.getKey())
+                .putNull(HierarchyCircuitBreakerService.REQUEST_CIRCUIT_BREAKER_OVERHEAD_SETTING.getKey())
+        );
+    }
+
     public void testWildcardQueryTripsCircuitBreaker() {
-        assertBulkQueryTripsBreaker(100, i -> new WildcardQueryBuilder(TEXT_FIELD, "*pattern*" + i + "*"));
+        assertBoolQueryTripsBreaker(100, i -> new WildcardQueryBuilder(TEXT_FIELD, "*pattern*" + i + "*"));
     }
 
     public void testPrefixQueryTripsCircuitBreaker() {
-        assertBulkQueryTripsBreaker(100, i -> new PrefixQueryBuilder(TEXT_FIELD, "prefix" + i));
+        assertBoolQueryTripsBreaker(100, i -> new PrefixQueryBuilder(TEXT_FIELD, "prefix" + i));
     }
 
     public void testRegexpQueryTripsCircuitBreaker() {
-        assertBulkQueryTripsBreaker(50, i -> new RegexpQueryBuilder(TEXT_FIELD, "(pattern" + i + "|alternate" + i + "|option" + i + ").*"));
+        assertBoolQueryTripsBreaker(50, i -> new RegexpQueryBuilder(TEXT_FIELD, "(pattern" + i + "|alternate" + i + "|option" + i + ").*"));
     }
 
     public void testQueryStringTripsCircuitBreaker() {
-        assertBulkQueryTripsBreaker(100, i -> new QueryStringQueryBuilder("*pattern" + i + "*").defaultField(TEXT_FIELD));
+        assertBoolQueryTripsBreaker(100, i -> new QueryStringQueryBuilder("*pattern" + i + "*").defaultField(TEXT_FIELD));
     }
 
     public void testRangeQueryTripsCircuitBreaker() {
-        assertBulkQueryTripsBreaker(100, i -> new RangeQueryBuilder(KEYWORD_FIELD).gte("key" + i).lte("key" + (i + 100)));
+        assertBoolQueryTripsBreaker(100, i -> new RangeQueryBuilder(KEYWORD_FIELD).gte("key" + i).lte("key" + (i + 100)));
     }
 
     public void testWildcardQueryMemoryReleased() throws Exception {
@@ -92,8 +108,7 @@ public class AccountableQueryCircuitBreakerIT extends ESIntegTestCase {
         assertQueryMemoryReleasedAfterSearch(new RangeQueryBuilder(KEYWORD_FIELD).gte("key0").lte("key999"));
     }
 
-    private void assertBulkQueryTripsBreaker(int count, IntFunction<QueryBuilder> queryFactory) {
-        assumeFalse("--> noop breakers used, skipping test", noopBreakerUsed());
+    private void assertBoolQueryTripsBreaker(int count, IntFunction<QueryBuilder> queryFactory) {
         createAndPopulateIndex();
 
         BoolQueryBuilder boolQuery = new BoolQueryBuilder();
@@ -104,7 +119,6 @@ public class AccountableQueryCircuitBreakerIT extends ESIntegTestCase {
     }
 
     private void assertQueryMemoryReleasedAfterSearch(QueryBuilder query) throws Exception {
-        assumeFalse("--> noop breakers used, skipping test", noopBreakerUsed());
         createAndPopulateIndex();
         assertQueryMemoryReleased(query);
     }
@@ -172,12 +186,6 @@ public class AccountableQueryCircuitBreakerIT extends ESIntegTestCase {
         SearchRequestBuilder searchRequest = client().prepareSearch(INDEX_NAME).setQuery(query);
         assertFailures(searchRequest, RestStatus.BAD_REQUEST, containsString("Data too large"));
         assertThat("Request circuit breaker should have tripped", getRequestBreakerTrippedCount(), greaterThanOrEqualTo(1L));
-
-        updateClusterSettings(
-            Settings.builder()
-                .putNull(HierarchyCircuitBreakerService.REQUEST_CIRCUIT_BREAKER_LIMIT_SETTING.getKey())
-                .putNull(HierarchyCircuitBreakerService.REQUEST_CIRCUIT_BREAKER_OVERHEAD_SETTING.getKey())
-        );
     }
 
     private void assertQueryMemoryReleased(QueryBuilder query) throws Exception {
