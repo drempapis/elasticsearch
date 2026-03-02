@@ -36,10 +36,21 @@ import java.util.regex.Pattern;
 
 import static org.elasticsearch.search.SearchService.ALLOW_EXPENSIVE_QUERIES;
 
-/** Base class for {@link MappedFieldType} implementations that use the same
+/**
+ * Base class for {@link MappedFieldType} implementations that use the same
  * representation for internal index terms as the external representation so
  * that partial matching queries such as prefix, wildcard and fuzzy queries
- * can be implemented. */
+ * can be implemented.
+ *
+ * <p>Circuit breaker accounting for automaton-based queries (prefix, wildcard, regexp, range)
+ * is performed here, at the point each individual Lucene query is created, rather than solely
+ * in {@link SearchExecutionContext#toQuery} after the full query tree is assembled. This is
+ * intentional: compound queries such as a {@code bool} with many wildcard clauses build each
+ * clause sequentially, so by the time the complete tree is available for a post-hoc walk every
+ * automaton has already been allocated. Accounting per-clause lets the circuit breaker trip as
+ * soon as cumulative memory crosses the threshold, preventing the remaining clauses from being
+ * constructed and avoiding a potential OOM.
+ */
 public abstract class StringFieldType extends TermBasedFieldType {
 
     private static final Pattern WILDCARD_PATTERN = Pattern.compile("(\\\\.)|([?*]+)");
