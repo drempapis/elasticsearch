@@ -738,7 +738,7 @@ public class SearchExecutionContext extends QueryRewriteContext {
     public ShardSearchStats stats() {
         return shardSearchStats;
     }
-    
+
     /**
      * Track memory usage of an {@link Accountable} query (e.g. automaton-based queries like prefix, wildcard,
      * regexp, range) during query construction, and trip the circuit breaker if the accumulated usage exceeds
