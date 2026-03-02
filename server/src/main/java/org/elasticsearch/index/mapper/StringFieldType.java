@@ -18,6 +18,7 @@ import org.apache.lucene.search.Query;
 import org.apache.lucene.search.RegexpQuery;
 import org.apache.lucene.search.TermRangeQuery;
 import org.apache.lucene.search.WildcardQuery;
+import org.apache.lucene.util.Accountable;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.BytesRefBuilder;
 import org.apache.lucene.util.automaton.Operations;
@@ -63,7 +64,7 @@ public abstract class StringFieldType extends TermBasedFieldType {
             );
         }
         failIfNotIndexed();
-        Query query = rewriteMethod == null
+        return rewriteMethod == null
             ? new FuzzyQuery(
                 new Term(name(), indexedValueForSearch(value)),
                 fuzziness.asDistance(BytesRefs.toString(value)),
@@ -79,8 +80,6 @@ public abstract class StringFieldType extends TermBasedFieldType {
                 transpositions,
                 rewriteMethod
             );
-        context.addCircuitBreakerMemory(query, "fuzzy:" + name());
-        return query;
     }
 
     @Override
@@ -101,7 +100,8 @@ public abstract class StringFieldType extends TermBasedFieldType {
         } else {
             query = method == null ? new PrefixQuery(prefix) : new PrefixQuery(prefix, method);
         }
-        context.addCircuitBreakerMemory(query, "prefix:" + name());
+        assert query instanceof Accountable : "PrefixQuery should implement Accountable";
+        context.addCircuitBreakerMemory((Accountable) query, "prefix:" + name());
         return query;
     }
 
@@ -172,7 +172,8 @@ public abstract class StringFieldType extends TermBasedFieldType {
         } else {
             query = method == null ? new WildcardQuery(term) : new WildcardQuery(term, Operations.DEFAULT_DETERMINIZE_WORK_LIMIT, method);
         }
-        context.addCircuitBreakerMemory(query, "wildcard:" + name());
+        assert query instanceof Accountable : "WildcardQuery should implement Accountable";
+        context.addCircuitBreakerMemory((Accountable) query, "wildcard:" + name());
         return query;
     }
 
@@ -201,7 +202,8 @@ public abstract class StringFieldType extends TermBasedFieldType {
                 maxDeterminizedStates,
                 method
             );
-        context.addCircuitBreakerMemory(query, "regexp:" + name());
+        assert query instanceof Accountable : "RegexpQuery should implement Accountable";
+        context.addCircuitBreakerMemory((Accountable) query, "regexp:" + name());
         return query;
     }
 
@@ -228,7 +230,8 @@ public abstract class StringFieldType extends TermBasedFieldType {
             includeLower,
             includeUpper
         );
-        context.addCircuitBreakerMemory(query, "range:" + name());
+        assert query instanceof Accountable : "TermRangeQuery should implement Accountable";
+        context.addCircuitBreakerMemory((Accountable) query, "range:" + name());
         return query;
     }
 }

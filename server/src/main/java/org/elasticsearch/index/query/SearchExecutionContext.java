@@ -743,8 +743,8 @@ public class SearchExecutionContext extends QueryRewriteContext {
      * Account on memory during query construction. This is used to track memory usage of queries that are being built,
      * and to break if the memory usage exceeds the limit set by the circuit breaker.
      */
-    public void addCircuitBreakerMemory(Query query, String label) {
-        if (circuitBreaker != null && query instanceof Accountable accountable) {
+    public void addCircuitBreakerMemory(Accountable accountable, String label) {
+        if (circuitBreaker != null) {
             long bytes = accountable.ramBytesUsed();
             circuitBreaker.addEstimateBytesAndMaybeBreak(bytes, label);
             queryConstructionMemoryUsed.addAndGet(bytes);

@@ -311,10 +311,4 @@ public class FuzzyQueryBuilderTests extends AbstractQueryTestCase<FuzzyQueryBuil
         assertThat(query, instanceOf(FuzzyQuery.class));
         assertEquals(false, ((FuzzyQuery) query).getTranspositions());
     }
-
-    public void testFuzzyQueryCircuitBreakerAccounting() throws Exception {
-        FuzzyQueryBuilder queryBuilder = new FuzzyQueryBuilder(TEXT_FIELD_NAME, "test");
-        queryBuilder.fuzziness(Fuzziness.TWO);
-        assertCircuitBreakerAccountsForQuery(queryBuilder);
-    }
 }

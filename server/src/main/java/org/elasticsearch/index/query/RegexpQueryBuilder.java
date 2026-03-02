@@ -13,6 +13,7 @@ import org.apache.lucene.index.Term;
 import org.apache.lucene.search.MultiTermQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.RegexpQuery;
+import org.apache.lucene.util.Accountable;
 import org.apache.lucene.util.automaton.Operations;
 import org.apache.lucene.util.automaton.RegExp;
 import org.elasticsearch.TransportVersion;
@@ -299,7 +300,8 @@ public class RegexpQueryBuilder extends AbstractQueryBuilder<RegexpQueryBuilder>
                     maxDeterminizedStates,
                     method
                 );
-            context.addCircuitBreakerMemory(query, "regexp:" + fieldName);
+            assert query instanceof Accountable : "RegexpQuery should implement Accountable";
+            context.addCircuitBreakerMemory((Accountable) query, "regexp:" + fieldName);
         }
         return query;
     }
