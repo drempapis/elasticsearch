@@ -894,8 +894,8 @@ public class CacheTests extends ESTestCase {
                 });
                 fail("Expected TaskCancelledException");
             } catch (TaskCancelledException e) {
-                assertThat(e.getMessage(), containsString("future="));
                 wasCancelled.set(true);
+                assertThat(e.getMessage(), containsString("Cache wait cancelled"));
             } catch (ExecutionException e) {
                 threadException.set(e);
             }
