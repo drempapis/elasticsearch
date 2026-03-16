@@ -10,15 +10,22 @@
 package org.elasticsearch.search.fetch;
 
 import org.apache.logging.log4j.util.Strings;
+import org.elasticsearch.action.ActionFuture;
 import org.elasticsearch.action.index.IndexRequestBuilder;
+import org.elasticsearch.action.search.ClosePointInTimeRequest;
+import org.elasticsearch.action.search.OpenPointInTimeRequest;
 import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.action.search.SearchType;
+import org.elasticsearch.action.search.TransportClosePointInTimeAction;
+import org.elasticsearch.action.search.TransportOpenPointInTimeAction;
 import org.elasticsearch.cluster.metadata.IndexMetadata;
 import org.elasticsearch.common.breaker.CircuitBreaker;
 import org.elasticsearch.common.settings.Settings;
+import org.elasticsearch.core.TimeValue;
 import org.elasticsearch.indices.breaker.CircuitBreakerService;
 import org.elasticsearch.search.SearchService;
 import org.elasticsearch.search.aggregations.bucket.terms.Terms;
+import org.elasticsearch.search.builder.PointInTimeBuilder;
 import org.elasticsearch.search.sort.SortOrder;
 import org.elasticsearch.test.ESIntegTestCase;
 
@@ -439,6 +446,109 @@ public class ChunkedFetchPhaseCircuitBreakerIT extends ESIntegTestCase {
         assertBusy(() -> {
             assertThat(
                 "Coordinator circuit breaker should be released after DFS chunked fetch",
+                getRequestBreakerUsed(coordinatorNode),
+                lessThanOrEqualTo(breakerBefore)
+            );
+        });
+    }
+
+    public void testChunkedFetchWithPointInTimeReleasesBreaker() throws Exception {
+        internalCluster().startNode();
+        String coordinatorNode = internalCluster().startCoordinatingOnlyNode(Settings.EMPTY);
+
+        createIndexForTest(
+            INDEX_NAME,
+            Settings.builder().put(IndexMetadata.SETTING_NUMBER_OF_SHARDS, 3).put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, 0).build()
+        );
+
+        populateIndex(INDEX_NAME, 180, 2_000);
+        ensureGreen(INDEX_NAME);
+
+        long breakerBefore = getRequestBreakerUsed(coordinatorNode);
+
+        var pitResponse = internalCluster().client(coordinatorNode)
+            .execute(TransportOpenPointInTimeAction.TYPE, new OpenPointInTimeRequest(INDEX_NAME).keepAlive(TimeValue.timeValueMinutes(1)))
+            .actionGet();
+
+        try {
+            assertNoFailuresAndResponse(
+                internalCluster().client(coordinatorNode)
+                    .prepareSearch()
+                    .setPointInTime(new PointInTimeBuilder(pitResponse.getPointInTimeId()))
+                    .setSize(60)
+                    .addSort(SORT_FIELD, SortOrder.ASC),
+                response -> {
+                    assertThat(response.getHits().getHits().length, equalTo(60));
+                    verifyHitsOrder(response);
+                }
+            );
+        } finally {
+            internalCluster().client(coordinatorNode)
+                .execute(TransportClosePointInTimeAction.TYPE, new ClosePointInTimeRequest(pitResponse.getPointInTimeId()))
+                .actionGet();
+        }
+
+        assertBusy(() -> {
+            assertThat(
+                "Coordinator circuit breaker should be released after chunked PIT search",
+                getRequestBreakerUsed(coordinatorNode),
+                lessThanOrEqualTo(breakerBefore)
+            );
+        });
+    }
+
+    public void testChunkedFetchNodeFailureDuringStreamingReleasesBreaker() throws Exception {
+        String dataNodeToFail = internalCluster().startNode();
+        internalCluster().startNode();
+        String coordinatorNode = internalCluster().startCoordinatingOnlyNode(Settings.EMPTY);
+
+        String failureIndex = "chunked_node_failure_idx";
+        createIndexForTest(
+            failureIndex,
+            Settings.builder()
+                .put(IndexMetadata.SETTING_NUMBER_OF_SHARDS, 1)
+                .put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, 0)
+                .put("index.routing.allocation.include._name", dataNodeToFail)
+                .build()
+        );
+
+        populateIndex(failureIndex, 400, 4_000);
+        ensureGreen(failureIndex);
+
+        long breakerBefore = getRequestBreakerUsed(coordinatorNode);
+
+        ActionFuture<SearchResponse> searchFuture = internalCluster().client(coordinatorNode)
+            .prepareSearch(failureIndex)
+            .setAllowPartialSearchResults(true)
+            .setQuery(matchAllQuery())
+            .setSize(300)
+            .addSort(SORT_FIELD, SortOrder.ASC)
+            .execute();
+
+        // Force a data-node failure while the request is in flight.
+        internalCluster().stopNode(dataNodeToFail);
+
+        SearchResponse response = null;
+        Exception failure = null;
+        try {
+            response = searchFuture.actionGet(30, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            failure = e;
+        }
+
+        if (response != null) {
+            try {
+                assertThat("Expected failed shards when shard-hosting node is stopped during chunked fetch", response.getFailedShards(), greaterThan(0));
+            } finally {
+                response.decRef();
+            }
+        } else {
+            assertNotNull("Search should either fail or report shard failures after node stop", failure);
+        }
+
+        assertBusy(() -> {
+            assertThat(
+                "Coordinator circuit breaker should be released after node failure during chunked fetch",
                 getRequestBreakerUsed(coordinatorNode),
                 lessThanOrEqualTo(breakerBefore)
             );
