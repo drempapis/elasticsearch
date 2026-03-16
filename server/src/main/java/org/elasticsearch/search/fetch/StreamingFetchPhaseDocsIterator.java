@@ -370,13 +370,7 @@ abstract class StreamingFetchPhaseDocsIterator extends FetchPhaseDocsIterator {
         FetchPhaseResponseChunk responseChunk = null;
         ActionListener<Void> ackRef = null;
         try {
-            responseChunk = new FetchPhaseResponseChunk(
-                shardId,
-                chunk.bytes,
-                chunk.hitCount,
-                totalDocs,
-                chunk.sequenceStart
-            );
+            responseChunk = new FetchPhaseResponseChunk(shardId, chunk.bytes, chunk.hitCount, totalDocs, chunk.sequenceStart);
 
             final FetchPhaseResponseChunk chunkToClose = responseChunk;
 

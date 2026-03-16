@@ -425,13 +425,7 @@ public class TransportFetchPhaseCoordinationActionTests extends ESTestCase {
                 FetchPhaseResponseChunk streamedChunk = null;
                 ReleasableBytesReference wireBytes = null;
                 try {
-                    streamedChunk = new FetchPhaseResponseChunk(
-                        TEST_SHARD_ID,
-                        serializeHits(streamedHit),
-                        1,
-                        req.docIds().length,
-                        0L
-                    );
+                    streamedChunk = new FetchPhaseResponseChunk(TEST_SHARD_ID, serializeHits(streamedHit), 1, req.docIds().length, 0L);
                     wireBytes = streamedChunk.toReleasableBytesReference(req.getCoordinatingTaskId());
 
                     PlainActionFuture<ActionResponse.Empty> ackFuture = new PlainActionFuture<>();

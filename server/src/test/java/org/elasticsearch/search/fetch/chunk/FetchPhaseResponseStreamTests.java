@@ -633,10 +633,7 @@ public class FetchPhaseResponseStreamTests extends ESTestCase {
     public void testChunkInvalidShardId() {
         ShardId invalidShardId = new ShardId(new Index("test", "uuid"), -2);
 
-        expectThrows(
-            IllegalArgumentException.class,
-            () -> new FetchPhaseResponseChunk(invalidShardId, BytesArray.EMPTY, 0, 0, 0)
-        );
+        expectThrows(IllegalArgumentException.class, () -> new FetchPhaseResponseChunk(invalidShardId, BytesArray.EMPTY, 0, 0, 0));
     }
 
     private FetchSearchResult buildFinalResult(FetchPhaseResponseStream stream) {
@@ -657,13 +654,7 @@ public class FetchPhaseResponseStreamTests extends ESTestCase {
             hits[i] = createHit(startId + i);
         }
         try {
-            return new FetchPhaseResponseChunk(
-                TEST_SHARD_ID,
-                serializeHits(hits),
-                hitCount,
-                100,
-                sequenceStart
-            );
+            return new FetchPhaseResponseChunk(TEST_SHARD_ID, serializeHits(hits), hitCount, 100, sequenceStart);
         } finally {
             for (SearchHit hit : hits) {
                 hit.decRef();
@@ -677,13 +668,7 @@ public class FetchPhaseResponseStreamTests extends ESTestCase {
             hits[i] = createHit(startId + i);
         }
         try {
-            return new FetchPhaseResponseChunk(
-                TEST_SHARD_ID,
-                serializeHits(hits),
-                hitCount,
-                100,
-                sequenceStart
-            );
+            return new FetchPhaseResponseChunk(TEST_SHARD_ID, serializeHits(hits), hitCount, 100, sequenceStart);
         } finally {
             for (SearchHit hit : hits) {
                 hit.decRef();
@@ -698,13 +683,7 @@ public class FetchPhaseResponseStreamTests extends ESTestCase {
             hits[i] = createHitWithSourceSize(startId + i, sourceSize);
         }
         try {
-            return new FetchPhaseResponseChunk(
-                TEST_SHARD_ID,
-                serializeHits(hits),
-                hitCount,
-                100,
-                sequenceStart
-            );
+            return new FetchPhaseResponseChunk(TEST_SHARD_ID, serializeHits(hits), hitCount, 100, sequenceStart);
         } finally {
             for (SearchHit hit : hits) {
                 hit.decRef();
@@ -718,13 +697,7 @@ public class FetchPhaseResponseStreamTests extends ESTestCase {
             hits[i] = createHitWithScore(startId + i, scores[i]);
         }
         try {
-            return new FetchPhaseResponseChunk(
-                TEST_SHARD_ID,
-                serializeHits(hits),
-                scores.length,
-                100,
-                sequenceStart
-            );
+            return new FetchPhaseResponseChunk(TEST_SHARD_ID, serializeHits(hits), scores.length, 100, sequenceStart);
         } finally {
             for (SearchHit hit : hits) {
                 hit.decRef();

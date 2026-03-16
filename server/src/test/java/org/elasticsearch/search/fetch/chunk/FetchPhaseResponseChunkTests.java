@@ -42,13 +42,7 @@ public class FetchPhaseResponseChunkTests extends ESTestCase {
             AtomicBoolean released = new AtomicBoolean(false);
             ReleasableBytesReference serializedHits = new ReleasableBytesReference(serializeHits(hit), () -> released.set(true));
 
-            FetchPhaseResponseChunk chunk = new FetchPhaseResponseChunk(
-                TEST_SHARD_ID,
-                serializedHits,
-                1,
-                10,
-                0L
-            );
+            FetchPhaseResponseChunk chunk = new FetchPhaseResponseChunk(TEST_SHARD_ID, serializedHits, 1, 10, 0L);
             try {
                 assertThat(chunk.getBytesLength(), greaterThan(0L));
 
@@ -85,13 +79,7 @@ public class FetchPhaseResponseChunkTests extends ESTestCase {
         SearchHit first = createHit(1);
         SearchHit second = createHit(2);
         try {
-            FetchPhaseResponseChunk chunk = new FetchPhaseResponseChunk(
-                TEST_SHARD_ID,
-                serializeHits(first, second),
-                2,
-                10,
-                0L
-            );
+            FetchPhaseResponseChunk chunk = new FetchPhaseResponseChunk(TEST_SHARD_ID, serializeHits(first, second), 2, 10, 0L);
             try {
                 SearchHit[] firstRead = chunk.getHits();
                 SearchHit[] secondRead = chunk.getHits();
@@ -109,13 +97,7 @@ public class FetchPhaseResponseChunkTests extends ESTestCase {
     }
 
     public void testGetHitsReturnsEmptyWhenHitCountIsZero() throws IOException {
-        FetchPhaseResponseChunk chunk = new FetchPhaseResponseChunk(
-            TEST_SHARD_ID,
-            BytesArray.EMPTY,
-            0,
-            0,
-            0L
-        );
+        FetchPhaseResponseChunk chunk = new FetchPhaseResponseChunk(TEST_SHARD_ID, BytesArray.EMPTY, 0, 0, 0L);
         try {
             assertThat(chunk.getHits().length, equalTo(0));
         } finally {
@@ -126,13 +108,7 @@ public class FetchPhaseResponseChunkTests extends ESTestCase {
     public void testCloseClearsChunkState() throws IOException {
         SearchHit hit = createHit(7);
         try {
-            FetchPhaseResponseChunk chunk = new FetchPhaseResponseChunk(
-                TEST_SHARD_ID,
-                serializeHits(hit),
-                1,
-                1,
-                0L
-            );
+            FetchPhaseResponseChunk chunk = new FetchPhaseResponseChunk(TEST_SHARD_ID, serializeHits(hit), 1, 1, 0L);
 
             SearchHit[] hits = chunk.getHits();
             assertTrue(hits[0].hasReferences());
@@ -148,13 +124,7 @@ public class FetchPhaseResponseChunkTests extends ESTestCase {
     public void testSerializationRoundTripAcrossCompatibleTransportVersion() throws IOException {
         SearchHit hit = createHit(42);
         try {
-            FetchPhaseResponseChunk chunk = new FetchPhaseResponseChunk(
-                TEST_SHARD_ID,
-                serializeHits(hit),
-                1,
-                1,
-                0L
-            );
+            FetchPhaseResponseChunk chunk = new FetchPhaseResponseChunk(TEST_SHARD_ID, serializeHits(hit), 1, 1, 0L);
             try {
                 TransportVersion version = randomBoolean() ? TransportVersion.current() : TransportVersionUtils.randomCompatibleVersion();
                 FetchPhaseResponseChunk roundTripped = copyWriteable(
