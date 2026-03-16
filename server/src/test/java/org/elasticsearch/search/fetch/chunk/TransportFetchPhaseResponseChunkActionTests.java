@@ -19,12 +19,16 @@ import org.elasticsearch.common.bytes.BytesArray;
 import org.elasticsearch.common.bytes.BytesReference;
 import org.elasticsearch.common.bytes.ReleasableBytesReference;
 import org.elasticsearch.common.io.stream.BytesStreamOutput;
+import org.elasticsearch.common.unit.ByteSizeValue;
 import org.elasticsearch.common.io.stream.NamedWriteableRegistry;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.core.Releasable;
 import org.elasticsearch.index.Index;
 import org.elasticsearch.index.shard.ShardId;
 import org.elasticsearch.search.SearchHit;
+import org.elasticsearch.search.SearchShardTarget;
+import org.elasticsearch.search.fetch.FetchSearchResult;
+import org.elasticsearch.search.internal.ShardSearchContextId;
 import org.elasticsearch.test.ESTestCase;
 import org.elasticsearch.test.transport.MockTransportService;
 import org.elasticsearch.threadpool.TestThreadPool;
@@ -40,6 +44,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.equalTo;
 
 public class TransportFetchPhaseResponseChunkActionTests extends ESTestCase {
 
@@ -132,10 +137,143 @@ public class TransportFetchPhaseResponseChunkActionTests extends ESTestCase {
         }
     }
 
+    public void testProcessChunkSuccessWritesChunkAndReturnsAck() throws Exception {
+        final long coordinatingTaskId = 321L;
+        FetchPhaseResponseStream stream = new FetchPhaseResponseStream(0, 1, new NoopCircuitBreaker("test"));
+        Releasable registration = activeFetchPhaseTasks.registerResponseBuilder(coordinatingTaskId, TEST_SHARD_ID, stream);
+        SearchHit originalHit = createHit(9);
+        FetchPhaseResponseChunk chunk = null;
+        ReleasableBytesReference wireBytes = null;
+        try {
+            chunk = new FetchPhaseResponseChunk(System.currentTimeMillis(), TEST_SHARD_ID, serializeHits(originalHit), 1, 0, 1, 0L);
+            wireBytes = chunk.toReleasableBytesReference(coordinatingTaskId);
+
+            PlainActionFuture<ActionResponse.Empty> future = sendChunk(wireBytes);
+            assertSame(ActionResponse.Empty.INSTANCE, future.actionGet(10, TimeUnit.SECONDS));
+
+            FetchSearchResult finalResult = stream.buildFinalResult(
+                new ShardSearchContextId("ctx", 1L),
+                new SearchShardTarget("node-0", TEST_SHARD_ID, null),
+                null
+            );
+            try {
+                SearchHit[] hits = finalResult.hits().getHits();
+                assertThat(hits.length, equalTo(1));
+                assertThat(hits[0].getSourceRef().utf8ToString(), containsString("\"id\":9"));
+            } finally {
+                finalResult.decRef();
+            }
+        } finally {
+            if (wireBytes != null) {
+                wireBytes.decRef();
+            }
+            if (chunk != null) {
+                chunk.close();
+            }
+            registration.close();
+            stream.decRef();
+            originalHit.decRef();
+        }
+    }
+
+    public void testProcessChunkForUnknownTaskReturnsResourceNotFound() throws Exception {
+        final long unknownTaskId = randomLongBetween(10_000L, 20_000L);
+        SearchHit originalHit = createHit(1);
+        FetchPhaseResponseChunk chunk = null;
+        ReleasableBytesReference wireBytes = null;
+        try {
+            chunk = new FetchPhaseResponseChunk(System.currentTimeMillis(), TEST_SHARD_ID, serializeHits(originalHit), 1, 0, 1, 0L);
+            wireBytes = chunk.toReleasableBytesReference(unknownTaskId);
+
+            PlainActionFuture<ActionResponse.Empty> future = sendChunk(wireBytes);
+            Exception e = expectThrows(Exception.class, () -> future.actionGet(10, TimeUnit.SECONDS));
+            assertThat(e.getMessage(), containsString("fetch task [" + unknownTaskId + "] not found"));
+        } finally {
+            if (wireBytes != null) {
+                wireBytes.decRef();
+            }
+            if (chunk != null) {
+                chunk.close();
+            }
+            originalHit.decRef();
+        }
+    }
+
+    public void testProcessChunkForLateChunkReturnsResourceNotFound() throws Exception {
+        final long coordinatingTaskId = 777L;
+        FetchPhaseResponseStream stream = new FetchPhaseResponseStream(0, 1, new NoopCircuitBreaker("test"));
+        Releasable registration = activeFetchPhaseTasks.registerResponseBuilder(coordinatingTaskId, TEST_SHARD_ID, stream);
+
+        registration.close();
+        stream.decRef();
+
+        SearchHit originalHit = createHit(3);
+        FetchPhaseResponseChunk chunk = null;
+        ReleasableBytesReference wireBytes = null;
+        try {
+            chunk = new FetchPhaseResponseChunk(System.currentTimeMillis(), TEST_SHARD_ID, serializeHits(originalHit), 1, 0, 1, 0L);
+            wireBytes = chunk.toReleasableBytesReference(coordinatingTaskId);
+
+            PlainActionFuture<ActionResponse.Empty> future = sendChunk(wireBytes);
+            Exception e = expectThrows(Exception.class, () -> future.actionGet(10, TimeUnit.SECONDS));
+            assertThat(e.getMessage(), containsString("fetch task [" + coordinatingTaskId + "] not found"));
+        } finally {
+            if (wireBytes != null) {
+                wireBytes.decRef();
+            }
+            if (chunk != null) {
+                chunk.close();
+            }
+            originalHit.decRef();
+        }
+    }
+
+    public void testProcessChunkTracksAndReleasesCircuitBreakerBytes() throws Exception {
+        final long coordinatingTaskId = 222L;
+        var breaker = newLimitedBreaker(ByteSizeValue.ofBytes(Long.MAX_VALUE));
+        FetchPhaseResponseStream stream = new FetchPhaseResponseStream(0, 1, breaker);
+        Releasable registration = activeFetchPhaseTasks.registerResponseBuilder(coordinatingTaskId, TEST_SHARD_ID, stream);
+        SearchHit originalHit = createHit(12);
+        FetchPhaseResponseChunk chunk = null;
+        ReleasableBytesReference wireBytes = null;
+        try {
+            chunk = new FetchPhaseResponseChunk(System.currentTimeMillis(), TEST_SHARD_ID, serializeHits(originalHit), 1, 0, 1, 0L);
+            long expectedBytes = chunk.getBytesLength();
+            wireBytes = chunk.toReleasableBytesReference(coordinatingTaskId);
+
+            PlainActionFuture<ActionResponse.Empty> future = sendChunk(wireBytes);
+            future.actionGet(10, TimeUnit.SECONDS);
+            assertThat(breaker.getUsed(), equalTo(expectedBytes));
+        } finally {
+            if (wireBytes != null) {
+                wireBytes.decRef();
+            }
+            if (chunk != null) {
+                chunk.close();
+            }
+            registration.close();
+            stream.decRef();
+            originalHit.decRef();
+        }
+
+        assertThat("breaker bytes should be released when stream is closed", breaker.getUsed(), equalTo(0L));
+    }
+
     private SearchHit createHit(int id) {
         SearchHit hit = new SearchHit(id);
         hit.sourceRef(new BytesArray("{\"id\":" + id + "}"));
         return hit;
+    }
+
+    private PlainActionFuture<ActionResponse.Empty> sendChunk(ReleasableBytesReference wireBytes) {
+        PlainActionFuture<ActionResponse.Empty> future = new PlainActionFuture<>();
+        transportService.sendRequest(
+            transportService.getLocalNode(),
+            TransportFetchPhaseResponseChunkAction.ZERO_COPY_ACTION_NAME,
+            new BytesTransportRequest(wireBytes, TransportVersion.current()),
+            new ActionListenerResponseHandler<>(future, in -> ActionResponse.Empty.INSTANCE, TransportResponseHandler.TRANSPORT_WORKER)
+        );
+        return future;
     }
 
     private BytesReference serializeHits(SearchHit... hits) throws IOException {

@@ -23,6 +23,7 @@ import org.elasticsearch.cluster.service.ClusterService;
 import org.elasticsearch.common.UUIDs;
 import org.elasticsearch.common.breaker.CircuitBreaker;
 import org.elasticsearch.common.breaker.NoopCircuitBreaker;
+import org.elasticsearch.common.bytes.BytesArray;
 import org.elasticsearch.common.component.Lifecycle;
 import org.elasticsearch.common.component.LifecycleListener;
 import org.elasticsearch.common.io.stream.NamedWriteableRegistry;
@@ -45,6 +46,8 @@ import org.elasticsearch.search.SearchHits;
 import org.elasticsearch.search.SearchPhaseResult;
 import org.elasticsearch.search.SearchService;
 import org.elasticsearch.search.SearchShardTarget;
+import org.elasticsearch.search.builder.PointInTimeBuilder;
+import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.elasticsearch.search.fetch.FetchPhase;
 import org.elasticsearch.search.fetch.FetchSearchResult;
 import org.elasticsearch.search.fetch.ShardFetchSearchRequest;
@@ -55,6 +58,7 @@ import org.elasticsearch.search.internal.ShardSearchContextId;
 import org.elasticsearch.search.internal.ShardSearchRequest;
 import org.elasticsearch.search.query.QuerySearchResult;
 import org.elasticsearch.tasks.Task;
+import org.elasticsearch.tasks.TaskCancelledException;
 import org.elasticsearch.telemetry.tracing.Tracer;
 import org.elasticsearch.test.ESTestCase;
 import org.elasticsearch.test.InternalAggregationTestCase;
@@ -165,6 +169,256 @@ public class FetchSearchPhaseChunkedTests extends ESTestCase {
                 assertNotNull(searchResponse);
                 assertEquals(2, searchResponse.getHits().getTotalHits().value());
                 assertTrue(searchResponse.getHits().getAt(0).docId() == 42 || searchResponse.getHits().getAt(0).docId() == 43);
+            } finally {
+                mockSearchPhaseContext.results.close();
+                var resp = mockSearchPhaseContext.searchResponse.get();
+                if (resp != null) {
+                    resp.decRef();
+                }
+            }
+        } finally {
+            ThreadPool.terminate(threadPool, 10, TimeValue.timeValueSeconds(5).timeUnit());
+        }
+    }
+
+    public void testChunkedFetchUsedForPointInTimeQuery() throws Exception {
+        MockSearchPhaseContext mockSearchPhaseContext = new MockSearchPhaseContext(2);
+        mockSearchPhaseContext.getRequest()
+            .source(new SearchSourceBuilder().pointInTimeBuilder(new PointInTimeBuilder(new BytesArray("test-pit-id"))));
+        ThreadPool threadPool = new TestThreadPool("test");
+        try {
+            TransportService mockTransportService = createMockTransportService(threadPool);
+
+            try (SearchPhaseResults<SearchPhaseResult> results = createSearchPhaseResults(mockSearchPhaseContext)) {
+                boolean profiled = randomBoolean();
+
+                final ShardSearchContextId ctx1 = new ShardSearchContextId(UUIDs.base64UUID(), 123);
+                SearchShardTarget shardTarget1 = new SearchShardTarget("node1", new ShardId("test", "na", 0), null);
+                addQuerySearchResult(ctx1, shardTarget1, profiled, 0, results);
+
+                final ShardSearchContextId ctx2 = new ShardSearchContextId(UUIDs.base64UUID(), 124);
+                SearchShardTarget shardTarget2 = new SearchShardTarget("node2", new ShardId("test", "na", 1), null);
+                addQuerySearchResult(ctx2, shardTarget2, profiled, 1, results);
+
+                AtomicBoolean chunkedFetchUsed = new AtomicBoolean(false);
+                TransportFetchPhaseCoordinationAction fetchCoordinationAction = new TransportFetchPhaseCoordinationAction(
+                    mockTransportService,
+                    new ActionFilters(Collections.emptySet()),
+                    new ActiveFetchPhaseTasks(),
+                    new NoneCircuitBreakerService(),
+                    new NamedWriteableRegistry(Collections.emptyList())
+                ) {
+                    @Override
+                    public void doExecute(Task task, Request request, ActionListener<Response> listener) {
+                        chunkedFetchUsed.set(true);
+                        FetchSearchResult fetchResult = new FetchSearchResult();
+                        try {
+                            SearchShardTarget target = request.getShardFetchRequest().contextId().equals(ctx1) ? shardTarget1 : shardTarget2;
+                            int docId = request.getShardFetchRequest().contextId().equals(ctx1) ? 42 : 43;
+                            fetchResult.setSearchShardTarget(target);
+                            SearchHits hits = SearchHits.unpooled(
+                                new SearchHit[] { SearchHit.unpooled(docId) },
+                                new TotalHits(1, TotalHits.Relation.EQUAL_TO),
+                                1.0F
+                            );
+                            fetchResult.shardResult(hits, fetchProfile(profiled));
+                            listener.onResponse(new Response(fetchResult));
+                        } finally {
+                            fetchResult.decRef();
+                        }
+                    }
+                };
+                provideSearchTransportWithChunkedFetch(mockSearchPhaseContext, mockTransportService, threadPool, fetchCoordinationAction);
+
+                SearchPhaseController.ReducedQueryPhase reducedQueryPhase = results.reduce();
+
+                // PIT response generation requires query phase results for building the PIT id.
+                AtomicArray<SearchPhaseResult> queryResults = new AtomicArray<>(2);
+                queryResults.set(0, results.getAtomicArray().get(0));
+                queryResults.set(1, results.getAtomicArray().get(1));
+
+                FetchSearchPhase phase = new FetchSearchPhase(results, null, mockSearchPhaseContext, reducedQueryPhase) {
+                    @Override
+                    protected SearchPhase nextPhase(
+                        SearchResponseSections searchResponseSections,
+                        AtomicArray<SearchPhaseResult> fetchResults
+                    ) {
+                        return searchPhaseFactoryBi(mockSearchPhaseContext, queryResults).apply(searchResponseSections, fetchResults);
+                    }
+                };
+
+                phase.run();
+                mockSearchPhaseContext.assertNoFailure();
+                assertTrue("Chunked fetch should be used for PIT queries", chunkedFetchUsed.get());
+
+                SearchResponse searchResponse = mockSearchPhaseContext.searchResponse.get();
+                assertNotNull(searchResponse);
+                assertNotNull("PIT id should be present in response", searchResponse.pointInTimeId());
+                assertEquals(2, searchResponse.getHits().getTotalHits().value());
+            } finally {
+                mockSearchPhaseContext.results.close();
+                var resp = mockSearchPhaseContext.searchResponse.get();
+                if (resp != null) {
+                    resp.decRef();
+                }
+            }
+        } finally {
+            ThreadPool.terminate(threadPool, 10, TimeValue.timeValueSeconds(5).timeUnit());
+        }
+    }
+
+    public void testChunkedFetchHandlesPartialShardFailure() throws Exception {
+        MockSearchPhaseContext mockSearchPhaseContext = new MockSearchPhaseContext(2);
+        ThreadPool threadPool = new TestThreadPool("test");
+        try {
+            TransportService mockTransportService = createMockTransportService(threadPool);
+
+            try (SearchPhaseResults<SearchPhaseResult> results = createSearchPhaseResults(mockSearchPhaseContext)) {
+                boolean profiled = randomBoolean();
+
+                final ShardSearchContextId ctx1 = new ShardSearchContextId(UUIDs.base64UUID(), 123);
+                SearchShardTarget shardTarget1 = new SearchShardTarget("node1", new ShardId("test", "na", 0), null);
+                addQuerySearchResult(ctx1, shardTarget1, profiled, 0, results);
+
+                final ShardSearchContextId ctx2 = new ShardSearchContextId(UUIDs.base64UUID(), 124);
+                SearchShardTarget shardTarget2 = new SearchShardTarget("node2", new ShardId("test", "na", 1), null);
+                addQuerySearchResult(ctx2, shardTarget2, profiled, 1, results);
+
+                AtomicBoolean chunkedFetchUsed = new AtomicBoolean(false);
+                TransportFetchPhaseCoordinationAction fetchCoordinationAction = new TransportFetchPhaseCoordinationAction(
+                    mockTransportService,
+                    new ActionFilters(Collections.emptySet()),
+                    new ActiveFetchPhaseTasks(),
+                    new NoneCircuitBreakerService(),
+                    new NamedWriteableRegistry(Collections.emptyList())
+                ) {
+                    @Override
+                    public void doExecute(Task task, Request request, ActionListener<Response> listener) {
+                        chunkedFetchUsed.set(true);
+                        if (request.getShardFetchRequest().contextId().equals(ctx2)) {
+                            listener.onFailure(new RuntimeException("simulated chunked fetch failure"));
+                            return;
+                        }
+
+                        FetchSearchResult fetchResult = new FetchSearchResult();
+                        try {
+                            fetchResult.setSearchShardTarget(shardTarget1);
+                            SearchHits hits = SearchHits.unpooled(
+                                new SearchHit[] { SearchHit.unpooled(42) },
+                                new TotalHits(1, TotalHits.Relation.EQUAL_TO),
+                                1.0F
+                            );
+                            fetchResult.shardResult(hits, fetchProfile(profiled));
+                            listener.onResponse(new Response(fetchResult));
+                        } finally {
+                            fetchResult.decRef();
+                        }
+                    }
+                };
+                provideSearchTransportWithChunkedFetch(mockSearchPhaseContext, mockTransportService, threadPool, fetchCoordinationAction);
+
+                SearchPhaseController.ReducedQueryPhase reducedQueryPhase = results.reduce();
+                FetchSearchPhase phase = new FetchSearchPhase(results, null, mockSearchPhaseContext, reducedQueryPhase) {
+                    @Override
+                    protected SearchPhase nextPhase(
+                        SearchResponseSections searchResponseSections,
+                        AtomicArray<SearchPhaseResult> queryPhaseResults
+                    ) {
+                        return searchPhaseFactory(mockSearchPhaseContext).apply(searchResponseSections, queryPhaseResults);
+                    }
+                };
+
+                phase.run();
+                mockSearchPhaseContext.assertNoFailure();
+                assertTrue("Chunked fetch should be used", chunkedFetchUsed.get());
+
+                SearchResponse searchResponse = mockSearchPhaseContext.searchResponse.get();
+                assertNotNull(searchResponse);
+                assertEquals(1, searchResponse.getFailedShards());
+                assertEquals(1, searchResponse.getSuccessfulShards());
+                assertEquals(1, searchResponse.getShardFailures().length);
+                assertEquals("simulated chunked fetch failure", searchResponse.getShardFailures()[0].getCause().getMessage());
+                assertEquals(1, searchResponse.getHits().getHits().length);
+            } finally {
+                mockSearchPhaseContext.results.close();
+                var resp = mockSearchPhaseContext.searchResponse.get();
+                if (resp != null) {
+                    resp.decRef();
+                }
+            }
+        } finally {
+            ThreadPool.terminate(threadPool, 10, TimeValue.timeValueSeconds(5).timeUnit());
+        }
+    }
+
+    public void testChunkedFetchTreatsTaskCancellationAsShardFailure() throws Exception {
+        MockSearchPhaseContext mockSearchPhaseContext = new MockSearchPhaseContext(2);
+        ThreadPool threadPool = new TestThreadPool("test");
+        try {
+            TransportService mockTransportService = createMockTransportService(threadPool);
+
+            try (SearchPhaseResults<SearchPhaseResult> results = createSearchPhaseResults(mockSearchPhaseContext)) {
+                boolean profiled = randomBoolean();
+
+                final ShardSearchContextId ctx1 = new ShardSearchContextId(UUIDs.base64UUID(), 123);
+                SearchShardTarget shardTarget1 = new SearchShardTarget("node1", new ShardId("test", "na", 0), null);
+                addQuerySearchResult(ctx1, shardTarget1, profiled, 0, results);
+
+                final ShardSearchContextId ctx2 = new ShardSearchContextId(UUIDs.base64UUID(), 124);
+                SearchShardTarget shardTarget2 = new SearchShardTarget("node2", new ShardId("test", "na", 1), null);
+                addQuerySearchResult(ctx2, shardTarget2, profiled, 1, results);
+
+                TransportFetchPhaseCoordinationAction fetchCoordinationAction = new TransportFetchPhaseCoordinationAction(
+                    mockTransportService,
+                    new ActionFilters(Collections.emptySet()),
+                    new ActiveFetchPhaseTasks(),
+                    new NoneCircuitBreakerService(),
+                    new NamedWriteableRegistry(Collections.emptyList())
+                ) {
+                    @Override
+                    public void doExecute(Task task, Request request, ActionListener<Response> listener) {
+                        if (request.getShardFetchRequest().contextId().equals(ctx2)) {
+                            listener.onFailure(new TaskCancelledException("simulated cancellation"));
+                            return;
+                        }
+
+                        FetchSearchResult fetchResult = new FetchSearchResult();
+                        try {
+                            fetchResult.setSearchShardTarget(shardTarget1);
+                            SearchHits hits = SearchHits.unpooled(
+                                new SearchHit[] { SearchHit.unpooled(42) },
+                                new TotalHits(1, TotalHits.Relation.EQUAL_TO),
+                                1.0F
+                            );
+                            fetchResult.shardResult(hits, fetchProfile(profiled));
+                            listener.onResponse(new Response(fetchResult));
+                        } finally {
+                            fetchResult.decRef();
+                        }
+                    }
+                };
+                provideSearchTransportWithChunkedFetch(mockSearchPhaseContext, mockTransportService, threadPool, fetchCoordinationAction);
+
+                SearchPhaseController.ReducedQueryPhase reducedQueryPhase = results.reduce();
+                FetchSearchPhase phase = new FetchSearchPhase(results, null, mockSearchPhaseContext, reducedQueryPhase) {
+                    @Override
+                    protected SearchPhase nextPhase(
+                        SearchResponseSections searchResponseSections,
+                        AtomicArray<SearchPhaseResult> queryPhaseResults
+                    ) {
+                        return searchPhaseFactory(mockSearchPhaseContext).apply(searchResponseSections, queryPhaseResults);
+                    }
+                };
+
+                phase.run();
+                mockSearchPhaseContext.assertNoFailure();
+
+                SearchResponse searchResponse = mockSearchPhaseContext.searchResponse.get();
+                assertNotNull(searchResponse);
+                assertEquals(1, searchResponse.getFailedShards());
+                assertEquals(1, searchResponse.getShardFailures().length);
+                assertTrue(searchResponse.getShardFailures()[0].getCause() instanceof TaskCancelledException);
+                assertEquals("simulated cancellation", searchResponse.getShardFailures()[0].getCause().getMessage());
             } finally {
                 mockSearchPhaseContext.results.close();
                 var resp = mockSearchPhaseContext.searchResponse.get();

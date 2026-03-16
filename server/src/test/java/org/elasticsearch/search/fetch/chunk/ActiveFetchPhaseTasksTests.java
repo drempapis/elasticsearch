@@ -16,9 +16,6 @@ import org.elasticsearch.index.Index;
 import org.elasticsearch.index.shard.ShardId;
 import org.elasticsearch.test.ESTestCase;
 
-import java.lang.reflect.Field;
-import java.util.concurrent.ConcurrentMap;
-
 public class ActiveFetchPhaseTasksTests extends ESTestCase {
 
     private static final ShardId TEST_SHARD_ID = new ShardId(new Index("test-index", "test-uuid"), 0);
@@ -57,18 +54,25 @@ public class ActiveFetchPhaseTasksTests extends ESTestCase {
         }
     }
 
-    public void testCompleteAlreadyCompletedThrows() {
+    public void testCloseRegistrationRemovesTaskAndAllowsReregister() {
         ActiveFetchPhaseTasks tasks = new ActiveFetchPhaseTasks();
         FetchPhaseResponseStream stream = new FetchPhaseResponseStream(0, 10, new NoopCircuitBreaker("test"));
         Releasable registration = tasks.registerResponseBuilder(123L, TEST_SHARD_ID, stream);
 
         try {
-            ConcurrentMap<ActiveFetchPhaseTasks.ResponseStreamKey, FetchPhaseResponseStream> activeTasks = getActiveTasksMap(tasks);
-            boolean removed = activeTasks.remove(new ActiveFetchPhaseTasks.ResponseStreamKey(123L, TEST_SHARD_ID), stream);
-            assertTrue("test setup should remove the task once", removed);
+            registration.close();
+            expectThrows(ResourceNotFoundException.class, () -> tasks.acquireResponseStream(123L, TEST_SHARD_ID));
 
-            Exception e = expectThrows(IllegalStateException.class, registration::close);
-            assertTrue(e.getMessage().contains("already completed fetch task [123]"));
+            FetchPhaseResponseStream replacement = new FetchPhaseResponseStream(0, 10, new NoopCircuitBreaker("test"));
+            Releasable secondRegistration = tasks.registerResponseBuilder(123L, TEST_SHARD_ID, replacement);
+            try {
+                FetchPhaseResponseStream acquired = tasks.acquireResponseStream(123L, TEST_SHARD_ID);
+                assertSame(replacement, acquired);
+                acquired.decRef();
+            } finally {
+                secondRegistration.close();
+                replacement.decRef();
+            }
         } finally {
             stream.decRef();
         }
@@ -89,19 +93,6 @@ public class ActiveFetchPhaseTasksTests extends ESTestCase {
             expectThrows(ResourceNotFoundException.class, () -> tasks.acquireResponseStream(123L, TEST_SHARD_ID));
         } finally {
             stream.decRef();
-        }
-    }
-
-    @SuppressWarnings("unchecked")
-    private static ConcurrentMap<ActiveFetchPhaseTasks.ResponseStreamKey, FetchPhaseResponseStream> getActiveTasksMap(
-        ActiveFetchPhaseTasks tasks
-    ) {
-        try {
-            Field tasksField = ActiveFetchPhaseTasks.class.getDeclaredField("tasks");
-            tasksField.setAccessible(true);
-            return (ConcurrentMap<ActiveFetchPhaseTasks.ResponseStreamKey, FetchPhaseResponseStream>) tasksField.get(tasks);
-        } catch (ReflectiveOperationException e) {
-            throw new AssertionError("failed to inspect active fetch phase tasks map", e);
         }
     }
 }

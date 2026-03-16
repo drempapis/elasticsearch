@@ -9,19 +9,23 @@
 
 package org.elasticsearch.search.fetch.chunk;
 
+import org.elasticsearch.TransportVersion;
 import org.elasticsearch.common.bytes.BytesArray;
 import org.elasticsearch.common.bytes.BytesReference;
 import org.elasticsearch.common.bytes.ReleasableBytesReference;
 import org.elasticsearch.common.io.stream.BytesStreamOutput;
+import org.elasticsearch.common.io.stream.NamedWriteableRegistry;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.xcontent.XContentHelper;
 import org.elasticsearch.index.Index;
 import org.elasticsearch.index.shard.ShardId;
 import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.test.ESTestCase;
+import org.elasticsearch.test.TransportVersionUtils;
 import org.elasticsearch.xcontent.XContentType;
 
 import java.io.IOException;
+import java.util.Collections;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.hamcrest.Matchers.equalTo;
@@ -144,6 +148,44 @@ public class FetchPhaseResponseChunkTests extends ESTestCase {
             chunk.close();
             assertThat(chunk.getBytesLength(), equalTo(0L));
             assertThat(chunk.getHits().length, equalTo(0));
+        } finally {
+            hit.decRef();
+        }
+    }
+
+    public void testSerializationRoundTripAcrossCompatibleTransportVersion() throws IOException {
+        SearchHit hit = createHit(42);
+        try {
+            FetchPhaseResponseChunk chunk = new FetchPhaseResponseChunk(
+                System.currentTimeMillis(),
+                TEST_SHARD_ID,
+                serializeHits(hit),
+                1,
+                0,
+                1,
+                0L
+            );
+            try {
+                TransportVersion version = randomBoolean() ? TransportVersion.current() : TransportVersionUtils.randomCompatibleVersion();
+                FetchPhaseResponseChunk roundTripped = copyWriteable(
+                    chunk,
+                    new NamedWriteableRegistry(Collections.emptyList()),
+                    FetchPhaseResponseChunk::new,
+                    version
+                );
+                try {
+                    assertThat(roundTripped.shardId(), equalTo(TEST_SHARD_ID));
+                    assertThat(roundTripped.hitCount(), equalTo(1));
+                    assertThat(roundTripped.from(), equalTo(0));
+                    assertThat(roundTripped.expectedTotalDocs(), equalTo(1));
+                    assertThat(roundTripped.sequenceStart(), equalTo(0L));
+                    assertThat(getIdFromSource(roundTripped.getHits()[0]), equalTo(42));
+                } finally {
+                    roundTripped.close();
+                }
+            } finally {
+                chunk.close();
+            }
         } finally {
             hit.decRef();
         }

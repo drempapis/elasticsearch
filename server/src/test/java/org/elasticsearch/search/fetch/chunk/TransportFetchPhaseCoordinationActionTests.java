@@ -10,12 +10,17 @@
 package org.elasticsearch.search.fetch.chunk;
 
 import org.elasticsearch.ResourceNotFoundException;
+import org.elasticsearch.TransportVersion;
+import org.elasticsearch.action.ActionListenerResponseHandler;
+import org.elasticsearch.action.ActionResponse;
 import org.elasticsearch.action.OriginalIndices;
 import org.elasticsearch.action.support.ActionFilters;
 import org.elasticsearch.action.support.IndicesOptions;
 import org.elasticsearch.action.support.PlainActionFuture;
 import org.elasticsearch.cluster.node.VersionInformation;
 import org.elasticsearch.common.bytes.BytesArray;
+import org.elasticsearch.common.bytes.BytesReference;
+import org.elasticsearch.common.bytes.ReleasableBytesReference;
 import org.elasticsearch.common.io.stream.BytesStreamOutput;
 import org.elasticsearch.common.io.stream.NamedWriteableRegistry;
 import org.elasticsearch.common.settings.Settings;
@@ -38,9 +43,12 @@ import org.elasticsearch.test.ESTestCase;
 import org.elasticsearch.test.transport.MockTransportService;
 import org.elasticsearch.threadpool.TestThreadPool;
 import org.elasticsearch.threadpool.ThreadPool;
+import org.elasticsearch.transport.BytesTransportRequest;
+import org.elasticsearch.transport.TransportResponseHandler;
 import org.junit.After;
 import org.junit.Before;
 
+import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -90,6 +98,7 @@ public class TransportFetchPhaseCoordinationActionTests extends ESTestCase {
             new NoneCircuitBreakerService(),
             namedWriteableRegistry
         );
+        new TransportFetchPhaseResponseChunkAction(transportService, activeFetchPhaseTasks, namedWriteableRegistry);
     }
 
     @After
@@ -406,6 +415,71 @@ public class TransportFetchPhaseCoordinationActionTests extends ESTestCase {
         assertThat(response.getResult().getSearchShardTarget(), equalTo(expectedShardTarget));
     }
 
+    public void testDoExecuteReleasesRegistrationWhenDataNodeFailsAfterChunkStreaming() throws Exception {
+        transportService.registerRequestHandler(
+            FETCH_ID_ACTION_NAME,
+            threadPool.executor(ThreadPool.Names.GENERIC),
+            ShardFetchSearchRequest::new,
+            (req, channel, task) -> {
+                SearchHit streamedHit = createHit(123);
+                FetchPhaseResponseChunk streamedChunk = null;
+                ReleasableBytesReference wireBytes = null;
+                try {
+                    streamedChunk = new FetchPhaseResponseChunk(
+                        System.currentTimeMillis(),
+                        TEST_SHARD_ID,
+                        serializeHits(streamedHit),
+                        1,
+                        0,
+                        req.docIds().length,
+                        0L
+                    );
+                    wireBytes = streamedChunk.toReleasableBytesReference(req.getCoordinatingTaskId());
+
+                    PlainActionFuture<ActionResponse.Empty> ackFuture = new PlainActionFuture<>();
+                    transportService.sendRequest(
+                        req.getCoordinatingNode(),
+                        TransportFetchPhaseResponseChunkAction.ZERO_COPY_ACTION_NAME,
+                        new BytesTransportRequest(wireBytes, TransportVersion.current()),
+                        new ActionListenerResponseHandler<>(
+                            ackFuture,
+                            in -> ActionResponse.Empty.INSTANCE,
+                            TransportResponseHandler.TRANSPORT_WORKER
+                        )
+                    );
+                    ackFuture.actionGet(10, TimeUnit.SECONDS);
+
+                    channel.sendResponse(new RuntimeException("simulated data node failure during chunk streaming"));
+                } finally {
+                    if (wireBytes != null) {
+                        wireBytes.decRef();
+                    }
+                    if (streamedChunk != null) {
+                        streamedChunk.close();
+                    }
+                    streamedHit.decRef();
+                }
+            }
+        );
+
+        TransportFetchPhaseCoordinationAction.Request request = new TransportFetchPhaseCoordinationAction.Request(
+            createShardFetchSearchRequest(),
+            transportService.getLocalNode(),
+            Collections.emptyMap()
+        );
+
+        long taskId = 789L;
+        PlainActionFuture<TransportFetchPhaseCoordinationAction.Response> future = new PlainActionFuture<>();
+        action.doExecute(createTask(taskId), request, future);
+
+        Exception failure = expectThrows(Exception.class, () -> future.actionGet(10, TimeUnit.SECONDS));
+        assertThat(failure.getMessage(), equalTo("simulated data node failure during chunk streaming"));
+
+        assertBusy(() -> {
+            expectThrows(ResourceNotFoundException.class, () -> activeFetchPhaseTasks.acquireResponseStream(taskId, TEST_SHARD_ID));
+        });
+    }
+
     private ShardFetchSearchRequest createShardFetchSearchRequest() {
         ShardSearchContextId contextId = new ShardSearchContextId("test", randomLong());
 
@@ -431,6 +505,15 @@ public class TransportFetchPhaseCoordinationActionTests extends ESTestCase {
         SearchHit hit = new SearchHit(id);
         hit.sourceRef(new BytesArray("{\"id\":" + id + "}"));
         return hit;
+    }
+
+    private BytesReference serializeHits(SearchHit... hits) throws IOException {
+        try (BytesStreamOutput out = new BytesStreamOutput()) {
+            for (SearchHit hit : hits) {
+                hit.writeTo(out);
+            }
+            return out.bytes();
+        }
     }
 
     private Task createTask(long taskId) {
