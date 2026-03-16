@@ -268,7 +268,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
     public static final Setting<Integer> FETCH_PHASE_MAX_IN_FLIGHT_CHUNKS = Setting.intSetting(
         "search.fetch_phase_chunked_max_in_flight_chunks",
         3, // Conservative default: keeps a few chunk sends pipelined without allowing unbounded in-flight chunk memory.
-        0,
+        1,
         Property.Dynamic,
         Property.NodeScope
     );
@@ -470,6 +470,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
 
         enableQueryPhaseParallelCollection = QUERY_PHASE_PARALLEL_COLLECTION_ENABLED.get(settings);
         batchQueryPhase = BATCHED_QUERY_PHASE.get(settings);
+        enableFetchPhaseChunked = FETCH_PHASE_CHUNKED_ENABLED.get(settings);
         fetchPhaseMaxInFlightChunks = FETCH_PHASE_MAX_IN_FLIGHT_CHUNKS.get(settings);
         clusterService.getClusterSettings()
             .addSettingsUpdateConsumer(QUERY_PHASE_PARALLEL_COLLECTION_ENABLED, this::setEnableQueryPhaseParallelCollection);

@@ -100,7 +100,7 @@ class FetchPhaseResponseStream extends AbstractRefCounted {
             if (logger.isDebugEnabled()) {
                 logger.debug(
                     "Received chunk [{}] docs for shard [{}]: [{}/{}] hits accumulated, [{}] breaker bytes, used breaker bytes [{}]",
-                    chunkHits == null ? 0 : chunkHits.length,
+                    chunkHits.length,
                     shardIndex,
                     queue.size(),
                     expectedTotalDocs,
