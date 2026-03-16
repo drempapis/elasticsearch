@@ -479,6 +479,58 @@ public class ChunkedFetchPhaseCircuitBreakerIT extends ESIntegTestCase {
         });
     }
 
+    public void testChunkedFetchWithPartialShardFailures() throws Exception {
+        internalCluster().startNode();
+        String coordinatorNode = internalCluster().startCoordinatingOnlyNode(Settings.EMPTY);
+
+        String successIndex = "chunked_success_idx";
+        String failingIndex = "chunked_failing_idx";
+
+        createIndexForTest(
+            successIndex,
+            Settings.builder().put(IndexMetadata.SETTING_NUMBER_OF_SHARDS, 1).put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, 0).build()
+        );
+        assertAcked(
+            prepareCreate(failingIndex).setSettings(
+                Settings.builder().put(IndexMetadata.SETTING_NUMBER_OF_SHARDS, 1).put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, 0).build()
+            ).setMapping("text", "type=text")
+        );
+
+        populateIndex(successIndex, 100, 1_500);
+        populateSimpleIndex(failingIndex, 25);
+        ensureGreen(successIndex, failingIndex);
+
+        long breakerBefore = getRequestBreakerUsed(coordinatorNode);
+
+        SearchResponse response = internalCluster().client(coordinatorNode)
+            .prepareSearch(successIndex, failingIndex)
+            .setAllowPartialSearchResults(true)
+            .setQuery(matchAllQuery())
+            .setSize(30)
+            .addSort(SORT_FIELD, SortOrder.ASC)
+            .get();
+
+        try {
+            assertThat("Expected at least one successful shard", response.getSuccessfulShards(), greaterThan(0));
+            assertThat("Expected at least one failed shard", response.getFailedShards(), greaterThan(0));
+            assertThat("Expected hits from successful shards", response.getHits().getHits().length, greaterThan(0));
+        } finally {
+            response.decRef();
+        }
+
+        assertBusy(() -> {
+            long currentBreaker = getRequestBreakerUsed(coordinatorNode);
+            assertThat(
+                "Coordinator circuit breaker should be released after partial shard failures, current: "
+                    + currentBreaker
+                    + ", before: "
+                    + breakerBefore,
+                currentBreaker,
+                lessThanOrEqualTo(breakerBefore)
+            );
+        });
+    }
+
     private void populateIndex(String indexName, int nDocs, int textSize) throws IOException {
         int batchSize = 50;
         for (int batch = 0; batch < nDocs; batch += batchSize) {
@@ -529,6 +581,15 @@ public class ChunkedFetchPhaseCircuitBreakerIT extends ESIntegTestCase {
         CircuitBreakerService breakerService = internalCluster().getInstance(CircuitBreakerService.class, node);
         CircuitBreaker breaker = breakerService.getBreaker(CircuitBreaker.REQUEST);
         return breaker.getUsed();
+    }
+
+    private void populateSimpleIndex(String indexName, int nDocs) throws IOException {
+        List<IndexRequestBuilder> builders = new ArrayList<>();
+        for (int i = 0; i < nDocs; i++) {
+            builders.add(prepareIndex(indexName).setId(Integer.toString(i)).setSource(jsonBuilder().startObject().field("text", "doc " + i).endObject()));
+        }
+        indexRandom(true, builders);
+        refresh(indexName);
     }
 
     private void verifyHitsOrder(SearchResponse response) {

@@ -9,8 +9,6 @@
 
 package org.elasticsearch.search.fetch.chunk;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.elasticsearch.TransportVersion;
 import org.elasticsearch.action.ActionListener;
 import org.elasticsearch.action.ActionListenerResponseHandler;
@@ -33,6 +31,8 @@ import org.elasticsearch.core.Releasable;
 import org.elasticsearch.index.shard.ShardId;
 import org.elasticsearch.indices.breaker.CircuitBreakerService;
 import org.elasticsearch.injection.guice.Inject;
+import org.elasticsearch.logging.LogManager;
+import org.elasticsearch.logging.Logger;
 import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.fetch.FetchSearchResult;
 import org.elasticsearch.search.fetch.ShardFetchSearchRequest;

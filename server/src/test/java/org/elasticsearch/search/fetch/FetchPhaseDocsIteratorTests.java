@@ -27,6 +27,7 @@ import org.elasticsearch.common.unit.ByteSizeValue;
 import org.elasticsearch.common.util.PageCacheRecycler;
 import org.elasticsearch.index.Index;
 import org.elasticsearch.index.shard.ShardId;
+import org.elasticsearch.search.SearchService;
 import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.SearchShardTarget;
 import org.elasticsearch.search.fetch.FetchPhaseDocsIterator.IterateResult;
@@ -191,6 +192,12 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
         assertThat(result.lastChunkBytes, nullValue());
         assertThat(circuitBreaker.getUsed(), equalTo(0L));
         result.close();
+    }
+
+    public void testFetchPhaseMaxInFlightChunksSettingIsReadCorrectly() {
+        Settings customSettings = Settings.builder().put(SearchService.FETCH_PHASE_MAX_IN_FLIGHT_CHUNKS.getKey(), 7).build();
+        assertThat(SearchService.FETCH_PHASE_MAX_IN_FLIGHT_CHUNKS.get(customSettings), equalTo(7));
+        assertThat(SearchService.FETCH_PHASE_MAX_IN_FLIGHT_CHUNKS.get(Settings.EMPTY), equalTo(3));
     }
 
     public void testIterateAsyncSingleDocument() throws Exception {

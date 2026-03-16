@@ -90,7 +90,7 @@ public final class FetchPhase {
     public void execute(SearchContext context, int[] docIdsToLoad, RankDocShardInfo rankDocs) {
         // Synchronous wrapper for backward compatibility,
         PlainActionFuture<Void> future = new PlainActionFuture<>();
-        execute(context, docIdsToLoad, rankDocs, null, null, null, future);
+        execute(context, docIdsToLoad, rankDocs, null, null, null, null, future);
         try {
             future.actionGet();
         } catch (UncategorizedExecutionException e) {
@@ -111,7 +111,7 @@ public final class FetchPhase {
     public void execute(SearchContext context, int[] docIdsToLoad, RankDocShardInfo rankDocs, @Nullable IntConsumer memoryChecker) {
         // Synchronous wrapper for backward compatibility,
         PlainActionFuture<Void> future = new PlainActionFuture<>();
-        execute(context, docIdsToLoad, rankDocs, memoryChecker, null, null, future);
+        execute(context, docIdsToLoad, rankDocs, memoryChecker, null, null, null, future);
         try {
             future.actionGet();
         } catch (UncategorizedExecutionException e) {
@@ -150,6 +150,7 @@ public final class FetchPhase {
         RankDocShardInfo rankDocs,
         @Nullable IntConsumer memoryChecker,
         @Nullable FetchPhaseResponseChunk.Writer writer,
+        @Nullable Integer maxInFlightChunks,
         @Nullable ActionListener<Void> buildListener,
         ActionListener<Void> listener
     ) {
@@ -203,7 +204,18 @@ public final class FetchPhase {
         if (writer == null) {
             buildSearchHits(context, docIdsToLoad, docsIterator, resolvedBuildListener, hitsListener);
         } else {
-            buildSearchHitsStreaming(context, docIdsToLoad, docsIterator, writer, resolvedBuildListener, hitsListener);
+            int resolvedMaxInFlightChunks = maxInFlightChunks != null
+                ? maxInFlightChunks
+                : SearchService.FETCH_PHASE_MAX_IN_FLIGHT_CHUNKS.get(context.getSearchExecutionContext().getIndexSettings().getSettings());
+            buildSearchHitsStreaming(
+                context,
+                docIdsToLoad,
+                docsIterator,
+                writer,
+                resolvedMaxInFlightChunks,
+                resolvedBuildListener,
+                hitsListener
+            );
         }
     }
 
@@ -426,6 +438,7 @@ public final class FetchPhase {
         int[] docIdsToLoad,
         StreamingFetchPhaseDocsIterator docsIterator,
         FetchPhaseResponseChunk.Writer writer,
+        int maxInFlightChunks,
         ActionListener<Void> buildListener,
         ActionListener<SearchHitsWithSizeBytes> listener
     ) {
@@ -463,10 +476,6 @@ public final class FetchPhase {
 
         final ActionListener<Void> mainBuildListener = chunkCompletionRefs.acquire();
         chunkCompletionRefs.close();
-
-        int maxInFlightChunks = SearchService.FETCH_PHASE_MAX_IN_FLIGHT_CHUNKS.get(
-            context.getSearchExecutionContext().getIndexSettings().getSettings()
-        );
 
         docsIterator.iterateAsync(
             context.shardTarget(),

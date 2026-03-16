@@ -47,17 +47,13 @@ public final class ActiveFetchPhaseTasks {
 
         final var previous = tasks.putIfAbsent(key, responseStream);
         if (previous != null) {
-            final var exception = new IllegalStateException("already executing fetch task [" + coordinatingTaskId + "]");
-            assert false : exception;
-            throw exception;
+            throw new IllegalStateException("already executing fetch task [" + coordinatingTaskId + "]");
         }
 
         return Releasables.assertOnce(() -> {
             final var removed = tasks.remove(key, responseStream);
             if (removed == false) {
-                final var exception = new IllegalStateException("already completed fetch task [" + coordinatingTaskId + "]");
-                assert false : exception;
-                throw exception;
+                throw new IllegalStateException("already completed fetch task [" + coordinatingTaskId + "]");
             }
         });
     }

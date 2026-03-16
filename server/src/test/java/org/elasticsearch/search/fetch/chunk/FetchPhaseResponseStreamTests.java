@@ -28,16 +28,22 @@ import org.elasticsearch.test.ESTestCase;
 import org.elasticsearch.xcontent.XContentType;
 
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Queue;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.IntStream;
 
-import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.greaterThan;
+import static org.hamcrest.Matchers.equalTo;
 
 /**
  * Unit tests for {@link FetchPhaseResponseStream}.
@@ -524,6 +530,89 @@ public class FetchPhaseResponseStreamTests extends ESTestCase {
         } finally {
             stream.decRef();
         }
+    }
+
+    public void testWriteChunkWithCircuitBreakerTripPreservesAccountingAndPropagates() throws IOException {
+        FetchPhaseResponseChunk chunk = createChunkWithSourceSize(0, 5, 0, 4096);
+        long chunkSize = chunk.getBytesLength();
+
+        CircuitBreaker breaker = newLimitedBreaker(ByteSizeValue.ofBytes(chunkSize - 1));
+        FetchPhaseResponseStream stream = new FetchPhaseResponseStream(SHARD_INDEX, 5, breaker);
+        AtomicBoolean releasableClosed = new AtomicBoolean(false);
+
+        try {
+            CircuitBreakingException e = expectThrows(
+                CircuitBreakingException.class,
+                () -> stream.writeChunk(chunk, () -> releasableClosed.set(true))
+            );
+
+            assertFalse("Releasable should not be closed on failure", releasableClosed.get());
+            assertThat("No bytes should be tracked on breaker trip", breaker.getUsed(), equalTo(0L));
+
+            FetchSearchResult result = buildFinalResult(stream);
+            try {
+                assertThat("No hits should be accumulated after breaker trip", result.hits().getHits().length, equalTo(0));
+            } finally {
+                result.decRef();
+            }
+        } finally {
+            stream.decRef();
+            assertThat("No breaker bytes should remain after close", breaker.getUsed(), equalTo(0L));
+        }
+    }
+
+    public void testConcurrentWriteChunkAndBuildFinalResultNoHitLeaks() throws Exception {
+        CircuitBreaker breaker = newLimitedBreaker(ByteSizeValue.ofBytes(Long.MAX_VALUE));
+        int numThreads = 8;
+        int hitsPerThread = 8;
+        int totalHits = numThreads * hitsPerThread;
+
+        FetchPhaseResponseStream stream = new FetchPhaseResponseStream(SHARD_INDEX, totalHits, breaker);
+        CountDownLatch startSignal = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(numThreads);
+
+        SearchHit[] resultHits = null;
+        FetchSearchResult result = null;
+        try {
+            List<CompletableFuture<Void>> writerFutures = IntStream.range(0, numThreads)
+                .mapToObj(threadId -> CompletableFuture.runAsync(() -> {
+                    try {
+                        assertTrue("Writer should be released to start", startSignal.await(5, TimeUnit.SECONDS));
+                        int startId = threadId * hitsPerThread;
+                        long sequenceStart = threadId * hitsPerThread;
+                        FetchPhaseResponseChunk chunk = createChunk(startId, hitsPerThread, sequenceStart);
+                        try {
+                            writeChunk(stream, chunk);
+                        } finally {
+                            chunk.close();
+                        }
+                    } catch (Exception e) {
+                        throw new AssertionError("Writer failed", e);
+                    }
+                }, executor))
+                .toList();
+            startSignal.countDown();
+
+            CompletableFuture.allOf(writerFutures.toArray(new CompletableFuture<?>[0])).get(10, TimeUnit.SECONDS);
+
+            result = buildFinalResult(stream);
+            resultHits = result.hits().getHits().clone();
+            assertThat(resultHits.length, equalTo(totalHits));
+
+            for (int i = 0; i < totalHits; i++) {
+                assertThat(getIdFromSource(resultHits[i]), equalTo(i));
+            }
+        } finally {
+            executor.shutdown();
+            assertTrue("Executor should terminate", executor.awaitTermination(10, TimeUnit.SECONDS));
+            if (result != null) {
+                result.decRef();
+            }
+            stream.decRef();
+        }
+
+        assertNotNull(resultHits);
+        assertThat("All breaker bytes should be released after stream close", breaker.getUsed(), equalTo(0L));
     }
 
     public void testChunkMetadata() throws IOException {

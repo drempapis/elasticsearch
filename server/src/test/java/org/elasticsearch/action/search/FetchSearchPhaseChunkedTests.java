@@ -11,9 +11,14 @@ package org.elasticsearch.action.search;
 import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.search.TotalHits;
+import org.elasticsearch.TransportVersion;
 import org.elasticsearch.action.ActionListener;
+import org.elasticsearch.action.OriginalIndices;
 import org.elasticsearch.action.support.ActionFilters;
+import org.elasticsearch.action.support.IndicesOptions;
+import org.elasticsearch.action.support.PlainActionFuture;
 import org.elasticsearch.cluster.node.DiscoveryNode;
+import org.elasticsearch.cluster.node.VersionInformation;
 import org.elasticsearch.cluster.service.ClusterService;
 import org.elasticsearch.common.UUIDs;
 import org.elasticsearch.common.breaker.CircuitBreaker;
@@ -33,6 +38,7 @@ import org.elasticsearch.core.TimeValue;
 import org.elasticsearch.index.shard.ShardId;
 import org.elasticsearch.indices.EmptySystemIndices;
 import org.elasticsearch.indices.breaker.NoneCircuitBreakerService;
+import org.elasticsearch.search.RescoreDocIds;
 import org.elasticsearch.search.DocValueFormat;
 import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.SearchHits;
@@ -44,23 +50,30 @@ import org.elasticsearch.search.fetch.FetchSearchResult;
 import org.elasticsearch.search.fetch.ShardFetchSearchRequest;
 import org.elasticsearch.search.fetch.chunk.ActiveFetchPhaseTasks;
 import org.elasticsearch.search.fetch.chunk.TransportFetchPhaseCoordinationAction;
+import org.elasticsearch.search.internal.AliasFilter;
 import org.elasticsearch.search.internal.ShardSearchContextId;
+import org.elasticsearch.search.internal.ShardSearchRequest;
 import org.elasticsearch.search.query.QuerySearchResult;
 import org.elasticsearch.tasks.Task;
 import org.elasticsearch.telemetry.tracing.Tracer;
 import org.elasticsearch.test.ESTestCase;
 import org.elasticsearch.test.InternalAggregationTestCase;
+import org.elasticsearch.test.transport.MockTransportService;
 import org.elasticsearch.threadpool.TestThreadPool;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.transport.ConnectionProfile;
 import org.elasticsearch.transport.Transport;
+import org.elasticsearch.transport.TransportException;
 import org.elasticsearch.transport.TransportMessageListener;
+import org.elasticsearch.transport.TransportRequest;
+import org.elasticsearch.transport.TransportRequestOptions;
 import org.elasticsearch.transport.TransportService;
 import org.elasticsearch.transport.TransportStats;
 
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiFunction;
 
@@ -381,6 +394,87 @@ public class FetchSearchPhaseChunkedTests extends ESTestCase {
         }
     }
 
+    public void testTraditionalFetchUsedWhenDataNodeDoesNotSupportChunkedTransportVersion() throws Exception {
+        ThreadPool threadPool = new TestThreadPool("test");
+        ClusterService clusterService = new ClusterService(
+            Settings.EMPTY,
+            new ClusterSettings(Settings.EMPTY, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS),
+            threadPool,
+            null
+        );
+        MockSearchPhaseContext mockSearchPhaseContext = null;
+
+        MockTransportService transportService = MockTransportService.createNewService(
+            Settings.EMPTY,
+            VersionInformation.CURRENT,
+            TransportFetchPhaseCoordinationAction.CHUNKED_FETCH_PHASE,
+            threadPool
+        );
+
+        try {
+            transportService.start();
+            transportService.acceptIncomingRequests();
+
+            AtomicBoolean traditionalFetchUsed = new AtomicBoolean(false);
+            AtomicBoolean chunkedPathUsed = new AtomicBoolean(false);
+
+            transportService.registerRequestHandler(
+                SearchTransportService.FETCH_ID_ACTION_NAME,
+                threadPool.executor(ThreadPool.Names.GENERIC),
+                ShardFetchSearchRequest::new,
+                (req, channel, task) -> {
+                    traditionalFetchUsed.set(true);
+                    FetchSearchResult result = createFetchSearchResult();
+                    channel.sendResponse(result);
+                }
+            );
+
+            transportService.registerRequestHandler(
+                TransportFetchPhaseCoordinationAction.TYPE.name(),
+                threadPool.executor(ThreadPool.Names.GENERIC),
+                TransportFetchPhaseCoordinationAction.Request::new,
+                (req, channel, task) -> {
+                    chunkedPathUsed.set(true);
+                    channel.sendResponse(new IllegalStateException("chunked coordination path should not be used"));
+                }
+            );
+
+            SearchTransportService searchTransportService = new SearchTransportService(transportService, null, null);
+            searchTransportService.setSearchService(new StubSearchService(true, clusterService, threadPool));
+
+            mockSearchPhaseContext = new MockSearchPhaseContext(1);
+            mockSearchPhaseContext.searchTransport = searchTransportService;
+
+            ShardId shardId = new ShardId("test", "na", 0);
+            SearchShardTarget shardTarget = new SearchShardTarget("node1", shardId, null);
+            ShardFetchSearchRequest shardFetchRequest = createShardFetchSearchRequest(shardId);
+
+            Transport.Connection delegateConnection = transportService.getConnection(transportService.getLocalNode());
+            TransportVersion unsupportedVersion = TransportVersion.fromId(TransportFetchPhaseCoordinationAction.CHUNKED_FETCH_PHASE.id() - 1);
+            Transport.Connection oldVersionConnection = withTransportVersion(delegateConnection, unsupportedVersion);
+
+            PlainActionFuture<FetchSearchResult> future = new PlainActionFuture<>();
+            searchTransportService.sendExecuteFetch(oldVersionConnection, shardFetchRequest, mockSearchPhaseContext, shardTarget, future);
+
+            FetchSearchResult result = future.actionGet(10, TimeUnit.SECONDS);
+            result.decRef();
+
+            assertTrue("Traditional fetch should be used for unsupported data node version", traditionalFetchUsed.get());
+            assertFalse("Chunked coordination path should not be used", chunkedPathUsed.get());
+        } finally {
+            if (mockSearchPhaseContext != null) {
+                mockSearchPhaseContext.results.close();
+                var resp = mockSearchPhaseContext.searchResponse.get();
+                if (resp != null) {
+                    resp.decRef();
+                }
+            }
+            transportService.close();
+            clusterService.close();
+            ThreadPool.terminate(threadPool, 10, TimeValue.timeValueSeconds(5).timeUnit());
+        }
+    }
+
     private SearchPhaseResults<SearchPhaseResult> createSearchPhaseResults(MockSearchPhaseContext mockSearchPhaseContext) {
         SearchPhaseController controller = new SearchPhaseController((t, s) -> InternalAggregationTestCase.emptyReduceContextBuilder());
 
@@ -494,6 +588,82 @@ public class FetchSearchPhaseChunkedTests extends ESTestCase {
         };
     }
 
+    private ShardFetchSearchRequest createShardFetchSearchRequest(ShardId shardId) {
+        ShardSearchContextId contextId = new ShardSearchContextId("test", randomLong());
+        OriginalIndices originalIndices = new OriginalIndices(new String[] { "test-index" }, IndicesOptions.strictExpandOpenAndForbidClosed());
+        ShardSearchRequest shardSearchRequest = new ShardSearchRequest(shardId, System.currentTimeMillis(), AliasFilter.EMPTY);
+        List<Integer> docIds = List.of(0, 1, 2, 3, 4);
+        return new ShardFetchSearchRequest(originalIndices, contextId, shardSearchRequest, docIds, null, null, RescoreDocIds.EMPTY, null);
+    }
+
+    private Transport.Connection withTransportVersion(Transport.Connection delegate, TransportVersion version) {
+        return new Transport.Connection() {
+            @Override
+            public DiscoveryNode getNode() {
+                return delegate.getNode();
+            }
+
+            @Override
+            public TransportVersion getTransportVersion() {
+                return version;
+            }
+
+            @Override
+            public void sendRequest(long requestId, String action, TransportRequest request, TransportRequestOptions options) throws TransportException {
+                try {
+                    delegate.sendRequest(requestId, action, request, options);
+                } catch (Exception e) {
+                    throw new TransportException("failed to send request", e);
+                }
+            }
+
+            @Override
+            public void addCloseListener(ActionListener<Void> listener) {
+                delegate.addCloseListener(listener);
+            }
+
+            @Override
+            public void addRemovedListener(ActionListener<Void> listener) {
+                delegate.addRemovedListener(listener);
+            }
+
+            @Override
+            public boolean isClosed() {
+                return delegate.isClosed();
+            }
+
+            @Override
+            public void close() {
+                delegate.close();
+            }
+
+            @Override
+            public void onRemoved() {
+                delegate.onRemoved();
+            }
+
+            @Override
+            public void incRef() {
+                delegate.incRef();
+            }
+
+            @Override
+            public boolean tryIncRef() {
+                return delegate.tryIncRef();
+            }
+
+            @Override
+            public boolean decRef() {
+                return delegate.decRef();
+            }
+
+            @Override
+            public boolean hasReferences() {
+                return delegate.hasReferences();
+            }
+        };
+    }
+
     private void addQuerySearchResult(
         ShardSearchContextId ctx,
         SearchShardTarget shardTarget,
@@ -517,6 +687,13 @@ public class FetchSearchPhaseChunkedTests extends ESTestCase {
         } finally {
             queryResult.decRef();
         }
+    }
+
+    private FetchSearchResult createFetchSearchResult() {
+        ShardSearchContextId contextId = new ShardSearchContextId("test", randomLong());
+        FetchSearchResult result = new FetchSearchResult(contextId, new SearchShardTarget("node", new ShardId("test", "na", 0), null));
+        result.shardResult(SearchHits.unpooled(new SearchHit[0], null, Float.NaN), null);
+        return result;
     }
 
     private TransportService createMockTransportService(ThreadPool threadPool) {

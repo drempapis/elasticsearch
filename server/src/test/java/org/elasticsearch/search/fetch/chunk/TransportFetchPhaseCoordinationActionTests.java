@@ -9,6 +9,7 @@
 
 package org.elasticsearch.search.fetch.chunk;
 
+import org.elasticsearch.ResourceNotFoundException;
 import org.elasticsearch.action.OriginalIndices;
 import org.elasticsearch.action.support.ActionFilters;
 import org.elasticsearch.action.support.IndicesOptions;
@@ -304,6 +305,73 @@ public class TransportFetchPhaseCoordinationActionTests extends ESTestCase {
 
         assertThat(response, notNullValue());
         assertThat(response.getResult(), notNullValue());
+    }
+
+    public void testDoExecuteIgnoresLastChunkBytesWhenHitCountIsZero() {
+        transportService.registerRequestHandler(
+            FETCH_ID_ACTION_NAME,
+            threadPool.executor(ThreadPool.Names.GENERIC),
+            ShardFetchSearchRequest::new,
+            (req, channel, task) -> {
+                FetchSearchResult result = createFetchSearchResult();
+                try {
+                    // Bytes are intentionally not a serialized SearchHit payload.
+                    // They must be ignored when hitCount == 0.
+                    result.setLastChunkBytes(new BytesArray(new byte[] { 1, 2, 3, 4 }), 0);
+                    result.setLastChunkSequenceStart(0L);
+                    channel.sendResponse(result);
+                } finally {
+                    result.decRef();
+                }
+            }
+        );
+
+        TransportFetchPhaseCoordinationAction.Request request = new TransportFetchPhaseCoordinationAction.Request(
+            createShardFetchSearchRequest(),
+            transportService.getLocalNode(),
+            Collections.emptyMap()
+        );
+
+        PlainActionFuture<TransportFetchPhaseCoordinationAction.Response> future = new PlainActionFuture<>();
+        action.doExecute(createTask(123L), request, future);
+        TransportFetchPhaseCoordinationAction.Response response = future.actionGet(10, TimeUnit.SECONDS);
+
+        assertThat(response, notNullValue());
+        assertThat(response.getResult(), notNullValue());
+    }
+
+    public void testDoExecuteReleasesRegistrationOnLastChunkDeserializationFailure() throws Exception {
+        transportService.registerRequestHandler(
+            FETCH_ID_ACTION_NAME,
+            threadPool.executor(ThreadPool.Names.GENERIC),
+            ShardFetchSearchRequest::new,
+            (req, channel, task) -> {
+                FetchSearchResult result = createFetchSearchResult();
+                try {
+                    // Invalid payload for hitCount=1, forcing SearchHit.readFrom() failure.
+                    result.setLastChunkBytes(new BytesArray(new byte[] { 9, 9, 9 }), 1);
+                    result.setLastChunkSequenceStart(0L);
+                    channel.sendResponse(result);
+                } finally {
+                    result.decRef();
+                }
+            }
+        );
+
+        TransportFetchPhaseCoordinationAction.Request request = new TransportFetchPhaseCoordinationAction.Request(
+            createShardFetchSearchRequest(),
+            transportService.getLocalNode(),
+            Collections.emptyMap()
+        );
+
+        long taskId = 456L;
+        PlainActionFuture<TransportFetchPhaseCoordinationAction.Response> future = new PlainActionFuture<>();
+        action.doExecute(createTask(taskId), request, future);
+        expectThrows(Exception.class, () -> future.actionGet(10, TimeUnit.SECONDS));
+
+        assertBusy(() -> {
+            expectThrows(ResourceNotFoundException.class, () -> activeFetchPhaseTasks.acquireResponseStream(taskId, TEST_SHARD_ID));
+        });
     }
 
     public void testDoExecutePreservesContextIdInFinalResult() throws Exception {

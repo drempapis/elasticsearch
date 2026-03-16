@@ -367,6 +367,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
     private volatile Executor searchExecutor;
     private volatile boolean enableQueryPhaseParallelCollection;
     private volatile boolean enableFetchPhaseChunked;
+    private volatile int fetchPhaseMaxInFlightChunks;
 
     private volatile long defaultKeepAlive;
 
@@ -469,9 +470,12 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
 
         enableQueryPhaseParallelCollection = QUERY_PHASE_PARALLEL_COLLECTION_ENABLED.get(settings);
         batchQueryPhase = BATCHED_QUERY_PHASE.get(settings);
+        fetchPhaseMaxInFlightChunks = FETCH_PHASE_MAX_IN_FLIGHT_CHUNKS.get(settings);
         clusterService.getClusterSettings()
             .addSettingsUpdateConsumer(QUERY_PHASE_PARALLEL_COLLECTION_ENABLED, this::setEnableQueryPhaseParallelCollection);
         clusterService.getClusterSettings().addSettingsUpdateConsumer(FETCH_PHASE_CHUNKED_ENABLED, this::setEnableFetchPhaseChunked);
+        clusterService.getClusterSettings()
+            .addSettingsUpdateConsumer(FETCH_PHASE_MAX_IN_FLIGHT_CHUNKS, this::setFetchPhaseMaxInFlightChunks);
         clusterService.getClusterSettings()
             .addSettingsUpdateConsumer(BATCHED_QUERY_PHASE, bulkExecuteQueryPhase -> this.batchQueryPhase = bulkExecuteQueryPhase);
         memoryAccountingBufferSize = MEMORY_ACCOUNTING_BUFFER_SIZE.get(settings).getBytes();
@@ -518,6 +522,10 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
 
     public boolean fetchPhaseChunked() {
         return enableFetchPhaseChunked;
+    }
+
+    private void setFetchPhaseMaxInFlightChunks(int fetchPhaseMaxInFlightChunks) {
+        this.fetchPhaseMaxInFlightChunks = fetchPhaseMaxInFlightChunks;
     }
 
     private static void validateKeepAlives(TimeValue defaultKeepAlive, TimeValue maxKeepAlive) {
@@ -1138,6 +1146,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
                         request.getRankDocks(),
                         null,
                         writer,
+                        fetchPhaseMaxInFlightChunks,
                         newFetchBuildListener(opsListener, searchContext, startTime, closeOnce),
                         newFetchCompletionListener(listener, fetchResult)
                     );
