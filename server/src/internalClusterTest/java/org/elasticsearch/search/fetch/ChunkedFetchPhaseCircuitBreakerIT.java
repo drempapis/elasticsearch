@@ -538,7 +538,11 @@ public class ChunkedFetchPhaseCircuitBreakerIT extends ESIntegTestCase {
 
         if (response != null) {
             try {
-                assertThat("Expected failed shards when shard-hosting node is stopped during chunked fetch", response.getFailedShards(), greaterThan(0));
+                assertThat(
+                    "Expected failed shards when shard-hosting node is stopped during chunked fetch",
+                    response.getFailedShards(),
+                    greaterThan(0)
+                );
             } finally {
                 response.decRef();
             }
