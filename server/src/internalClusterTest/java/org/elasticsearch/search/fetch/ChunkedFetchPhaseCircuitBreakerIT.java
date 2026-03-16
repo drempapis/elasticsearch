@@ -111,7 +111,6 @@ public class ChunkedFetchPhaseCircuitBreakerIT extends ESIntegTestCase {
         internalCluster().startNode();
         String coordinatorNode = internalCluster().startCoordinatingOnlyNode(Settings.EMPTY);
 
-        // Keep fanout meaningful for chunked fetch while avoiding CI heap exhaustion.
         int numberOfShards = randomIntBetween(6, 16);
         createIndexForTest(
             INDEX_NAME,
