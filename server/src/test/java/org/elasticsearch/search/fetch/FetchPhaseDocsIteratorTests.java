@@ -316,12 +316,12 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
 
         // Verify chunks are in order by from index
         List<SentChunkInfo> chunks = chunkWriter.getSentChunks();
-        int expectedFrom = 0;
+        long expectedSequenceStart = 0L;
         for (SentChunkInfo chunk : chunks) {
-            assertThat(chunk.from, equalTo(expectedFrom));
-            expectedFrom += chunk.hitCount;
+            assertThat(chunk.sequenceStart, equalTo(expectedSequenceStart));
+            expectedSequenceStart += chunk.hitCount;
         }
-        assertThat(result.lastChunkSequenceStart, equalTo((long) expectedFrom));
+        assertThat(result.lastChunkSequenceStart, equalTo(expectedSequenceStart));
 
         // Should have multiple chunks sent + last chunk held back
         assertThat(chunkWriter.getSentChunks().size(), greaterThan(0));
@@ -646,7 +646,7 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
     /**
      * Simple record to track sent chunk info
      */
-    private record SentChunkInfo(int hitCount, int from, int expectedTotalDocs) {}
+    private record SentChunkInfo(int hitCount, long sequenceStart, int expectedTotalDocs) {}
 
     private static class TestChunkWriter implements FetchPhaseResponseChunk.Writer {
 
@@ -668,7 +668,7 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
 
         @Override
         public void writeResponseChunk(FetchPhaseResponseChunk chunk, ActionListener<Void> listener) {
-            sentChunks.add(new SentChunkInfo(chunk.hitCount(), chunk.from(), chunk.expectedTotalDocs()));
+            sentChunks.add(new SentChunkInfo(chunk.hitCount(), chunk.sequenceStart(), chunk.expectedTotalDocs()));
             if (delayAcks) {
                 pendingAcks.add(listener);
             } else {

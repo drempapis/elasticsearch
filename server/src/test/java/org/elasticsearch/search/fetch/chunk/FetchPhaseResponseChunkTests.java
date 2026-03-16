@@ -43,11 +43,9 @@ public class FetchPhaseResponseChunkTests extends ESTestCase {
             ReleasableBytesReference serializedHits = new ReleasableBytesReference(serializeHits(hit), () -> released.set(true));
 
             FetchPhaseResponseChunk chunk = new FetchPhaseResponseChunk(
-                System.currentTimeMillis(),
                 TEST_SHARD_ID,
                 serializedHits,
                 1,
-                0,
                 10,
                 0L
             );
@@ -88,11 +86,9 @@ public class FetchPhaseResponseChunkTests extends ESTestCase {
         SearchHit second = createHit(2);
         try {
             FetchPhaseResponseChunk chunk = new FetchPhaseResponseChunk(
-                System.currentTimeMillis(),
                 TEST_SHARD_ID,
                 serializeHits(first, second),
                 2,
-                0,
                 10,
                 0L
             );
@@ -114,10 +110,8 @@ public class FetchPhaseResponseChunkTests extends ESTestCase {
 
     public void testGetHitsReturnsEmptyWhenHitCountIsZero() throws IOException {
         FetchPhaseResponseChunk chunk = new FetchPhaseResponseChunk(
-            System.currentTimeMillis(),
             TEST_SHARD_ID,
             BytesArray.EMPTY,
-            0,
             0,
             0,
             0L
@@ -133,11 +127,9 @@ public class FetchPhaseResponseChunkTests extends ESTestCase {
         SearchHit hit = createHit(7);
         try {
             FetchPhaseResponseChunk chunk = new FetchPhaseResponseChunk(
-                System.currentTimeMillis(),
                 TEST_SHARD_ID,
                 serializeHits(hit),
                 1,
-                0,
                 1,
                 0L
             );
@@ -157,11 +149,9 @@ public class FetchPhaseResponseChunkTests extends ESTestCase {
         SearchHit hit = createHit(42);
         try {
             FetchPhaseResponseChunk chunk = new FetchPhaseResponseChunk(
-                System.currentTimeMillis(),
                 TEST_SHARD_ID,
                 serializeHits(hit),
                 1,
-                0,
                 1,
                 0L
             );
@@ -176,7 +166,6 @@ public class FetchPhaseResponseChunkTests extends ESTestCase {
                 try {
                     assertThat(roundTripped.shardId(), equalTo(TEST_SHARD_ID));
                     assertThat(roundTripped.hitCount(), equalTo(1));
-                    assertThat(roundTripped.from(), equalTo(0));
                     assertThat(roundTripped.expectedTotalDocs(), equalTo(1));
                     assertThat(roundTripped.sequenceStart(), equalTo(0L));
                     assertThat(getIdFromSource(roundTripped.getHits()[0]), equalTo(42));

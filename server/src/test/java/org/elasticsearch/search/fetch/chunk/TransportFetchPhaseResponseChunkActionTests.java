@@ -107,7 +107,7 @@ public class TransportFetchPhaseResponseChunkActionTests extends ESTestCase {
         SearchHit originalHit = createHit(7);
         FetchPhaseResponseChunk chunk = null;
         try {
-            chunk = new FetchPhaseResponseChunk(System.currentTimeMillis(), TEST_SHARD_ID, serializeHits(originalHit), 1, 0, 1, 0L);
+            chunk = new FetchPhaseResponseChunk(TEST_SHARD_ID, serializeHits(originalHit), 1, 1, 0L);
 
             ReleasableBytesReference wireBytes = chunk.toReleasableBytesReference(coordinatingTaskId);
             PlainActionFuture<ActionResponse.Empty> future = new PlainActionFuture<>();
@@ -145,7 +145,7 @@ public class TransportFetchPhaseResponseChunkActionTests extends ESTestCase {
         FetchPhaseResponseChunk chunk = null;
         ReleasableBytesReference wireBytes = null;
         try {
-            chunk = new FetchPhaseResponseChunk(System.currentTimeMillis(), TEST_SHARD_ID, serializeHits(originalHit), 1, 0, 1, 0L);
+            chunk = new FetchPhaseResponseChunk(TEST_SHARD_ID, serializeHits(originalHit), 1, 1, 0L);
             wireBytes = chunk.toReleasableBytesReference(coordinatingTaskId);
 
             PlainActionFuture<ActionResponse.Empty> future = sendChunk(wireBytes);
@@ -182,7 +182,7 @@ public class TransportFetchPhaseResponseChunkActionTests extends ESTestCase {
         FetchPhaseResponseChunk chunk = null;
         ReleasableBytesReference wireBytes = null;
         try {
-            chunk = new FetchPhaseResponseChunk(System.currentTimeMillis(), TEST_SHARD_ID, serializeHits(originalHit), 1, 0, 1, 0L);
+            chunk = new FetchPhaseResponseChunk(TEST_SHARD_ID, serializeHits(originalHit), 1, 1, 0L);
             wireBytes = chunk.toReleasableBytesReference(unknownTaskId);
 
             PlainActionFuture<ActionResponse.Empty> future = sendChunk(wireBytes);
@@ -211,7 +211,7 @@ public class TransportFetchPhaseResponseChunkActionTests extends ESTestCase {
         FetchPhaseResponseChunk chunk = null;
         ReleasableBytesReference wireBytes = null;
         try {
-            chunk = new FetchPhaseResponseChunk(System.currentTimeMillis(), TEST_SHARD_ID, serializeHits(originalHit), 1, 0, 1, 0L);
+            chunk = new FetchPhaseResponseChunk(TEST_SHARD_ID, serializeHits(originalHit), 1, 1, 0L);
             wireBytes = chunk.toReleasableBytesReference(coordinatingTaskId);
 
             PlainActionFuture<ActionResponse.Empty> future = sendChunk(wireBytes);
@@ -237,7 +237,7 @@ public class TransportFetchPhaseResponseChunkActionTests extends ESTestCase {
         FetchPhaseResponseChunk chunk = null;
         ReleasableBytesReference wireBytes = null;
         try {
-            chunk = new FetchPhaseResponseChunk(System.currentTimeMillis(), TEST_SHARD_ID, serializeHits(originalHit), 1, 0, 1, 0L);
+            chunk = new FetchPhaseResponseChunk(TEST_SHARD_ID, serializeHits(originalHit), 1, 1, 0L);
             long expectedBytes = chunk.getBytesLength();
             wireBytes = chunk.toReleasableBytesReference(coordinatingTaskId);
 

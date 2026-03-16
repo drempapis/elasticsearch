@@ -46,10 +46,8 @@ public class FetchPhaseResponseChunk implements Writeable, Releasable {
      */
     private static final int INITIAL_CHUNK_SERIALIZATION_CAPACITY = 128;
 
-    private final long timestampMillis;
     private final ShardId shardId;
     private final int hitCount;
-    private final int from;
     private final int expectedTotalDocs;
     private final long sequenceStart;
 
@@ -61,33 +59,27 @@ public class FetchPhaseResponseChunk implements Writeable, Releasable {
      * Creates a chunk with pre-serialized hits.
      * Takes ownership of serializedHits - caller must not release it.
      *
-     * @param timestampMillis  creation timestamp
      * @param shardId          source shard
      * @param serializedHits   pre-serialized hit bytes
      * @param hitCount         number of hits in the serialized bytes
-     * @param from             index of first hit in the overall result set
      * @param expectedTotalDocs total number of documents requested for this shard fetch operation
      *                          across all chunks (derived from requested doc IDs, not an observed
      *                          count of docs received so far)
      * @param sequenceStart    sequence number of first hit for ordering
      */
     public FetchPhaseResponseChunk(
-        long timestampMillis,
         ShardId shardId,
         BytesReference serializedHits,
         int hitCount,
-        int from,
         int expectedTotalDocs,
         long sequenceStart
     ) {
         if (shardId.getId() < -1) {
             throw new IllegalArgumentException("invalid shardId: " + shardId);
         }
-        this.timestampMillis = timestampMillis;
         this.shardId = shardId;
         this.serializedHits = serializedHits;
         this.hitCount = hitCount;
-        this.from = from;
         this.expectedTotalDocs = expectedTotalDocs;
         this.sequenceStart = sequenceStart;
     }
@@ -96,10 +88,8 @@ public class FetchPhaseResponseChunk implements Writeable, Releasable {
      * Deserializes from stream (receiving side).
      */
     public FetchPhaseResponseChunk(StreamInput in) throws IOException {
-        this.timestampMillis = in.readVLong();
         this.shardId = new ShardId(in);
         this.hitCount = in.readVInt();
-        this.from = in.readVInt();
         this.expectedTotalDocs = in.readVInt();
         this.sequenceStart = in.readVLong();
         this.serializedHits = in.readBytesReference();
@@ -108,10 +98,8 @@ public class FetchPhaseResponseChunk implements Writeable, Releasable {
 
     @Override
     public void writeTo(StreamOutput out) throws IOException {
-        out.writeVLong(timestampMillis);
         shardId.writeTo(out);
         out.writeVInt(hitCount);
-        out.writeVInt(from);
         out.writeVInt(expectedTotalDocs);
         out.writeVLong(sequenceStart);
         out.writeBytesReference(serializedHits);
@@ -121,10 +109,8 @@ public class FetchPhaseResponseChunk implements Writeable, Releasable {
         final ReleasableBytesReference result;
         try (BytesStreamOutput header = new BytesStreamOutput(INITIAL_CHUNK_SERIALIZATION_CAPACITY)) {
             header.writeVLong(coordinatingTaskId);
-            header.writeVLong(timestampMillis);
             shardId.writeTo(header);
             header.writeVInt(hitCount);
-            header.writeVInt(from);
             header.writeVInt(expectedTotalDocs);
             header.writeVLong(sequenceStart);
             header.writeVInt(serializedHits.length());
@@ -170,10 +156,6 @@ public class FetchPhaseResponseChunk implements Writeable, Releasable {
 
     public int hitCount() {
         return hitCount;
-    }
-
-    public int from() {
-        return from;
     }
 
     public int expectedTotalDocs() {

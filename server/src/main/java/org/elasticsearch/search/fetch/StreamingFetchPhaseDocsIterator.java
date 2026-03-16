@@ -371,11 +371,9 @@ abstract class StreamingFetchPhaseDocsIterator extends FetchPhaseDocsIterator {
         ActionListener<Void> ackRef = null;
         try {
             responseChunk = new FetchPhaseResponseChunk(
-                System.currentTimeMillis(),
                 shardId,
                 chunk.bytes,
                 chunk.hitCount,
-                chunk.sequenceStart,
                 totalDocs,
                 chunk.sequenceStart
             );

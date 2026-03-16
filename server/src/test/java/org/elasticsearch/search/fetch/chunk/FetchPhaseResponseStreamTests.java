@@ -614,14 +614,12 @@ public class FetchPhaseResponseStreamTests extends ESTestCase {
     }
 
     public void testChunkMetadata() throws IOException {
-        long timestamp = System.currentTimeMillis();
         SearchHit hit = createHit(0);
         try {
-            FetchPhaseResponseChunk chunk = new FetchPhaseResponseChunk(timestamp, TEST_SHARD_ID, serializeHits(hit), 1, 0, 10, 0);
+            FetchPhaseResponseChunk chunk = new FetchPhaseResponseChunk(TEST_SHARD_ID, serializeHits(hit), 1, 10, 0);
 
             assertThat(chunk.shardId(), equalTo(TEST_SHARD_ID));
             assertThat(chunk.hitCount(), equalTo(1));
-            assertThat(chunk.from(), equalTo(0));
             assertThat(chunk.expectedTotalDocs(), equalTo(10));
             assertThat(chunk.sequenceStart(), equalTo(0L));
             assertThat(chunk.getBytesLength(), greaterThan(0L));
@@ -637,7 +635,7 @@ public class FetchPhaseResponseStreamTests extends ESTestCase {
 
         expectThrows(
             IllegalArgumentException.class,
-            () -> new FetchPhaseResponseChunk(System.currentTimeMillis(), invalidShardId, BytesArray.EMPTY, 0, 0, 0, 0)
+            () -> new FetchPhaseResponseChunk(invalidShardId, BytesArray.EMPTY, 0, 0, 0)
         );
     }
 
@@ -660,11 +658,9 @@ public class FetchPhaseResponseStreamTests extends ESTestCase {
         }
         try {
             return new FetchPhaseResponseChunk(
-                System.currentTimeMillis(),
                 TEST_SHARD_ID,
                 serializeHits(hits),
                 hitCount,
-                startId,
                 100,
                 sequenceStart
             );
@@ -682,11 +678,9 @@ public class FetchPhaseResponseStreamTests extends ESTestCase {
         }
         try {
             return new FetchPhaseResponseChunk(
-                System.currentTimeMillis(),
                 TEST_SHARD_ID,
                 serializeHits(hits),
                 hitCount,
-                startId,
                 100,
                 sequenceStart
             );
@@ -705,11 +699,9 @@ public class FetchPhaseResponseStreamTests extends ESTestCase {
         }
         try {
             return new FetchPhaseResponseChunk(
-                System.currentTimeMillis(),
                 TEST_SHARD_ID,
                 serializeHits(hits),
                 hitCount,
-                startId,
                 100,
                 sequenceStart
             );
@@ -727,11 +719,9 @@ public class FetchPhaseResponseStreamTests extends ESTestCase {
         }
         try {
             return new FetchPhaseResponseChunk(
-                System.currentTimeMillis(),
                 TEST_SHARD_ID,
                 serializeHits(hits),
                 scores.length,
-                startId,
                 100,
                 sequenceStart
             );

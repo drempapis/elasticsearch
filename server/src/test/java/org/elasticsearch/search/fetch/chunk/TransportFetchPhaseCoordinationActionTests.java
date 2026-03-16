@@ -426,11 +426,9 @@ public class TransportFetchPhaseCoordinationActionTests extends ESTestCase {
                 ReleasableBytesReference wireBytes = null;
                 try {
                     streamedChunk = new FetchPhaseResponseChunk(
-                        System.currentTimeMillis(),
                         TEST_SHARD_ID,
                         serializeHits(streamedHit),
                         1,
-                        0,
                         req.docIds().length,
                         0L
                     );
