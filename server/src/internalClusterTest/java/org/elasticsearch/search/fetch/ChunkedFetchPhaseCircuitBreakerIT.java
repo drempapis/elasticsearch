@@ -80,7 +80,7 @@ public class ChunkedFetchPhaseCircuitBreakerIT extends ESIntegTestCase {
             Settings.builder().put(IndexMetadata.SETTING_NUMBER_OF_SHARDS, 3).put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, 0).build()
         );
 
-        populateIndex(INDEX_NAME, 150, 5_000);
+        populateIndex(INDEX_NAME, 150, 1_500);
         ensureGreen(INDEX_NAME);
 
         long breakerBefore = getRequestBreakerUsed(coordinatorNode);
@@ -111,7 +111,8 @@ public class ChunkedFetchPhaseCircuitBreakerIT extends ESIntegTestCase {
         internalCluster().startNode();
         String coordinatorNode = internalCluster().startCoordinatingOnlyNode(Settings.EMPTY);
 
-        int numberOfShards = randomIntBetween(6, 24);
+        // Keep fanout meaningful for chunked fetch while avoiding CI heap exhaustion.
+        int numberOfShards = randomIntBetween(6, 16);
         createIndexForTest(
             INDEX_NAME,
             Settings.builder()
@@ -120,8 +121,8 @@ public class ChunkedFetchPhaseCircuitBreakerIT extends ESIntegTestCase {
                 .build()
         );
 
-        int numberOfDocuments = randomIntBetween(300, 1000);
-        populateIndex(INDEX_NAME, numberOfDocuments, 5_000);
+        int numberOfDocuments = randomIntBetween(250, 600);
+        populateIndex(INDEX_NAME, numberOfDocuments, 1_500);
         ensureGreen(INDEX_NAME);
 
         long breakerBefore = getRequestBreakerUsed(coordinatorNode);
@@ -129,10 +130,10 @@ public class ChunkedFetchPhaseCircuitBreakerIT extends ESIntegTestCase {
             internalCluster().client(coordinatorNode)
                 .prepareSearch(INDEX_NAME)
                 .setQuery(matchAllQuery())
-                .setSize(300)
+                .setSize(200)
                 .addSort(SORT_FIELD, SortOrder.ASC),
             response -> {
-                assertThat(response.getHits().getHits().length, equalTo(300));
+                assertThat(response.getHits().getHits().length, equalTo(200));
                 verifyHitsOrder(response);
             }
         );
@@ -159,7 +160,7 @@ public class ChunkedFetchPhaseCircuitBreakerIT extends ESIntegTestCase {
             Settings.builder().put(IndexMetadata.SETTING_NUMBER_OF_SHARDS, 4).put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, 0).build()
         );
 
-        populateIndex(INDEX_NAME, 110, 1_000);
+        populateIndex(INDEX_NAME, 110, 500);
         ensureGreen(INDEX_NAME);
 
         long breakerBefore = getRequestBreakerUsed(coordinatorNode);
@@ -208,7 +209,7 @@ public class ChunkedFetchPhaseCircuitBreakerIT extends ESIntegTestCase {
             Settings.builder().put(IndexMetadata.SETTING_NUMBER_OF_SHARDS, 3).put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, 1).build()
         );
 
-        populateIndex(INDEX_NAME, 150, 3_000);
+        populateIndex(INDEX_NAME, 150, 1_000);
         ensureGreen(INDEX_NAME);
 
         long breakerBefore = getRequestBreakerUsed(coordinatorNode);
@@ -245,7 +246,7 @@ public class ChunkedFetchPhaseCircuitBreakerIT extends ESIntegTestCase {
             Settings.builder().put(IndexMetadata.SETTING_NUMBER_OF_SHARDS, 4).put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, 0).build()
         );
 
-        populateIndex(INDEX_NAME, 300, 2_000);
+        populateIndex(INDEX_NAME, 300, 800);
         ensureGreen(INDEX_NAME);
 
         long breakerBefore = getRequestBreakerUsed(coordinatorNode);
@@ -284,7 +285,7 @@ public class ChunkedFetchPhaseCircuitBreakerIT extends ESIntegTestCase {
             Settings.builder().put(IndexMetadata.SETTING_NUMBER_OF_SHARDS, 4).put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, 0).build()
         );
 
-        populateIndex(INDEX_NAME, 200, 2_000);
+        populateIndex(INDEX_NAME, 200, 800);
         ensureGreen(INDEX_NAME);
 
         long initialBreaker = getRequestBreakerUsed(coordinatorNode);
@@ -323,7 +324,7 @@ public class ChunkedFetchPhaseCircuitBreakerIT extends ESIntegTestCase {
             INDEX_NAME,
             Settings.builder().put(IndexMetadata.SETTING_NUMBER_OF_SHARDS, 3).put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, 0).build()
         );
-        populateIndex(INDEX_NAME, 250, 2_000);
+        populateIndex(INDEX_NAME, 250, 800);
         ensureGreen(INDEX_NAME);
 
         long breakerBefore = getRequestBreakerUsed(coordinatorNode);
@@ -365,7 +366,7 @@ public class ChunkedFetchPhaseCircuitBreakerIT extends ESIntegTestCase {
             Settings.builder().put(IndexMetadata.SETTING_NUMBER_OF_SHARDS, 4).put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, 0).build()
         );
 
-        populateIndex(INDEX_NAME, 150, 2_000);
+        populateIndex(INDEX_NAME, 150, 800);
         ensureGreen(INDEX_NAME);
 
         long breakerBefore = getRequestBreakerUsed(coordinatorNode);
@@ -425,7 +426,7 @@ public class ChunkedFetchPhaseCircuitBreakerIT extends ESIntegTestCase {
             Settings.builder().put(IndexMetadata.SETTING_NUMBER_OF_SHARDS, 4).put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, 0).build()
         );
 
-        populateIndex(INDEX_NAME, 100, 5_000);
+        populateIndex(INDEX_NAME, 100, 1_500);
         ensureGreen(INDEX_NAME);
 
         long breakerBefore = getRequestBreakerUsed(coordinatorNode);
@@ -461,7 +462,7 @@ public class ChunkedFetchPhaseCircuitBreakerIT extends ESIntegTestCase {
             Settings.builder().put(IndexMetadata.SETTING_NUMBER_OF_SHARDS, 3).put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, 0).build()
         );
 
-        populateIndex(INDEX_NAME, 180, 2_000);
+        populateIndex(INDEX_NAME, 180, 800);
         ensureGreen(INDEX_NAME);
 
         long breakerBefore = getRequestBreakerUsed(coordinatorNode);
@@ -512,7 +513,7 @@ public class ChunkedFetchPhaseCircuitBreakerIT extends ESIntegTestCase {
                 .build()
         );
 
-        populateIndex(failureIndex, 400, 4_000);
+        populateIndex(failureIndex, 250, 1_200);
         ensureGreen(failureIndex);
 
         long breakerBefore = getRequestBreakerUsed(coordinatorNode);
@@ -521,7 +522,7 @@ public class ChunkedFetchPhaseCircuitBreakerIT extends ESIntegTestCase {
             .prepareSearch(failureIndex)
             .setAllowPartialSearchResults(true)
             .setQuery(matchAllQuery())
-            .setSize(300)
+            .setSize(180)
             .addSort(SORT_FIELD, SortOrder.ASC)
             .execute();
 
@@ -547,7 +548,7 @@ public class ChunkedFetchPhaseCircuitBreakerIT extends ESIntegTestCase {
                     assertThat(
                         "Expected a full successful response when node stop races after search completion",
                         response.getHits().getHits().length,
-                        equalTo(300)
+                        equalTo(180)
                     );
                 }
             } finally {
@@ -575,7 +576,7 @@ public class ChunkedFetchPhaseCircuitBreakerIT extends ESIntegTestCase {
             Settings.builder().put(IndexMetadata.SETTING_NUMBER_OF_SHARDS, 4).put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, 0).build()
         );
 
-        populateIndex(INDEX_NAME, 100, 5_000);
+        populateIndex(INDEX_NAME, 100, 1_500);
         ensureGreen(INDEX_NAME);
 
         long breakerBefore = getRequestBreakerUsed(coordinatorNode);
@@ -617,7 +618,7 @@ public class ChunkedFetchPhaseCircuitBreakerIT extends ESIntegTestCase {
             ).setMapping("text", "type=text")
         );
 
-        populateIndex(successIndex, 100, 1_500);
+        populateIndex(successIndex, 100, 600);
         populateSimpleIndex(failingIndex, 25);
         ensureGreen(successIndex, failingIndex);
 
@@ -654,6 +655,10 @@ public class ChunkedFetchPhaseCircuitBreakerIT extends ESIntegTestCase {
 
     private void populateIndex(String indexName, int nDocs, int textSize) throws IOException {
         int batchSize = 50;
+        // Reuse large payload strings across documents to avoid excessive temporary allocations during indexing.
+        String largeText1 = Strings.repeat("large content field 1 ", textSize);
+        String largeText2 = Strings.repeat("large content field 2 ", textSize);
+        String largeText3 = Strings.repeat("large content field 3 ", textSize);
         for (int batch = 0; batch < nDocs; batch += batchSize) {
             int endDoc = Math.min(batch + batchSize, nDocs);
             List<IndexRequestBuilder> builders = new ArrayList<>();
@@ -665,9 +670,9 @@ public class ChunkedFetchPhaseCircuitBreakerIT extends ESIntegTestCase {
                             jsonBuilder().startObject()
                                 .field(SORT_FIELD, i)
                                 .field("text", "document " + i)
-                                .field("large_text_1", Strings.repeat("large content field 1 ", textSize))
-                                .field("large_text_2", Strings.repeat("large content field 2 ", textSize))
-                                .field("large_text_3", Strings.repeat("large content field 3 ", textSize))
+                                .field("large_text_1", largeText1)
+                                .field("large_text_2", largeText2)
+                                .field("large_text_3", largeText3)
                                 .field("keyword", "value" + (i % 10))
                                 .endObject()
                         )
