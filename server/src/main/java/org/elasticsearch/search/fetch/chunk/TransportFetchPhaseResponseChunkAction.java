@@ -11,7 +11,6 @@ package org.elasticsearch.search.fetch.chunk;
 
 import org.elasticsearch.action.ActionListener;
 import org.elasticsearch.action.ActionResponse;
-import org.elasticsearch.action.support.ChannelActionListener;
 import org.elasticsearch.common.bytes.ReleasableBytesReference;
 import org.elasticsearch.common.io.stream.NamedWriteableAwareStreamInput;
 import org.elasticsearch.common.io.stream.NamedWriteableRegistry;
@@ -111,10 +110,10 @@ public class TransportFetchPhaseResponseChunkAction {
                 processChunk(
                     coordinatingTaskId,
                     chunk,
-                    ActionListener.releaseAfter(ActionListener.wrap(
-                        ignored -> channel.sendResponse(ActionResponse.Empty.INSTANCE),
-                        channel::sendResponse
-                    ), chunk)
+                    ActionListener.releaseAfter(
+                        ActionListener.wrap(ignored -> channel.sendResponse(ActionResponse.Empty.INSTANCE), channel::sendResponse),
+                        chunk
+                    )
                 );
             }
         );

@@ -11,7 +11,6 @@ package org.elasticsearch.search.fetch.chunk;
 
 import org.elasticsearch.ResourceNotFoundException;
 import org.elasticsearch.common.breaker.NoopCircuitBreaker;
-import org.elasticsearch.core.Assertions;
 import org.elasticsearch.core.Releasable;
 import org.elasticsearch.index.Index;
 import org.elasticsearch.index.shard.ShardId;
@@ -94,7 +93,9 @@ public class ActiveFetchPhaseTasksTests extends ESTestCase {
     }
 
     @SuppressWarnings("unchecked")
-    private static ConcurrentMap<ActiveFetchPhaseTasks.ResponseStreamKey, FetchPhaseResponseStream> getActiveTasksMap(ActiveFetchPhaseTasks tasks) {
+    private static ConcurrentMap<ActiveFetchPhaseTasks.ResponseStreamKey, FetchPhaseResponseStream> getActiveTasksMap(
+        ActiveFetchPhaseTasks tasks
+    ) {
         try {
             Field tasksField = ActiveFetchPhaseTasks.class.getDeclaredField("tasks");
             tasksField.setAccessible(true);

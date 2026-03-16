@@ -63,7 +63,11 @@ public class TransportFetchPhaseResponseChunkActionTests extends ESTestCase {
         transportService.acceptIncomingRequests();
 
         activeFetchPhaseTasks = new ActiveFetchPhaseTasks();
-        new TransportFetchPhaseResponseChunkAction(transportService, activeFetchPhaseTasks, new NamedWriteableRegistry(Collections.emptyList()));
+        new TransportFetchPhaseResponseChunkAction(
+            transportService,
+            activeFetchPhaseTasks,
+            new NamedWriteableRegistry(Collections.emptyList())
+        );
     }
 
     @After
@@ -98,15 +102,7 @@ public class TransportFetchPhaseResponseChunkActionTests extends ESTestCase {
         SearchHit originalHit = createHit(7);
         FetchPhaseResponseChunk chunk = null;
         try {
-            chunk = new FetchPhaseResponseChunk(
-                System.currentTimeMillis(),
-                TEST_SHARD_ID,
-                serializeHits(originalHit),
-                1,
-                0,
-                1,
-                0L
-            );
+            chunk = new FetchPhaseResponseChunk(System.currentTimeMillis(), TEST_SHARD_ID, serializeHits(originalHit), 1, 0, 1, 0L);
 
             ReleasableBytesReference wireBytes = chunk.toReleasableBytesReference(coordinatingTaskId);
             PlainActionFuture<ActionResponse.Empty> future = new PlainActionFuture<>();
@@ -115,11 +111,7 @@ public class TransportFetchPhaseResponseChunkActionTests extends ESTestCase {
                 transportService.getLocalNode(),
                 TransportFetchPhaseResponseChunkAction.ZERO_COPY_ACTION_NAME,
                 new BytesTransportRequest(wireBytes, TransportVersion.current()),
-                new ActionListenerResponseHandler<>(
-                    future,
-                    in -> ActionResponse.Empty.INSTANCE,
-                    TransportResponseHandler.TRANSPORT_WORKER
-                )
+                new ActionListenerResponseHandler<>(future, in -> ActionResponse.Empty.INSTANCE, TransportResponseHandler.TRANSPORT_WORKER)
             );
 
             Exception e = expectThrows(Exception.class, () -> future.actionGet(10, TimeUnit.SECONDS));

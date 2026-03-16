@@ -586,7 +586,10 @@ public class ChunkedFetchPhaseCircuitBreakerIT extends ESIntegTestCase {
     private void populateSimpleIndex(String indexName, int nDocs) throws IOException {
         List<IndexRequestBuilder> builders = new ArrayList<>();
         for (int i = 0; i < nDocs; i++) {
-            builders.add(prepareIndex(indexName).setId(Integer.toString(i)).setSource(jsonBuilder().startObject().field("text", "doc " + i).endObject()));
+            builders.add(
+                prepareIndex(indexName).setId(Integer.toString(i))
+                    .setSource(jsonBuilder().startObject().field("text", "doc " + i).endObject())
+            );
         }
         indexRandom(true, builders);
         refresh(indexName);

@@ -38,8 +38,8 @@ import org.elasticsearch.core.TimeValue;
 import org.elasticsearch.index.shard.ShardId;
 import org.elasticsearch.indices.EmptySystemIndices;
 import org.elasticsearch.indices.breaker.NoneCircuitBreakerService;
-import org.elasticsearch.search.RescoreDocIds;
 import org.elasticsearch.search.DocValueFormat;
+import org.elasticsearch.search.RescoreDocIds;
 import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.SearchHits;
 import org.elasticsearch.search.SearchPhaseResult;
@@ -450,7 +450,9 @@ public class FetchSearchPhaseChunkedTests extends ESTestCase {
             ShardFetchSearchRequest shardFetchRequest = createShardFetchSearchRequest(shardId);
 
             Transport.Connection delegateConnection = transportService.getConnection(transportService.getLocalNode());
-            TransportVersion unsupportedVersion = TransportVersion.fromId(TransportFetchPhaseCoordinationAction.CHUNKED_FETCH_PHASE.id() - 1);
+            TransportVersion unsupportedVersion = TransportVersion.fromId(
+                TransportFetchPhaseCoordinationAction.CHUNKED_FETCH_PHASE.id() - 1
+            );
             Transport.Connection oldVersionConnection = withTransportVersion(delegateConnection, unsupportedVersion);
 
             PlainActionFuture<FetchSearchResult> future = new PlainActionFuture<>();
@@ -590,7 +592,10 @@ public class FetchSearchPhaseChunkedTests extends ESTestCase {
 
     private ShardFetchSearchRequest createShardFetchSearchRequest(ShardId shardId) {
         ShardSearchContextId contextId = new ShardSearchContextId("test", randomLong());
-        OriginalIndices originalIndices = new OriginalIndices(new String[] { "test-index" }, IndicesOptions.strictExpandOpenAndForbidClosed());
+        OriginalIndices originalIndices = new OriginalIndices(
+            new String[] { "test-index" },
+            IndicesOptions.strictExpandOpenAndForbidClosed()
+        );
         ShardSearchRequest shardSearchRequest = new ShardSearchRequest(shardId, System.currentTimeMillis(), AliasFilter.EMPTY);
         List<Integer> docIds = List.of(0, 1, 2, 3, 4);
         return new ShardFetchSearchRequest(originalIndices, contextId, shardSearchRequest, docIds, null, null, RescoreDocIds.EMPTY, null);
@@ -609,7 +614,8 @@ public class FetchSearchPhaseChunkedTests extends ESTestCase {
             }
 
             @Override
-            public void sendRequest(long requestId, String action, TransportRequest request, TransportRequestOptions options) throws TransportException {
+            public void sendRequest(long requestId, String action, TransportRequest request, TransportRequestOptions options)
+                throws TransportException {
                 try {
                     delegate.sendRequest(requestId, action, request, options);
                 } catch (Exception e) {
