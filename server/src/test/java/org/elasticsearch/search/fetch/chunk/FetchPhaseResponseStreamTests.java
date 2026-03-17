@@ -630,12 +630,6 @@ public class FetchPhaseResponseStreamTests extends ESTestCase {
         }
     }
 
-    public void testChunkInvalidShardId() {
-        ShardId invalidShardId = new ShardId(new Index("test", "uuid"), -1);
-
-        expectThrows(IllegalArgumentException.class, () -> new FetchPhaseResponseChunk(invalidShardId, BytesArray.EMPTY, 0, 0, 0));
-    }
-
     private FetchSearchResult buildFinalResult(FetchPhaseResponseStream stream) {
         return stream.buildFinalResult(new ShardSearchContextId("test", 1), new SearchShardTarget("node1", TEST_SHARD_ID, null), null);
     }

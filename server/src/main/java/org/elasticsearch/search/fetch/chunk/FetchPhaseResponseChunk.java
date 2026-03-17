@@ -74,9 +74,6 @@ public class FetchPhaseResponseChunk implements Writeable, Releasable {
         int expectedTotalDocs,
         long sequenceStart
     ) {
-        if (shardId.getId() < 0) {
-            throw new IllegalArgumentException("invalid shardId: " + shardId);
-        }
         this.shardId = shardId;
         this.serializedHits = serializedHits;
         this.hitCount = hitCount;
@@ -89,9 +86,6 @@ public class FetchPhaseResponseChunk implements Writeable, Releasable {
      */
     public FetchPhaseResponseChunk(StreamInput in) throws IOException {
         this.shardId = new ShardId(in);
-        if (shardId.getId() < 0) {
-            throw new IllegalArgumentException("invalid shardId: " + shardId);
-        }
         this.hitCount = in.readVInt();
         this.expectedTotalDocs = in.readVInt();
         this.sequenceStart = in.readVLong();
