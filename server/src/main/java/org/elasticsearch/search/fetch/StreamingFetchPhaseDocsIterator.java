@@ -313,6 +313,7 @@ abstract class StreamingFetchPhaseDocsIterator extends FetchPhaseDocsIterator {
             }
         }
     }
+
     /**
      * Task that sends a single chunk. Implements {@link ActionListener} to receive
      * the throttle releasable from {@link ThrottledTaskRunner}.
