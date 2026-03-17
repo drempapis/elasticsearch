@@ -240,7 +240,7 @@ abstract class StreamingFetchPhaseDocsIterator extends FetchPhaseDocsIterator {
                         batchHits[localIdx] = nextDoc(docId);
                     }
 
-                        for (int i = 0; i < batchLen; i++) {
+                    for (int i = 0; i < batchLen; i++) {
                         SearchHit hit = batchHits[i];
                         batchHits[i] = null;
                         try {
