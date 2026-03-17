@@ -731,6 +731,7 @@ public class SearchTransportService {
 
         @Override
         public void onResponse(T response) {
+            // The stream output owns breaker-accounted bytes until moveToBytesReference transfers ownership to the response.
             RecyclerBytesStreamOutput out = transportService.newNetworkBytesStream(circuitBreaker);
             try {
                 out.setTransportVersion(channel.getVersion());
@@ -741,6 +742,7 @@ public class SearchTransportService {
                 return;
             }
             var bytesRef = out.moveToBytesReference();
+            // respondAndRelease releases the bytes once the transport layer completes.
             ActionListener.respondAndRelease(channelListener, new BytesTransportResponse(bytesRef, out.getTransportVersion()));
         }
 
