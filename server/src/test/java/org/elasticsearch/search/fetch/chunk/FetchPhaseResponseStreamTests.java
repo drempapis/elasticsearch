@@ -631,7 +631,7 @@ public class FetchPhaseResponseStreamTests extends ESTestCase {
     }
 
     public void testChunkInvalidShardId() {
-        ShardId invalidShardId = new ShardId(new Index("test", "uuid"), -2);
+        ShardId invalidShardId = new ShardId(new Index("test", "uuid"), -1);
 
         expectThrows(IllegalArgumentException.class, () -> new FetchPhaseResponseChunk(invalidShardId, BytesArray.EMPTY, 0, 0, 0));
     }
