@@ -1211,7 +1211,13 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
                 // we handle the failure in the failure listener below
                 throw e;
             }
-        }, wrapFailureListener(listener, readerContext, markAsUsed));
+        },
+            wrapFailureListener(
+                releaseCircuitBreakerOnResponse(listener, result -> result.result().fetchResult()),
+                readerContext,
+                markAsUsed
+            )
+        );
     }
 
     public void executeFetchPhase(ShardFetchRequest request, CancellableTask task, ActionListener<FetchSearchResult> listener) {
@@ -1250,7 +1256,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
                     // we handle the failure in the failure listener below
                     throw e;
                 }
-            }, wrapFailureListener(listener, readerContext, markAsUsed));
+            }, wrapFailureListener(releaseCircuitBreakerOnResponse(listener, result -> result), readerContext, markAsUsed));
         }));
     }
 

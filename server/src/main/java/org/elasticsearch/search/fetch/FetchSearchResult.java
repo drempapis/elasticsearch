@@ -30,7 +30,7 @@ public final class FetchSearchResult extends SearchPhaseResult {
 
     private SearchHits hits;
 
-    private final transient AtomicLong searchHitsSizeBytes = new AtomicLong(0L);
+    private long searchHitsSizeBytes = 0L;
 
     // client side counter
     private transient int counter;
@@ -90,30 +90,18 @@ public final class FetchSearchResult extends SearchPhaseResult {
     }
 
     public void setSearchHitsSizeBytes(long bytes) {
-        this.searchHitsSizeBytes.set(bytes);
+        this.searchHitsSizeBytes = bytes;
     }
 
     public long getSearchHitsSizeBytes() {
-        return searchHitsSizeBytes.get();
+        return searchHitsSizeBytes;
     }
 
     public void releaseCircuitBreakerBytes(CircuitBreaker circuitBreaker) {
-        long bytes = searchHitsSizeBytes.getAndSet(0L);
-        if (bytes > 0L) {
-            circuitBreaker.addWithoutBreaking(-bytes);
+        if (searchHitsSizeBytes > 0L) {
+            circuitBreaker.addWithoutBreaking(-searchHitsSizeBytes);
+            searchHitsSizeBytes = 0L;
         }
-    }
-
-    /**
-     * Extracts the circuit-breaker reservation from this result and returns a
-     * {@link Releasable} that releases those bytes from the breaker when closed.
-     */
-    public Releasable detachCircuitBreakerReservation(CircuitBreaker circuitBreaker) {
-        long bytes = searchHitsSizeBytes.getAndSet(0L);
-        if (bytes > 0L) {
-            return () -> circuitBreaker.addWithoutBreaking(-bytes);
-        }
-        return () -> {};
     }
 
     public FetchSearchResult initCounter() {
