@@ -17,13 +17,14 @@ import org.elasticsearch.action.ActionResponse;
 import org.elasticsearch.action.OriginalIndices;
 import org.elasticsearch.action.admin.cluster.node.tasks.cancel.CancelTasksRequest;
 import org.elasticsearch.action.admin.cluster.node.tasks.get.TransportGetTaskAction;
+import org.elasticsearch.TransportVersion;
 import org.elasticsearch.action.support.ChannelActionListener;
 import org.elasticsearch.client.internal.OriginSettingClient;
 import org.elasticsearch.client.internal.node.NodeClient;
 import org.elasticsearch.cluster.node.DiscoveryNode;
 import org.elasticsearch.common.breaker.CircuitBreaker;
+import org.elasticsearch.common.bytes.ReleasableBytesReference;
 import org.elasticsearch.common.io.stream.NamedWriteableRegistry;
-import org.elasticsearch.common.io.stream.RecyclerBytesStreamOutput;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.io.stream.Writeable;
@@ -33,7 +34,6 @@ import org.elasticsearch.common.util.concurrent.EsExecutors;
 import org.elasticsearch.common.util.concurrent.ThrottledTaskRunner;
 import org.elasticsearch.core.Nullable;
 import org.elasticsearch.core.Releasable;
-import org.elasticsearch.core.Releasables;
 import org.elasticsearch.search.SearchPhaseResult;
 import org.elasticsearch.search.SearchService;
 import org.elasticsearch.search.dfs.DfsSearchResult;
@@ -711,39 +711,38 @@ public class SearchTransportService {
     }
 
     /**
-     * Serializes the response into a {@link BytesTransportResponse} and bundles the circuit-breaker
-     * accounting with the serialized bytes' lifecycle. The bytes stay on the heap until the
-     * {@link BytesTransportResponse} is released.
+     * Serializes the response into a {@link BytesTransportResponse} while keeping the breaker-accounted
+     * bytes alive for the response lifecycle. Captures the transport version from the channel at
+     * construction time and reuses it for serialization and the response metadata.
      */
     private static class NetworkPathListener<T extends TransportResponse> implements ActionListener<T> {
         private final TransportService transportService;
-        private final TransportChannel channel;
+        private final TransportVersion transportVersion;
         private final ChannelActionListener<BytesTransportResponse> channelListener;
         @Nullable
         private final CircuitBreaker circuitBreaker;
 
         NetworkPathListener(TransportService transportService, TransportChannel channel, @Nullable CircuitBreaker circuitBreaker) {
             this.transportService = transportService;
-            this.channel = channel;
+            this.transportVersion = channel.getVersion();
             this.channelListener = new ChannelActionListener<>(channel);
             this.circuitBreaker = circuitBreaker;
         }
 
         @Override
         public void onResponse(T response) {
-            // The stream output owns breaker-accounted bytes until moveToBytesReference transfers ownership to the response.
-            RecyclerBytesStreamOutput out = transportService.newNetworkBytesStream(circuitBreaker);
-            try {
-                out.setTransportVersion(channel.getVersion());
+            // The bytes reference keeps breaker-accounted bytes; the stream output closes after serialization.
+            final ReleasableBytesReference bytesRef;
+            try (var out = transportService.newNetworkBytesStream(circuitBreaker)) {
+                out.setTransportVersion(transportVersion);
                 response.writeTo(out);
+                bytesRef = out.moveToBytesReference();
             } catch (Exception e) {
-                Releasables.close(out);
                 channelListener.onFailure(e);
                 return;
             }
-            var bytesRef = out.moveToBytesReference();
             // respondAndRelease releases the bytes once the transport layer completes.
-            ActionListener.respondAndRelease(channelListener, new BytesTransportResponse(bytesRef, out.getTransportVersion()));
+            ActionListener.respondAndRelease(channelListener, new BytesTransportResponse(bytesRef, transportVersion));
         }
 
         @Override
