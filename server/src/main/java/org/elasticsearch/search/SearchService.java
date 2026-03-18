@@ -1127,15 +1127,10 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
                 final long startTime;
                 final SearchOperationListener opsListener;
 
-                try {
-                    this.searchContext = createContext(readerContext, rewritten, task, ResultsType.FETCH, false);
-                    startTime = System.nanoTime();
-                    opsListener = searchContext.indexShard().getSearchOperationListener();
-                    opsListener.onPreFetchPhase(searchContext);
-                } catch (Exception e) {
-                    Releasables.close(markAsUsed);
-                    throw e;
-                }
+                this.searchContext = createContext(readerContext, rewritten, task, ResultsType.FETCH, false);
+                startTime = System.nanoTime();
+                opsListener = searchContext.indexShard().getSearchOperationListener();
+                opsListener.onPreFetchPhase(searchContext);
 
                 final FetchSearchResult fetchResult = searchContext.fetchResult();
                 fetchResult.incRef();
@@ -1166,7 +1161,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
             @Override
             public void onFailure(Exception e) {
                 assert TransportActions.isShardNotAvailableException(e) == false : new AssertionError(e);
-                Releasables.close(markAsUsed);
+                Releasables.close(closeOnce);
                 listener.onFailure(e);
             }
         });

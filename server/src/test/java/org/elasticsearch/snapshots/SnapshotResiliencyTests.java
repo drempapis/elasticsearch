@@ -1098,7 +1098,7 @@ public class SnapshotResiliencyTests extends ESTestCase {
 
         continueOrDie(restoredIndexGreenListener, restoreSnapshotResponse -> {
             client().search(
-                new SearchRequest(restoredIndex).source(new SearchSourceBuilder().size(0).trackTotalHits(true)),
+                new SearchRequest(restoredIndex).source(new SearchSourceBuilder().size(documents).trackTotalHits(true)),
                 searchResponseStepListener
             );
         });
