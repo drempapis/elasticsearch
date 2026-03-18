@@ -9,6 +9,8 @@
 
 package org.elasticsearch.search.fetch;
 
+import com.carrotsearch.randomizedtesting.annotations.Repeat;
+
 import org.apache.logging.log4j.util.Strings;
 import org.elasticsearch.ElasticsearchException;
 import org.elasticsearch.ExceptionsHelper;
@@ -280,6 +282,7 @@ public class ChunkedFetchPhaseCircuitBreakerTrippingIT extends ESIntegTestCase {
      * Test that multiple sequential breaker trips don't cause memory leaks.
      * Repeatedly tripping the breaker should not accumulate memory.
      */
+    @Repeat(iterations = 1000)
     public void testRepeatedCircuitBreakerTripsNoLeak() throws Exception {
         internalCluster().startNode();
         String coordinatorNode = internalCluster().startCoordinatingOnlyNode(Settings.EMPTY);
@@ -322,7 +325,6 @@ public class ChunkedFetchPhaseCircuitBreakerTrippingIT extends ESIntegTestCase {
                     resp.decRef();
                 }
             }
-            Thread.sleep(100);
         }
 
         boolean foundBreakerException = containsCircuitBreakerException(exception);
