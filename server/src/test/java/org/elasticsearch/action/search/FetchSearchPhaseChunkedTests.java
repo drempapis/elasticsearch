@@ -24,21 +24,17 @@ import org.elasticsearch.common.UUIDs;
 import org.elasticsearch.common.breaker.CircuitBreaker;
 import org.elasticsearch.common.breaker.NoopCircuitBreaker;
 import org.elasticsearch.common.bytes.BytesArray;
-import org.elasticsearch.common.component.Lifecycle;
-import org.elasticsearch.common.component.LifecycleListener;
 import org.elasticsearch.common.io.stream.NamedWriteableRegistry;
-import org.elasticsearch.common.io.stream.RecyclerBytesStreamOutput;
 import org.elasticsearch.common.lucene.search.TopDocsAndMaxScore;
 import org.elasticsearch.common.settings.ClusterSettings;
 import org.elasticsearch.common.settings.Settings;
-import org.elasticsearch.common.transport.BoundTransportAddress;
 import org.elasticsearch.common.transport.TransportAddress;
+import org.elasticsearch.common.unit.ByteSizeValue;
 import org.elasticsearch.common.util.concurrent.AtomicArray;
 import org.elasticsearch.common.util.concurrent.EsExecutors;
 import org.elasticsearch.core.TimeValue;
 import org.elasticsearch.index.shard.ShardId;
 import org.elasticsearch.indices.EmptySystemIndices;
-import org.elasticsearch.indices.breaker.NoneCircuitBreakerService;
 import org.elasticsearch.search.DocValueFormat;
 import org.elasticsearch.search.RescoreDocIds;
 import org.elasticsearch.search.SearchHit;
@@ -63,20 +59,18 @@ import org.elasticsearch.telemetry.tracing.Tracer;
 import org.elasticsearch.test.ESTestCase;
 import org.elasticsearch.test.InternalAggregationTestCase;
 import org.elasticsearch.test.transport.MockTransportService;
+import org.elasticsearch.test.transport.MockTransport;
 import org.elasticsearch.threadpool.TestThreadPool;
 import org.elasticsearch.threadpool.ThreadPool;
-import org.elasticsearch.transport.ConnectionProfile;
+import org.elasticsearch.transport.CloseableConnection;
 import org.elasticsearch.transport.Transport;
 import org.elasticsearch.transport.TransportException;
-import org.elasticsearch.transport.TransportMessageListener;
 import org.elasticsearch.transport.TransportRequest;
 import org.elasticsearch.transport.TransportRequestOptions;
 import org.elasticsearch.transport.TransportService;
-import org.elasticsearch.transport.TransportStats;
 
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiFunction;
@@ -120,7 +114,7 @@ public class FetchSearchPhaseChunkedTests extends ESTestCase {
                     mockTransportService,
                     new ActionFilters(Collections.emptySet()),
                     new ActiveFetchPhaseTasks(),
-                    new NoneCircuitBreakerService(),
+                    newLimitedBreakerService(ByteSizeValue.ofMb(10)),
                     new NamedWriteableRegistry(Collections.emptyList())
                 ) {
                     @Override
@@ -205,7 +199,7 @@ public class FetchSearchPhaseChunkedTests extends ESTestCase {
                     mockTransportService,
                     new ActionFilters(Collections.emptySet()),
                     new ActiveFetchPhaseTasks(),
-                    new NoneCircuitBreakerService(),
+                    newLimitedBreakerService(ByteSizeValue.ofMb(10)),
                     new NamedWriteableRegistry(Collections.emptyList())
                 ) {
                     @Override
@@ -291,7 +285,7 @@ public class FetchSearchPhaseChunkedTests extends ESTestCase {
                     mockTransportService,
                     new ActionFilters(Collections.emptySet()),
                     new ActiveFetchPhaseTasks(),
-                    new NoneCircuitBreakerService(),
+                    newLimitedBreakerService(ByteSizeValue.ofMb(10)),
                     new NamedWriteableRegistry(Collections.emptyList())
                 ) {
                     @Override
@@ -374,7 +368,7 @@ public class FetchSearchPhaseChunkedTests extends ESTestCase {
                     mockTransportService,
                     new ActionFilters(Collections.emptySet()),
                     new ActiveFetchPhaseTasks(),
-                    new NoneCircuitBreakerService(),
+                    newLimitedBreakerService(ByteSizeValue.ofMb(10)),
                     new NamedWriteableRegistry(Collections.emptyList())
                 ) {
                     @Override
@@ -784,7 +778,7 @@ public class FetchSearchPhaseChunkedTests extends ESTestCase {
                 null, // scriptService
                 null, // bigArrays
                 new FetchPhase(Collections.emptyList()),
-                new NoneCircuitBreakerService(),
+                newLimitedBreakerService(ByteSizeValue.ofMb(10)),
                 EmptySystemIndices.INSTANCE.getExecutorSelector(),
                 Tracer.NOOP,
                 OnlinePrewarmingService.NOOP
@@ -858,7 +852,7 @@ public class FetchSearchPhaseChunkedTests extends ESTestCase {
     }
 
     private Transport.Connection withTransportVersion(Transport.Connection delegate, TransportVersion version) {
-        return new Transport.Connection() {
+        return new CloseableConnection() {
             @Override
             public DiscoveryNode getNode() {
                 return delegate.getNode();
@@ -880,48 +874,15 @@ public class FetchSearchPhaseChunkedTests extends ESTestCase {
             }
 
             @Override
-            public void addCloseListener(ActionListener<Void> listener) {
-                delegate.addCloseListener(listener);
-            }
-
-            @Override
-            public void addRemovedListener(ActionListener<Void> listener) {
-                delegate.addRemovedListener(listener);
-            }
-
-            @Override
-            public boolean isClosed() {
-                return delegate.isClosed();
-            }
-
-            @Override
             public void close() {
                 delegate.close();
+                super.close();
             }
 
             @Override
             public void onRemoved() {
                 delegate.onRemoved();
-            }
-
-            @Override
-            public void incRef() {
-                delegate.incRef();
-            }
-
-            @Override
-            public boolean tryIncRef() {
-                return delegate.tryIncRef();
-            }
-
-            @Override
-            public boolean decRef() {
-                return delegate.decRef();
-            }
-
-            @Override
-            public boolean hasReferences() {
-                return delegate.hasReferences();
+                super.onRemoved();
             }
         };
     }
@@ -968,91 +929,13 @@ public class FetchSearchPhaseChunkedTests extends ESTestCase {
             null
         );
 
-        return new TransportService(
+        return new MockTransport().createTransportService(
             Settings.EMPTY,
-            new MockTransport(),
             threadPool,
             TransportService.NOOP_TRANSPORT_INTERCEPTOR,
             boundAddress -> localNode,
             null,
             Collections.emptySet()
         );
-    }
-
-    private static class MockTransport implements Transport {
-        private final RequestHandlers requestHandlers = new RequestHandlers();
-
-        @Override
-        public Lifecycle.State lifecycleState() {
-            return Lifecycle.State.STARTED;
-        }
-
-        @Override
-        public void addLifecycleListener(LifecycleListener listener) {}
-
-        @Override
-        public void start() {}
-
-        @Override
-        public void stop() {}
-
-        @Override
-        public void close() {}
-
-        @Override
-        public BoundTransportAddress boundAddress() {
-            return new BoundTransportAddress(
-                new TransportAddress[] { new TransportAddress(TransportAddress.META_ADDRESS, 9300) },
-                new TransportAddress(TransportAddress.META_ADDRESS, 9300)
-            );
-        }
-
-        @Override
-        public BoundTransportAddress boundRemoteIngressAddress() {
-            return null;
-        }
-
-        @Override
-        public Map<String, BoundTransportAddress> profileBoundAddresses() {
-            return Collections.emptyMap();
-        }
-
-        @Override
-        public TransportAddress[] addressesFromString(String address) {
-            return new TransportAddress[0];
-        }
-
-        @Override
-        public void openConnection(DiscoveryNode node, ConnectionProfile profile, ActionListener<Connection> listener) {
-            listener.onFailure(new UnsupportedOperationException("mock transport"));
-        }
-
-        @Override
-        public TransportStats getStats() {
-            return null;
-        }
-
-        @Override
-        public List<String> getDefaultSeedAddresses() {
-            return Collections.emptyList();
-        }
-
-        @Override
-        public void setMessageListener(TransportMessageListener listener) {}
-
-        @Override
-        public ResponseHandlers getResponseHandlers() {
-            return new ResponseHandlers();
-        }
-
-        @Override
-        public RequestHandlers getRequestHandlers() {
-            return requestHandlers;
-        }
-
-        @Override
-        public RecyclerBytesStreamOutput newNetworkBytesStream(CircuitBreaker circuitBreaker) {
-            return null;
-        }
     }
 }

@@ -29,6 +29,7 @@ import org.elasticsearch.search.SearchPhaseResult;
 import org.elasticsearch.search.SearchShardTarget;
 import org.elasticsearch.search.internal.ShardSearchContextId;
 import org.elasticsearch.telemetry.TelemetryProvider;
+import org.elasticsearch.transport.CloseableConnection;
 import org.elasticsearch.transport.Transport;
 import org.elasticsearch.transport.TransportRequest;
 import org.elasticsearch.transport.TransportRequestOptions;
@@ -88,27 +89,7 @@ public final class MockSearchPhaseContext extends AbstractSearchAsyncAction<Sear
     }
 
     private static Transport.Connection createMockConnection(String nodeId) {
-        return new Transport.Connection() {
-            @Override
-            public void incRef() {
-                // Mock implementation - no-op for tests
-            }
-
-            @Override
-            public boolean tryIncRef() {
-                return true;  // Always succeed for mock
-            }
-
-            @Override
-            public boolean decRef() {
-                return false;  // Never actually release for mock
-            }
-
-            @Override
-            public boolean hasReferences() {
-                return true;  // Always has references for mock
-            }
-
+        return new CloseableConnection() {
             @Override
             public DiscoveryNode getNode() {
                 return new DiscoveryNode(
@@ -129,31 +110,6 @@ public final class MockSearchPhaseContext extends AbstractSearchAsyncAction<Sear
             @Override
             public void sendRequest(long requestId, String action, TransportRequest request, TransportRequestOptions options) {
                 // Mock implementation - not needed for these tests
-            }
-
-            @Override
-            public void addCloseListener(ActionListener<Void> listener) {
-                // Mock implementation - not needed for tests
-            }
-
-            @Override
-            public void addRemovedListener(ActionListener<Void> listener) {
-                // Mock implementation - not needed for tests
-            }
-
-            @Override
-            public boolean isClosed() {
-                return false;  // Never closed for mock
-            }
-
-            @Override
-            public void close() {
-                // Mock implementation - no-op for tests
-            }
-
-            @Override
-            public void onRemoved() {
-                // Mock implementation - no-op for tests
             }
         };
     }
