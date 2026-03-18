@@ -193,10 +193,6 @@ abstract class StreamingFetchPhaseDocsIterator extends FetchPhaseDocsIterator {
         Supplier<Boolean> isCancelled
     ) throws Exception {
         int totalDocs = docIds.length;
-        List<LeafReaderContext> leaves = indexReader.leaves();
-        int[][] docsPerLeaf = precomputeLeafDocArrays(docIds, leaves);
-
-        final int batchSize = 64;
         RecyclerBytesStreamOutput chunkBuffer = null;
 
         try {
@@ -204,106 +200,77 @@ abstract class StreamingFetchPhaseDocsIterator extends FetchPhaseDocsIterator {
             int chunkStartIndex = 0;
             int hitsInChunk = 0;
 
-            for (int batchStart = 0; batchStart < totalDocs; batchStart += batchSize) {
-                if (isCancelled.get()) {
-                    throw new TaskCancelledException("cancelled");
-                }
-                Throwable failure = sendFailure.get();
-                if (failure != null) {
-                    throw failure instanceof Exception ? (Exception) failure : new RuntimeException(failure);
-                }
-
-                int batchEnd = Math.min(batchStart + batchSize, totalDocs);
-                int batchLen = batchEnd - batchStart;
-
-                // === Sort this batch by doc ID for sequential Lucene access ===
-                Integer[] fetchOrder = new Integer[batchLen];
-                for (int i = 0; i < batchLen; i++) {
-                    fetchOrder[i] = i;
-                }
-                int finalBatchStart = batchStart;
-                Arrays.sort(fetchOrder, Comparator.comparingInt(a -> docIds[finalBatchStart + a]));
-
-                // === Phase 1: Fetch in doc-ID order ===
-                SearchHit[] batchHits = new SearchHit[batchLen];
-                int currentLeafOrd = -1;
-                try {
-                    for (int i = 0; i < batchLen; i++) {
-                        int localIdx = fetchOrder[i];
-                        int docId = docIds[batchStart + localIdx];
-
-                        int leafOrd = ReaderUtil.subIndex(docId, leaves);
-                        if (leafOrd != currentLeafOrd) {
-                            setNextReader(leaves.get(leafOrd), docsPerLeaf[leafOrd]);
-                            currentLeafOrd = leafOrd;
-                        }
-                        batchHits[localIdx] = nextDoc(docId);
+            for (int scoreIndex = 0; scoreIndex < totalDocs; scoreIndex++) {
+                if (scoreIndex % 32 == 0) {
+                    if (isCancelled.get()) {
+                        throw new TaskCancelledException("cancelled");
                     }
+                    Throwable failure = sendFailure.get();
+                    if (failure != null) {
+                        throw failure instanceof Exception ? (Exception) failure : new RuntimeException(failure);
+                    }
+                }
 
-                    for (int i = 0; i < batchLen; i++) {
-                        SearchHit hit = batchHits[i];
-                        batchHits[i] = null;
-                        try {
-                            hit.writeTo(chunkBuffer);
-                        } finally {
-                            hit.decRef();
-                        }
-                        hitsInChunk++;
+                int docId = docIds[scoreIndex];
 
-                        int scoreIndex = batchStart + i;
-                        boolean isLast = (scoreIndex == totalDocs - 1);
-                        boolean bufferFull = chunkBuffer.size() >= targetChunkBytes;
+                int leafOrd = ReaderUtil.subIndex(docId, indexReader.leaves());
+                LeafReaderContext ctx = indexReader.leaves().get(leafOrd);
+                int leafDocId = docId - ctx.docBase;
+                setNextReader(ctx, new int[] { leafDocId });
 
-                        if (bufferFull || isLast) {
-                            final ReleasableBytesReference chunkBytes = chunkBuffer.moveToBytesReference();
-                            chunkBuffer = null;
+                SearchHit hit = nextDoc(docId);
+                try {
+                    hit.writeTo(chunkBuffer);
+                } finally {
+                    hit.decRef();
+                }
+                hitsInChunk++;
 
+                boolean isLast = (scoreIndex == totalDocs - 1);
+                boolean bufferFull = chunkBuffer.size() >= targetChunkBytes;
+
+                if (bufferFull || isLast) {
+                    final ReleasableBytesReference chunkBytes = chunkBuffer.moveToBytesReference();
+                    chunkBuffer = null;
+
+                    try {
+                        PendingChunk chunk = new PendingChunk(chunkBytes, hitsInChunk, chunkStartIndex, isLast);
+
+                        if (isLast) {
+                            lastChunkHolder.set(chunk);
+                        } else {
+                            ActionListener<Void> completionRef = null;
                             try {
-                                PendingChunk chunk = new PendingChunk(chunkBytes, hitsInChunk, chunkStartIndex, isLast);
-
-                                if (isLast) {
-                                    lastChunkHolder.set(chunk);
-                                } else {
-                                    ActionListener<Void> completionRef = null;
-                                    try {
-                                        completionRef = completionRefs.acquire();
-                                        sendRunner.enqueueTask(
-                                            new SendChunkTask(
-                                                chunk,
-                                                completionRef,
-                                                chunkWriter,
-                                                shardId,
-                                                totalDocs,
-                                                sendFailure,
-                                                chunkCompletionRefs,
-                                                isCancelled
-                                            )
-                                        );
-                                        completionRef = null;
-                                    } finally {
-                                        if (completionRef != null) {
-                                            completionRef.onResponse(null);
-                                            chunk.close();
-                                        }
-                                    }
+                                completionRef = completionRefs.acquire();
+                                sendRunner.enqueueTask(
+                                    new SendChunkTask(
+                                        chunk,
+                                        completionRef,
+                                        chunkWriter,
+                                        shardId,
+                                        totalDocs,
+                                        sendFailure,
+                                        chunkCompletionRefs,
+                                        isCancelled
+                                    )
+                                );
+                                completionRef = null;
+                            } finally {
+                                if (completionRef != null) {
+                                    completionRef.onResponse(null);
+                                    chunk.close();
                                 }
-
-                                if (isLast == false) {
-                                    chunkBuffer = chunkWriter.newNetworkBytesStream();
-                                    chunkStartIndex = scoreIndex + 1;
-                                    hitsInChunk = 0;
-                                }
-                            } catch (Exception e) {
-                                Releasables.closeWhileHandlingException(chunkBytes);
-                                throw e;
                             }
                         }
-                    }
-                } finally {
-                    for (int i = 0; i < batchLen; i++) {
-                        if (batchHits[i] != null) {
-                            batchHits[i].decRef();
+
+                        if (isLast == false) {
+                            chunkBuffer = chunkWriter.newNetworkBytesStream();
+                            chunkStartIndex = scoreIndex + 1;
+                            hitsInChunk = 0;
                         }
+                    } catch (Exception e) {
+                        Releasables.closeWhileHandlingException(chunkBytes);
+                        throw e;
                     }
                 }
             }
@@ -439,33 +406,6 @@ abstract class StreamingFetchPhaseDocsIterator extends FetchPhaseDocsIterator {
         if (lastChunk != null) {
             lastChunk.close();
         }
-    }
-
-    /**
-     * Pre-computes per-leaf doc ID arrays so that {@link #setNextReader} receives all docs
-     * belonging to a leaf, Each leaf's array contains sorted leaf-relative doc IDs, enabling
-     * optimizations such as sequential stored field access.
-     */
-    private static int[][] precomputeLeafDocArrays(int[] docIds, List<LeafReaderContext> leaves) {
-        int[][] docsPerLeaf = new int[leaves.size()][];
-        int[] counts = new int[leaves.size()];
-        for (int docId : docIds) {
-            counts[ReaderUtil.subIndex(docId, leaves)]++;
-        }
-        int[] offsets = new int[leaves.size()];
-        for (int i = 0; i < leaves.size(); i++) {
-            docsPerLeaf[i] = counts[i] > 0 ? new int[counts[i]] : new int[0];
-        }
-        for (int docId : docIds) {
-            int leafOrd = ReaderUtil.subIndex(docId, leaves);
-            docsPerLeaf[leafOrd][offsets[leafOrd]++] = docId - leaves.get(leafOrd).docBase;
-        }
-        for (int[] docs : docsPerLeaf) {
-            if (docs.length > 1) {
-                Arrays.sort(docs);
-            }
-        }
-        return docsPerLeaf;
     }
 
     /**
