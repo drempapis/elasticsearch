@@ -1202,10 +1202,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
         ActionListener<FetchSearchResult> listener,
         FetchSearchResult fetchResult
     ) {
-        return ActionListener.releaseAfter(
-            ActionListener.wrap(ignored -> listener.onResponse(fetchResult), listener::onFailure),
-            fetchResult::decRef
-        );
+        return ActionListener.releaseAfter(listener.map(ignored -> fetchResult), fetchResult::decRef);
     }
 
     public void executeQueryPhase(
