@@ -34,6 +34,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.elasticsearch.cluster.node.DiscoveryNodeUtils.builder;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.instanceOf;
+import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.sameInstance;
 
@@ -141,7 +142,8 @@ public class AsBytesResponseTests extends ESTestCase {
         var original = new SimpleTestResponse("direct-test");
         listener.onResponse(original);
 
-        assertSame("direct path must forward the original response, not BytesTransportResponse", original, sentResponse.get());
+        assertSame(original, sentResponse.get());
+        assertThat(sentResponse.get(), not(instanceOf(BytesTransportResponse.class)));
     }
 
     public void testDirectPathOnFailureForwardsFailure() {
@@ -177,7 +179,8 @@ public class AsBytesResponseTests extends ESTestCase {
         var original = new SimpleTestResponse("task-wrapped-test");
         listener.onResponse(original);
 
-        assertSame("task-wrapped direct channel must forward original response, not BytesTransportResponse", original, sentResponse.get());
+        assertSame(original, sentResponse.get());
+        assertThat(sentResponse.get(), not(instanceOf(BytesTransportResponse.class)));
         sentResponse.get().decRef();
     }
 
