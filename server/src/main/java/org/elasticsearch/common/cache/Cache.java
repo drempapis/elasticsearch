@@ -10,6 +10,8 @@
 package org.elasticsearch.common.cache;
 
 import org.elasticsearch.core.Tuple;
+import org.elasticsearch.logging.LogManager;
+import org.elasticsearch.logging.Logger;
 import org.elasticsearch.tasks.TaskCancelledException;
 
 import java.lang.reflect.Array;
@@ -61,6 +63,7 @@ import java.util.function.ToLongBiFunction;
  * @param <V> The type of the values
  */
 public class Cache<K, V> {
+    private static final Logger logger = LogManager.getLogger(Cache.class);
 
     private final LongAdder hits = new LongAdder();
 
@@ -349,7 +352,6 @@ public class Cache<K, V> {
      *
      * @throws ExecutionException   if the future completed exceptionally
      * @throws InterruptedException if the thread was interrupted
-     * @throws TaskCancelledException if the operation was cancelled
      */
     private static <T> T blockOnFuture(CompletableFuture<T> future, Consumer<Runnable> cancellationRegistrar) throws ExecutionException,
         InterruptedException {
@@ -534,10 +536,15 @@ public class Cache<K, V> {
     private void cleanupFailedFuture(CacheSegment segment, K key, CompletableFuture<Entry<K, V>> future) {
         segment.writeLock.lock();
         try {
-            if (segment.map != null && segment.map.get(key) == future) {
-                segment.map.remove(key);
-                if (segment.map.isEmpty()) {
-                    segment.map = null;
+            if (segment.map != null) {
+                CompletableFuture<Entry<K, V>> current = segment.map.get(key);
+                if (current == future) {
+                    segment.map.remove(key);
+                    if (segment.map.isEmpty()) {
+                        segment.map = null;
+                    }
+                } else if (current != null) {
+                    logger.debug("Skipped cleanup for key [{}] because the future was replaced", key);
                 }
             }
         } finally {
