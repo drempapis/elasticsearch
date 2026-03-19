@@ -38,7 +38,7 @@ import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.sameInstance;
 
-public class AsBytesResponseTests extends ESTestCase {
+public class SearchTransportServiceChannelListenerTests extends ESTestCase {
 
     private ThreadPool threadPool;
     private TransportService transportService;
