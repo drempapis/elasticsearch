@@ -22,6 +22,10 @@ import org.elasticsearch.action.support.ChannelActionListener;
 import org.elasticsearch.client.internal.OriginSettingClient;
 import org.elasticsearch.client.internal.node.NodeClient;
 import org.elasticsearch.cluster.node.DiscoveryNode;
+<<<<<<< chunked_fetch_phase
+=======
+import org.elasticsearch.common.breaker.CircuitBreaker;
+>>>>>>> main
 import org.elasticsearch.common.bytes.ReleasableBytesReference;
 import org.elasticsearch.common.io.stream.NamedWriteableRegistry;
 import org.elasticsearch.common.io.stream.RecyclerBytesStreamOutput;
@@ -59,10 +63,16 @@ import org.elasticsearch.search.rank.feature.RankFeatureShardRequest;
 import org.elasticsearch.tasks.TaskId;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.transport.AbstractTransportRequest;
+<<<<<<< chunked_fetch_phase
 import org.elasticsearch.transport.BytesTransportRequest;
+=======
+import org.elasticsearch.transport.BytesTransportResponse;
+>>>>>>> main
 import org.elasticsearch.transport.RemoteClusterService;
+import org.elasticsearch.transport.TaskTransportChannel;
 import org.elasticsearch.transport.Transport;
 import org.elasticsearch.transport.TransportActionProxy;
+import org.elasticsearch.transport.TransportChannel;
 import org.elasticsearch.transport.TransportException;
 import org.elasticsearch.transport.TransportRequestHandler;
 import org.elasticsearch.transport.TransportRequestOptions;
@@ -556,7 +566,7 @@ public class SearchTransportService {
             (request, channel, task) -> searchService.executeQueryPhase(
                 request,
                 (SearchShardTask) task,
-                new ChannelActionListener<>(channel)
+                channelListener(transportService, channel, searchService.getCircuitBreaker())
             )
         );
         TransportActionProxy.registerProxyActionWithDynamicResponseType(
@@ -612,7 +622,7 @@ public class SearchTransportService {
             (request, channel, task) -> searchService.executeFetchPhase(
                 request,
                 (SearchShardTask) task,
-                new ChannelActionListener<>(channel)
+                channelListener(transportService, channel, searchService.getCircuitBreaker())
             )
         );
         TransportActionProxy.registerProxyAction(
@@ -639,6 +649,7 @@ public class SearchTransportService {
             namedWriteableRegistry
         );
 
+<<<<<<< chunked_fetch_phase
         /**
          * Handler for fetch requests on the data node side.
          *
@@ -746,6 +757,14 @@ public class SearchTransportService {
             searchService.executeFetchPhase(request, (SearchShardTask) task, chunkWriter, new ChannelActionListener<>(channel));
         };
 
+=======
+        final TransportRequestHandler<ShardFetchRequest> shardFetchRequestHandler = (request, channel, task) -> searchService
+            .executeFetchPhase(
+                request,
+                (SearchShardTask) task,
+                channelListener(transportService, channel, searchService.getCircuitBreaker())
+            );
+>>>>>>> main
         transportService.registerRequestHandler(
             FETCH_ID_SCROLL_ACTION_NAME,
             EsExecutors.DIRECT_EXECUTOR_SERVICE,
@@ -873,6 +892,75 @@ public class SearchTransportService {
             // Always return true, there is additional asserting here, the boolean is just so this
             // can be skipped when assertions are not enabled
             return true;
+        }
+    }
+
+    /**
+     * Returns a listener that serializes responses to bytes on the network path.
+     *
+     * <p>On the <b>network path</b>, the response is serialized into bytes using a
+     * circuit-breaker-aware stream and sent as a {@link BytesTransportResponse}.
+     *
+     * <p>On the <b>direct (same-node) path</b> the response is forwarded as-is.
+     *
+     * <p>Circuit-breaker accounting for response objects is handled by the caller.
+     */
+    static <T extends TransportResponse> ActionListener<T> channelListener(
+        TransportService transportService,
+        TransportChannel channel,
+        @Nullable CircuitBreaker circuitBreaker
+    ) {
+        if (isDirectResponseChannel(channel)) {
+            return new ChannelActionListener<>(channel);
+        }
+        return new NetworkPathListener<>(transportService, channel, circuitBreaker);
+    }
+
+    private static boolean isDirectResponseChannel(TransportChannel channel) {
+        if (channel instanceof TaskTransportChannel ttc) {
+            channel = ttc.getChannel();
+        }
+        return TransportService.isDirectResponseChannel(channel);
+    }
+
+    /**
+     * Serializes the response into a {@link BytesTransportResponse} while keeping the breaker-accounted
+     * bytes alive for the response lifecycle. Captures the transport version from the channel at
+     * construction time and reuses it for serialization and the response metadata.
+     */
+    private static class NetworkPathListener<T extends TransportResponse> implements ActionListener<T> {
+        private final TransportService transportService;
+        private final TransportVersion transportVersion;
+        private final ChannelActionListener<BytesTransportResponse> channelListener;
+        @Nullable
+        private final CircuitBreaker circuitBreaker;
+
+        NetworkPathListener(TransportService transportService, TransportChannel channel, @Nullable CircuitBreaker circuitBreaker) {
+            this.transportService = transportService;
+            this.transportVersion = channel.getVersion();
+            this.channelListener = new ChannelActionListener<>(channel);
+            this.circuitBreaker = circuitBreaker;
+        }
+
+        @Override
+        public void onResponse(T response) {
+            // The bytes reference keeps breaker-accounted bytes; the stream output closes after serialization.
+            final ReleasableBytesReference bytesRef;
+            try (var out = transportService.newNetworkBytesStream(circuitBreaker)) {
+                out.setTransportVersion(transportVersion);
+                response.writeTo(out);
+                bytesRef = out.moveToBytesReference();
+            } catch (Exception e) {
+                channelListener.onFailure(e);
+                return;
+            }
+            // respondAndRelease releases the bytes once the transport layer completes.
+            ActionListener.respondAndRelease(channelListener, new BytesTransportResponse(bytesRef, transportVersion));
+        }
+
+        @Override
+        public void onFailure(Exception e) {
+            channelListener.onFailure(e);
         }
     }
 
