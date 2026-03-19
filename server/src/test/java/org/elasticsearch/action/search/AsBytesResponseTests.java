@@ -35,6 +35,7 @@ import static org.elasticsearch.cluster.node.DiscoveryNodeUtils.builder;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.notNullValue;
+import static org.hamcrest.Matchers.sameInstance;
 
 public class AsBytesResponseTests extends ESTestCase {
 
@@ -119,9 +120,11 @@ public class AsBytesResponseTests extends ESTestCase {
             newLimitedBreaker(ByteSizeValue.ofMb(100))
         );
 
-        listener.onFailure(new RuntimeException("upstream failure"));
+        RuntimeException e = new RuntimeException("upstream failure");
+        listener.onFailure(e);
 
         assertThat(sentException.get(), notNullValue());
+        assertThat(sentException.get(), sameInstance(e));
     }
 
     public void testDirectPathForwardsOriginalResponse() {
@@ -152,9 +155,11 @@ public class AsBytesResponseTests extends ESTestCase {
             newLimitedBreaker(ByteSizeValue.ofMb(100))
         );
 
-        listener.onFailure(new RuntimeException("upstream failure"));
+        RuntimeException e = new RuntimeException("upstream failure");
+        listener.onFailure(e);
 
         assertThat(sentException.get(), notNullValue());
+        assertThat(sentException.get(), sameInstance(e));
     }
 
     public void testTaskTransportChannelUnwrapsToDirectPath() {
