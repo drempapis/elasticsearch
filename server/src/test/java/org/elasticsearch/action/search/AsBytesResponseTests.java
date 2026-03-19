@@ -12,6 +12,7 @@ import org.elasticsearch.action.ActionListener;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.settings.Settings;
+import org.elasticsearch.common.unit.ByteSizeValue;
 import org.elasticsearch.test.ESTestCase;
 import org.elasticsearch.test.transport.MockTransport;
 import org.elasticsearch.threadpool.TestThreadPool;
@@ -40,10 +41,8 @@ public class AsBytesResponseTests extends ESTestCase {
     private ThreadPool threadPool;
     private TransportService transportService;
 
-    @Override
     @Before
-    public void setUp() throws Exception {
-        super.setUp();
+    public void setUpResources() throws Exception {
         threadPool = new TestThreadPool(getTestName());
         var mockTransport = new MockTransport();
         transportService = mockTransport.createTransportService(
@@ -56,12 +55,10 @@ public class AsBytesResponseTests extends ESTestCase {
         );
     }
 
-    @Override
     @After
-    public void tearDown() throws Exception {
+    public void tearDownResources() throws Exception {
         transportService.close();
         ThreadPool.terminate(threadPool, 30, TimeUnit.SECONDS);
-        super.tearDown();
     }
 
     public void testNetworkPathBytesResponseRoundTrip() throws Exception {
@@ -73,7 +70,7 @@ public class AsBytesResponseTests extends ESTestCase {
         }, e -> fail("unexpected failure: " + e)));
 
         var original = new SimpleTestResponse("test");
-        ActionListener<SimpleTestResponse> listener = SearchTransportService.asBytesResponse(transportService, channel, null);
+        ActionListener<SimpleTestResponse> listener = SearchTransportService.channelListener(transportService, channel, newLimitedBreaker(ByteSizeValue.ofMb(100)));
 
         listener.onResponse(original);
 
@@ -94,7 +91,7 @@ public class AsBytesResponseTests extends ESTestCase {
             ActionListener.wrap(resp -> fail("should not succeed when serialization fails"), sentException::set)
         );
 
-        ActionListener<FailingTestResponse> listener = SearchTransportService.asBytesResponse(transportService, channel, null);
+        ActionListener<FailingTestResponse> listener = SearchTransportService.channelListener(transportService, channel, newLimitedBreaker(ByteSizeValue.ofMb(100)));
 
         listener.onResponse(new FailingTestResponse());
 
@@ -107,7 +104,7 @@ public class AsBytesResponseTests extends ESTestCase {
 
         var channel = new TestTransportChannel(ActionListener.wrap(resp -> fail("should not succeed"), sentException::set));
 
-        ActionListener<SimpleTestResponse> listener = SearchTransportService.asBytesResponse(transportService, channel, null);
+        ActionListener<SimpleTestResponse> listener = SearchTransportService.channelListener(transportService, channel, newLimitedBreaker(ByteSizeValue.ofMb(100)));
 
         listener.onFailure(new RuntimeException("upstream failure"));
 
@@ -119,7 +116,7 @@ public class AsBytesResponseTests extends ESTestCase {
 
         var channel = new TestDirectResponseChannel(ActionListener.wrap(sentResponse::set, e -> fail("unexpected failure: " + e)));
 
-        ActionListener<SimpleTestResponse> listener = SearchTransportService.asBytesResponse(transportService, channel, null);
+        ActionListener<SimpleTestResponse> listener = SearchTransportService.channelListener(transportService, channel, newLimitedBreaker(ByteSizeValue.ofMb(100)));
 
         var original = new SimpleTestResponse("direct-test");
         listener.onResponse(original);
@@ -132,7 +129,7 @@ public class AsBytesResponseTests extends ESTestCase {
 
         var channel = new TestDirectResponseChannel(ActionListener.wrap(resp -> fail("should not succeed"), sentException::set));
 
-        ActionListener<SimpleTestResponse> listener = SearchTransportService.asBytesResponse(transportService, channel, null);
+        ActionListener<SimpleTestResponse> listener = SearchTransportService.channelListener(transportService, channel, newLimitedBreaker(ByteSizeValue.ofMb(100)));
 
         listener.onFailure(new RuntimeException("upstream failure"));
 
@@ -145,7 +142,7 @@ public class AsBytesResponseTests extends ESTestCase {
         var directChannel = new TestDirectResponseChannel(ActionListener.wrap(sentResponse::set, e -> fail("unexpected failure: " + e)));
         var taskChannel = TestTransportChannels.newTaskTransportChannel(directChannel, () -> {});
 
-        ActionListener<SimpleTestResponse> listener = SearchTransportService.asBytesResponse(transportService, taskChannel, null);
+        ActionListener<SimpleTestResponse> listener = SearchTransportService.channelListener(transportService, taskChannel, newLimitedBreaker(ByteSizeValue.ofMb(100)));
 
         var original = new SimpleTestResponse("task-wrapped-test");
         listener.onResponse(original);
@@ -163,7 +160,7 @@ public class AsBytesResponseTests extends ESTestCase {
         }, e -> fail("unexpected failure: " + e)));
         var taskChannel = TestTransportChannels.newTaskTransportChannel(networkChannel, () -> {});
 
-        ActionListener<SimpleTestResponse> listener = SearchTransportService.asBytesResponse(transportService, taskChannel, null);
+        ActionListener<SimpleTestResponse> listener = SearchTransportService.channelListener(transportService, taskChannel, newLimitedBreaker(ByteSizeValue.ofMb(100)));
 
         listener.onResponse(new SimpleTestResponse("task-network-test"));
 

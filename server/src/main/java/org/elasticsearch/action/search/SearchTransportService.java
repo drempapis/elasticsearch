@@ -463,7 +463,7 @@ public class SearchTransportService {
             (request, channel, task) -> searchService.executeQueryPhase(
                 request,
                 (SearchShardTask) task,
-                asBytesResponse(transportService, channel, searchService.getCircuitBreaker())
+                channelListener(transportService, channel, searchService.getCircuitBreaker())
             )
         );
         TransportActionProxy.registerProxyActionWithDynamicResponseType(
@@ -519,7 +519,7 @@ public class SearchTransportService {
             (request, channel, task) -> searchService.executeFetchPhase(
                 request,
                 (SearchShardTask) task,
-                asBytesResponse(transportService, channel, searchService.getCircuitBreaker())
+                channelListener(transportService, channel, searchService.getCircuitBreaker())
             )
         );
         TransportActionProxy.registerProxyAction(
@@ -550,7 +550,7 @@ public class SearchTransportService {
             .executeFetchPhase(
                 request,
                 (SearchShardTask) task,
-                asBytesResponse(transportService, channel, searchService.getCircuitBreaker())
+                channelListener(transportService, channel, searchService.getCircuitBreaker())
             );
         transportService.registerRequestHandler(
             FETCH_ID_SCROLL_ACTION_NAME,
@@ -692,7 +692,7 @@ public class SearchTransportService {
      *
      * <p>Circuit-breaker accounting for response objects is handled by the caller.
      */
-    static <T extends TransportResponse> ActionListener<T> asBytesResponse(
+    static <T extends TransportResponse> ActionListener<T> channelListener(
         TransportService transportService,
         TransportChannel channel,
         @Nullable CircuitBreaker circuitBreaker
