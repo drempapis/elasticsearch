@@ -22,10 +22,7 @@ import org.elasticsearch.action.support.ChannelActionListener;
 import org.elasticsearch.client.internal.OriginSettingClient;
 import org.elasticsearch.client.internal.node.NodeClient;
 import org.elasticsearch.cluster.node.DiscoveryNode;
-<<<<<<< chunked_fetch_phase
-=======
 import org.elasticsearch.common.breaker.CircuitBreaker;
->>>>>>> main
 import org.elasticsearch.common.bytes.ReleasableBytesReference;
 import org.elasticsearch.common.io.stream.NamedWriteableRegistry;
 import org.elasticsearch.common.io.stream.RecyclerBytesStreamOutput;
@@ -63,11 +60,8 @@ import org.elasticsearch.search.rank.feature.RankFeatureShardRequest;
 import org.elasticsearch.tasks.TaskId;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.transport.AbstractTransportRequest;
-<<<<<<< chunked_fetch_phase
 import org.elasticsearch.transport.BytesTransportRequest;
-=======
 import org.elasticsearch.transport.BytesTransportResponse;
->>>>>>> main
 import org.elasticsearch.transport.RemoteClusterService;
 import org.elasticsearch.transport.TaskTransportChannel;
 import org.elasticsearch.transport.Transport;
@@ -649,7 +643,6 @@ public class SearchTransportService {
             namedWriteableRegistry
         );
 
-<<<<<<< chunked_fetch_phase
         /**
          * Handler for fetch requests on the data node side.
          *
@@ -757,14 +750,6 @@ public class SearchTransportService {
             searchService.executeFetchPhase(request, (SearchShardTask) task, chunkWriter, new ChannelActionListener<>(channel));
         };
 
-=======
-        final TransportRequestHandler<ShardFetchRequest> shardFetchRequestHandler = (request, channel, task) -> searchService
-            .executeFetchPhase(
-                request,
-                (SearchShardTask) task,
-                channelListener(transportService, channel, searchService.getCircuitBreaker())
-            );
->>>>>>> main
         transportService.registerRequestHandler(
             FETCH_ID_SCROLL_ACTION_NAME,
             EsExecutors.DIRECT_EXECUTOR_SERVICE,
