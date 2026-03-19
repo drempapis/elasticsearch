@@ -182,7 +182,7 @@ public final class FetchPhase {
 
         // Common completion handler for both sync and streaming modes
         // finalizes profiling, stores the shard result, and signals the outer listener.
-        ActionListener<SearchHitsWithSizeBytes> hitsListener = ActionListener.wrap(hitsAndBytes -> {
+        ActionListener<SearchHitsWithSizeBytes> hitsListener = listener.map(hitsAndBytes -> {
             SearchHits hitsToRelease = hitsAndBytes.hits;
             try {
                 ProfileResult profileResult = profiler.finish();
@@ -193,13 +193,13 @@ public final class FetchPhase {
                 }
 
                 hitsToRelease = null;
-                listener.onResponse(null);
+                return null;
             } finally {
                 if (hitsToRelease != null) {
                     hitsToRelease.decRef();
                 }
             }
-        }, listener::onFailure);
+        });
 
         if (writer == null) {
             buildSearchHits(context, docIdsToLoad, docsIterator, resolvedBuildListener, hitsListener);

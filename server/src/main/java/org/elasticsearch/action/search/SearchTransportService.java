@@ -362,7 +362,7 @@ public class SearchTransportService {
                 task,
                 TransportRequestOptions.EMPTY,
                 new ActionListenerResponseHandler<>(
-                    ActionListener.wrap(response -> listener.onResponse(response.getResult()), listener::onFailure),
+                    listener.map(TransportFetchPhaseCoordinationAction.Response::getResult),
                     TransportFetchPhaseCoordinationAction.Response::new,
                     EsExecutors.DIRECT_EXECUTOR_SERVICE
                 )
@@ -725,13 +725,11 @@ public class SearchTransportService {
                                 request,
                                 task,
                                 TransportRequestOptions.EMPTY,
-                                new ActionListenerResponseHandler<>(ActionListener.wrap(r -> {
-                                    Releasables.close(bytesRef);
-                                    listener.onResponse(null);
-                                }, e -> {
-                                    Releasables.close(bytesRef);
-                                    listener.onFailure(e);
-                                }), in -> ActionResponse.Empty.INSTANCE, EsExecutors.DIRECT_EXECUTOR_SERVICE)
+                                new ActionListenerResponseHandler<>(
+                                    ActionListener.releaseBefore(bytesRef, listener.map(r -> null)),
+                                    in -> ActionResponse.Empty.INSTANCE,
+                                    EsExecutors.DIRECT_EXECUTOR_SERVICE
+                                )
                             );
                         } catch (Exception e) {
                             Releasables.closeWhileHandlingException(bytesToSend);
