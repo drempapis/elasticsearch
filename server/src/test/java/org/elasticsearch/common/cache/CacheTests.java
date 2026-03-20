@@ -1025,4 +1025,49 @@ public class CacheTests extends ESTestCase {
             }
         }
     }
+
+    public void testNoCancellationRegistrarDoesNotDeadlock() throws Exception {
+        final Cache<Integer, String> cache = CacheBuilder.<Integer, String>builder().build();
+
+        CountDownLatch computeStarted = new CountDownLatch(1);
+        CountDownLatch allowCompute = new CountDownLatch(1);
+
+        // thread1: simulates a slow computation in progress
+        Thread computingThread = new Thread(() -> {
+            try {
+                cache.computeIfAbsent(1, k -> {
+                    computeStarted.countDown();
+                    safeAwait(allowCompute);
+                    return "computed-value";
+                });
+            } catch (ExecutionException e) {
+                throw new RuntimeException(e);
+            }
+        });
+        computingThread.start();
+        safeAwait(computeStarted);
+
+        // thread2: Waits with null cancellationRegistrar — no early-exit path
+        CountDownLatch waitingFinished = new CountDownLatch(1);
+        AtomicReference<String> waitingResult = new AtomicReference<>();
+        AtomicReference<Throwable> waitingError = new AtomicReference<>();
+        Thread waitingThread = new Thread(() -> {
+            try {
+                waitingResult.set(cache.computeIfAbsent(1, k -> "should-not-run", null));
+            } catch (ExecutionException | TaskCancelledException e) {
+                waitingError.set(e);
+            } finally {
+                waitingFinished.countDown();
+            }
+        });
+        waitingThread.start();
+
+        // thread1: finish computation
+        allowCompute.countDown();
+
+        // thread2: no deadlock
+        assertTrue("Thread must unblock once future completes (no deadlock)", waitingFinished.await(5, TimeUnit.SECONDS));
+        assertNull("No exception expected", waitingError.get());
+        assertEquals("computed-value", waitingResult.get());
+    }
 }
