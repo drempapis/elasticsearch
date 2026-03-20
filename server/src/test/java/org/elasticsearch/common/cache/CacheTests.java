@@ -1121,8 +1121,7 @@ public class CacheTests extends ESTestCase {
         waitingThread.start();
         allowFailure.countDown();
 
-        assertTrue("Waiting thread must unblock after loader failure (no deadlock)",
-            waitingFinished.await(5, TimeUnit.SECONDS));
+        assertTrue("Waiting thread must unblock after loader failure (no deadlock)", waitingFinished.await(5, TimeUnit.SECONDS));
         computingThread.join(5000);
 
         assertThat(computingError.get(), instanceOf(ExecutionException.class));
