@@ -1028,24 +1028,7 @@ public class CacheTests extends ESTestCase {
 
     public void testNoCancellationRegistrarDoesNotDeadlock() throws Exception {
         final Cache<Integer, String> cache = CacheBuilder.<Integer, String>builder().build();
-
-        CountDownLatch computeStarted = new CountDownLatch(1);
-        CountDownLatch allowCompute = new CountDownLatch(1);
-
-        // thread1: simulates a slow computation in progress
-        Thread computingThread = new Thread(() -> {
-            try {
-                cache.computeIfAbsent(1, k -> {
-                    computeStarted.countDown();
-                    safeAwait(allowCompute);
-                    return "computed-value";
-                });
-            } catch (ExecutionException e) {
-                throw new RuntimeException(e);
-            }
-        });
-        computingThread.start();
-        safeAwait(computeStarted);
+        var computation = new SlowComputation(cache, 1, "computed-value");
 
         // thread2: Waits with null cancellationRegistrar — no early-exit path
         CountDownLatch waitingFinished = new CountDownLatch(1);
@@ -1063,11 +1046,203 @@ public class CacheTests extends ESTestCase {
         waitingThread.start();
 
         // thread1: finish computation
-        allowCompute.countDown();
+        computation.complete();
 
         // thread2: no deadlock
         assertTrue("Thread must unblock once future completes (no deadlock)", waitingFinished.await(5, TimeUnit.SECONDS));
         assertNull("No exception expected", waitingError.get());
         assertEquals("computed-value", waitingResult.get());
+    }
+
+    public void testBlockOnFutureSynchronousCancellation() throws Exception {
+        final Cache<Integer, String> cache = CacheBuilder.<Integer, String>builder().build();
+        var computation = new SlowComputation(cache, 1, "computed-value");
+
+        // thread2: Waits with a registrar that fires the cancellation callback
+        AtomicReference<Throwable> waitingError = new AtomicReference<>();
+        CountDownLatch waitingFinished = new CountDownLatch(1);
+        Thread waitingThread = new Thread(() -> {
+            try {
+                cache.computeIfAbsent(1, k -> "should-not-run", Runnable::run);
+                fail("Expected TaskCancelledException");
+            } catch (TaskCancelledException | ExecutionException e) {
+                waitingError.set(e);
+            } finally {
+                waitingFinished.countDown();
+            }
+        });
+        waitingThread.start();
+
+        assertTrue("Waiting thread must exit on synchronous cancellation", waitingFinished.await(5, TimeUnit.SECONDS));
+        assertThat(waitingError.get(), instanceOf(TaskCancelledException.class));
+        assertThat(waitingError.get().getMessage(), containsString("Cache wait cancelled"));
+
+        computation.completeAndJoin();
+    }
+
+    public void testBlockOnFutureNullRegistrarNoDeadlockOnLoaderFailure() throws Exception {
+        final Cache<Integer, String> cache = CacheBuilder.<Integer, String>builder().build();
+
+        CountDownLatch computeStarted = new CountDownLatch(1);
+        CountDownLatch allowFailure = new CountDownLatch(1);
+        CountDownLatch waitingBlocked = new CountDownLatch(1);
+
+        AtomicReference<Throwable> computingError = new AtomicReference<>();
+
+        // thread1: computing thread throws
+        Thread computingThread = new Thread(() -> {
+            try {
+                cache.computeIfAbsent(1, k -> {
+                    computeStarted.countDown();
+                    safeAwait(allowFailure);
+                    throw new IllegalStateException("loader-failure");
+                });
+            } catch (ExecutionException e) {
+                computingError.set(e);
+            }
+        });
+        computingThread.start();
+        safeAwait(computeStarted);
+
+        // thread2: null registrar, blocks until future resolves (or retries on failure)
+        AtomicReference<Throwable> waitingError = new AtomicReference<>();
+        AtomicReference<String> waitingResult = new AtomicReference<>();
+        CountDownLatch waitingFinished = new CountDownLatch(1);
+        Thread waitingThread = new Thread(() -> {
+            waitingBlocked.countDown();
+            try {
+                waitingResult.set(cache.computeIfAbsent(1, k -> "retried-value", null));
+            } catch (ExecutionException e) {
+                waitingError.set(e);
+            } finally {
+                waitingFinished.countDown();
+            }
+        });
+        waitingThread.start();
+        allowFailure.countDown();
+
+        assertTrue("Waiting thread must unblock after loader failure (no deadlock)",
+            waitingFinished.await(5, TimeUnit.SECONDS));
+        computingThread.join(5000);
+
+        assertThat(computingError.get(), instanceOf(ExecutionException.class));
+        assertThat(computingError.get().getCause(), instanceOf(IllegalStateException.class));
+        assertEquals("loader-failure", computingError.get().getCause().getMessage());
+
+        if (waitingError.get() != null) {
+            assertThat(waitingError.get(), instanceOf(ExecutionException.class));
+            assertThat(waitingError.get().getCause(), instanceOf(IllegalStateException.class));
+        } else {
+            assertNotNull("Waiting thread must have a result if no exception", waitingResult.get());
+        }
+    }
+
+    public void testBlockOnFutureInterruptedWhileWaiting() throws Exception {
+        final Cache<Integer, String> cache = CacheBuilder.<Integer, String>builder().build();
+        var computation = new SlowComputation(cache, 1, "computed-value");
+
+        // thread 2: waits with no cancellationRegistrar, will be interrupted externally
+        AtomicBoolean interruptFlagPreserved = new AtomicBoolean(false);
+        AtomicBoolean threwIllegalState = new AtomicBoolean(false);
+        CountDownLatch waitingStarted = new CountDownLatch(1);
+        CountDownLatch waitingFinished = new CountDownLatch(1);
+        Thread waitingThread = new Thread(() -> {
+            try {
+                waitingStarted.countDown();
+                cache.computeIfAbsent(1, k -> "should-not-run", null);
+            } catch (IllegalStateException e) {
+                threwIllegalState.set(true);
+                interruptFlagPreserved.set(Thread.currentThread().isInterrupted());
+            } catch (ExecutionException e) {
+                // unexpected
+            } finally {
+                waitingFinished.countDown();
+            }
+        });
+        waitingThread.start();
+        safeAwait(waitingStarted);
+        waitingThread.interrupt();
+
+        assertTrue("Waiting thread must exit after interrupt", waitingFinished.await(5, TimeUnit.SECONDS));
+        assertTrue("InterruptedException path must have been taken", threwIllegalState.get());
+        assertTrue("Interrupt flag must be preserved", interruptFlagPreserved.get());
+
+        computation.completeAndJoin();
+    }
+
+    public void testBlockOnFutureLateRegistrarDoesNotOverrideResult() throws Exception {
+        final Cache<Integer, String> cache = CacheBuilder.<Integer, String>builder().build();
+        var computation = new SlowComputation(cache, 1, "computed-value");
+
+        CountDownLatch waitingBlocked = new CountDownLatch(1);
+        AtomicReference<Runnable> capturedCancellationCallback = new AtomicReference<>();
+
+        // thread 2: waits and captures the cancellation callback without invoking it yet
+        AtomicReference<String> waitingResult = new AtomicReference<>();
+        AtomicReference<Throwable> waitingError = new AtomicReference<>();
+        CountDownLatch waitingFinished = new CountDownLatch(1);
+        Thread waitingThread = new Thread(() -> {
+            try {
+                waitingResult.set(cache.computeIfAbsent(1, k -> "should-not-run", callback -> {
+                    capturedCancellationCallback.set(callback);
+                    waitingBlocked.countDown();
+                }));
+            } catch (TaskCancelledException | ExecutionException e) {
+                waitingError.set(e);
+            } finally {
+                waitingFinished.countDown();
+            }
+        });
+        waitingThread.start();
+        safeAwait(waitingBlocked);
+        computation.complete();
+
+        assertTrue("Waiting thread must unblock when future completes", waitingFinished.await(5, TimeUnit.SECONDS));
+        assertNotNull(capturedCancellationCallback.get());
+
+        assertNull("No exception expected — future completed before cancellation fired", waitingError.get());
+        assertEquals("computed-value", waitingResult.get());
+
+        computation.join();
+    }
+
+    /**
+     * A slow in-flight computation on a background thread. The loader blocks until
+     * {@link #complete()} is called, letting tests set up waiting threads first.
+     * Construction starts the thread and blocks the caller until the loader is entered.
+     */
+    private final class SlowComputation {
+        private final CountDownLatch started = new CountDownLatch(1);
+        private final CountDownLatch allowComplete = new CountDownLatch(1);
+        final Thread thread;
+
+        SlowComputation(Cache<Integer, String> cache, int key, String value) {
+            thread = new Thread(() -> {
+                try {
+                    cache.computeIfAbsent(key, k -> {
+                        started.countDown();
+                        safeAwait(allowComplete);
+                        return value;
+                    });
+                } catch (ExecutionException e) {
+                    throw new RuntimeException(e);
+                }
+            });
+            thread.start();
+            safeAwait(started);
+        }
+
+        void complete() {
+            allowComplete.countDown();
+        }
+
+        void join() throws InterruptedException {
+            thread.join(5000);
+        }
+
+        void completeAndJoin() throws InterruptedException {
+            complete();
+            join();
+        }
     }
 }
