@@ -756,9 +756,6 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
                 }
                 // TODO: i think it makes sense to always do a canMatch here and
                 // return an empty response (not null response) in case canMatch is false?
-                // createOrGetReaderContext can throw (e.g. shard not started yet), so catch and
-                // route to onFailure rather than letting the exception escape the delegateFailure
-                // lambda (which enforces expectNoException).
                 final ReaderContext readerContext;
                 try {
                     readerContext = createOrGetReaderContext(orig);
