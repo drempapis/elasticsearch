@@ -90,11 +90,12 @@ public class SearchTransportServiceChannelListenerTests extends ESTestCase {
         }
     }
 
-    public void testNetworkPathSerializationFailureSendsFailure() {
-        var sentException = new AtomicReference<Exception>();
-
+    public void testNetworkPathSerializationFailurePropagates() {
         var channel = new TestTransportChannel(
-            ActionListener.wrap(resp -> fail("should not succeed when serialization fails"), sentException::set)
+            ActionListener.wrap(
+                resp -> fail("should not succeed when serialization fails"),
+                e -> fail("should not send failure to channel; caller handles it")
+            )
         );
 
         ActionListener<FailingTestResponse> listener = SearchTransportService.channelListener(
@@ -103,9 +104,9 @@ public class SearchTransportServiceChannelListenerTests extends ESTestCase {
             newLimitedBreaker(ByteSizeValue.ofMb(100))
         );
 
-        RuntimeException thrown = expectThrows(RuntimeException.class, () -> listener.onResponse(new FailingTestResponse()));
-        assertThat(thrown.getCause(), instanceOf(IOException.class));
-        assertThat(thrown.getCause().getMessage(), equalTo("simulated serialization failure"));
+        var ex = expectThrows(RuntimeException.class, () -> listener.onResponse(new FailingTestResponse()));
+        assertThat(ex.getCause(), instanceOf(IOException.class));
+        assertThat(ex.getCause().getMessage(), equalTo("simulated serialization failure"));
     }
 
     public void testNetworkPathOnFailureForwardsFailure() {

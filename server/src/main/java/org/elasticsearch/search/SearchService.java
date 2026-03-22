@@ -158,6 +158,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
@@ -756,22 +757,35 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
                 }
                 // TODO: i think it makes sense to always do a canMatch here and
                 // return an empty response (not null response) in case canMatch is false?
-                final ReaderContext readerContext;
-                try {
-                    readerContext = createOrGetReaderContext(orig);
-                } catch (Exception e) {
-                    l.onFailure(e);
-                    return;
-                }
-                final Releasable markAsUsed = readerContext.markAsUsed(getKeepAlive(orig));
-                ensureAfterSeqNoRefreshed(
-                    shard,
-                    orig,
-                    () -> executeQueryPhase(orig, task, readerContext),
-                    wrapFailureListener(l, readerContext, markAsUsed)
-                );
+                executeQueryPhaseAsync(shard, orig, task, l);
             })
         );
+    }
+
+    private void executeQueryPhaseAsync(
+        IndexShard shard,
+        ShardSearchRequest request,
+        CancellableTask task,
+        ActionListener<SearchPhaseResult> listener
+    ) {
+        final var acquired = new AtomicReference<ReaderContext>();
+        final var markAsUsed = new AtomicReference<Releasable>();
+        ensureAfterSeqNoRefreshed(shard, request, () -> {
+            final ReaderContext readerContext = createOrGetReaderContext(request);
+            acquired.set(readerContext);
+            markAsUsed.set(readerContext.markAsUsed(getKeepAlive(request)));
+            return executeQueryPhase(request, task, readerContext);
+        }, ActionListener.wrap(result -> {
+            Releasables.closeWhileHandlingException(markAsUsed.getAndSet(null));
+            listener.onResponse(result);
+        }, e -> {
+            final ReaderContext readerContext = acquired.get();
+            if (readerContext != null) {
+                processFailure(readerContext, e);
+            }
+            Releasables.closeWhileHandlingException(markAsUsed.getAndSet(null));
+            listener.onFailure(e);
+        }));
     }
 
     private <T extends RefCounted> void ensureAfterSeqNoRefreshed(
