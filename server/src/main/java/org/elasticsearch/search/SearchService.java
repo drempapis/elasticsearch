@@ -1688,16 +1688,10 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
     }
 
     private <T> ActionListener<T> wrapFailureListener(ActionListener<T> listener, ReaderContext context, Releasable releasable) {
-        return ActionListener.releaseAfter(
-            ActionListener.wrap(
-                listener::onResponse,
-                e -> {
-                    processFailure(context, e);
-                    listener.onFailure(e);
-                }
-            ),
-            releasable
-        );
+        return ActionListener.releaseAfter(ActionListener.wrap(listener::onResponse, e -> {
+            processFailure(context, e);
+            listener.onFailure(e);
+        }), releasable);
     }
 
     private static boolean isScrollContext(ReaderContext context) {
