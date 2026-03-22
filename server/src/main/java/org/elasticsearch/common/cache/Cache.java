@@ -360,38 +360,27 @@ public class Cache<K, V> {
         }
 
         CountDownLatch latch = new CountDownLatch(1);
-        AtomicReference<T> result = new AtomicReference<>();
-        AtomicReference<Throwable> error = new AtomicReference<>();
-        AtomicBoolean cancelled = new AtomicBoolean(false);
+        AtomicReference<Boolean> futureCompletedFirst = new AtomicReference<>(null);
 
         future.whenComplete((value, throwable) -> {
-            if (throwable != null) {
-                error.set(throwable);
-            } else {
-                result.set(value);
-            }
+            futureCompletedFirst.compareAndSet(null, Boolean.TRUE);
             latch.countDown();
         });
 
         if (cancellationRegistrar != null) {
             cancellationRegistrar.accept(() -> {
-                cancelled.set(true);
+                futureCompletedFirst.compareAndSet(null, Boolean.FALSE);
                 latch.countDown();
             });
         }
 
         latch.await();
 
-        if (future.isDone()) {
+        if (Boolean.TRUE.equals(futureCompletedFirst.get())) {
             return future.get();
-        }
-        if (cancelled.get()) {
+        } else {
             throw new TaskCancelledException("Cache wait cancelled");
         }
-        if (error.get() != null) {
-            throw new ExecutionException(error.get());
-        }
-        return result.get();
     }
 
     public static final int NUMBER_OF_SEGMENTS = 256;
