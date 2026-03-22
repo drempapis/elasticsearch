@@ -36,6 +36,7 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.notNullValue;
+import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.Matchers.sameInstance;
 
 public class SearchTransportServiceChannelListenerTests extends ESTestCase {
@@ -103,11 +104,9 @@ public class SearchTransportServiceChannelListenerTests extends ESTestCase {
             newLimitedBreaker(ByteSizeValue.ofMb(100))
         );
 
-        listener.onResponse(new FailingTestResponse());
-
-        assertThat(sentException.get(), notNullValue());
-        assertThat(sentException.get(), instanceOf(IOException.class));
-        assertThat(sentException.get().getMessage(), equalTo("simulated serialization failure"));
+        RuntimeException thrown = expectThrows(RuntimeException.class, () -> listener.onResponse(new FailingTestResponse()));
+        assertThat(thrown.getCause(), instanceOf(IOException.class));
+        assertThat(thrown.getCause().getMessage(), equalTo("simulated serialization failure"));
     }
 
     public void testNetworkPathOnFailureForwardsFailure() {

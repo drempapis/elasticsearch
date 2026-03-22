@@ -756,7 +756,23 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
                 }
                 // TODO: i think it makes sense to always do a canMatch here and
                 // return an empty response (not null response) in case canMatch is false?
-                ensureAfterSeqNoRefreshed(shard, orig, () -> executeQueryPhase(orig, task), l);
+                // createOrGetReaderContext can throw (e.g. shard not started yet), so catch and
+                // route to onFailure rather than letting the exception escape the delegateFailure
+                // lambda (which enforces expectNoException).
+                final ReaderContext readerContext;
+                try {
+                    readerContext = createOrGetReaderContext(orig);
+                } catch (Exception e) {
+                    l.onFailure(e);
+                    return;
+                }
+                final Releasable markAsUsed = readerContext.markAsUsed(getKeepAlive(orig));
+                ensureAfterSeqNoRefreshed(
+                    shard,
+                    orig,
+                    () -> executeQueryPhase(orig, task, readerContext),
+                    wrapFailureListener(l, readerContext, markAsUsed)
+                );
             })
         );
     }
@@ -910,11 +926,10 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
      * It is the responsibility of the caller to ensure that the ref count is correctly decremented
      * when the object is no longer needed.
      */
-    private SearchPhaseResult executeQueryPhase(ShardSearchRequest request, CancellableTask task) throws Exception {
-        final ReaderContext readerContext = createOrGetReaderContext(request);
+    private SearchPhaseResult executeQueryPhase(ShardSearchRequest request, CancellableTask task, ReaderContext readerContext)
+        throws Exception {
         try (
             Releasable scope = tracer.withScope(task);
-            Releasable ignored = readerContext.markAsUsed(getKeepAlive(request));
             SearchContext context = createContext(readerContext, request, task, ResultsType.QUERY, true)
         ) {
             tracer.startTrace("executeQueryPhase", Map.of());
@@ -969,7 +984,6 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
                     : new ElasticsearchException(e.getCause());
             }
             logger.trace("Query phase failed", e);
-            processFailure(readerContext, e);
             throw e;
         }
     }
@@ -1653,34 +1667,40 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
         ActionListener<T> listener,
         Function<T, FetchSearchResult> fetchResultExtractor
     ) {
-        return ActionListener.wrap(response -> {
-            try {
-                listener.onResponse(response);
-            } finally {
-                // Release bytes after the response handler completes
-                FetchSearchResult fetchResult = fetchResultExtractor.apply(response);
-                if (fetchResult != null) {
-                    fetchResult.releaseCircuitBreakerBytes(circuitBreaker);
+        return new ActionListener<>() {
+            @Override
+            public void onResponse(T response) {
+                try {
+                    listener.onResponse(response);
+                } finally {
+                    // Release bytes after the response handler completes, even if it throws.
+                    // Exceptions are intentionally allowed to propagate so that wrapFailureListener
+                    // can observe them and free the reader context via processFailure.
+                    FetchSearchResult fetchResult = fetchResultExtractor.apply(response);
+                    if (fetchResult != null) {
+                        fetchResult.releaseCircuitBreakerBytes(circuitBreaker);
+                    }
                 }
             }
-        }, listener::onFailure);
+
+            @Override
+            public void onFailure(Exception e) {
+                listener.onFailure(e);
+            }
+        };
     }
 
     private <T> ActionListener<T> wrapFailureListener(ActionListener<T> listener, ReaderContext context, Releasable releasable) {
-        return new ActionListener<>() {
-            @Override
-            public void onResponse(T resp) {
-                Releasables.close(releasable);
-                listener.onResponse(resp);
-            }
-
-            @Override
-            public void onFailure(Exception exc) {
-                processFailure(context, exc);
-                Releasables.close(releasable);
-                listener.onFailure(exc);
-            }
-        };
+        return ActionListener.releaseAfter(
+            ActionListener.wrap(
+                listener::onResponse,
+                e -> {
+                    processFailure(context, e);
+                    listener.onFailure(e);
+                }
+            ),
+            releasable
+        );
     }
 
     private static boolean isScrollContext(ReaderContext context) {
