@@ -768,24 +768,16 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
         CancellableTask task,
         ActionListener<SearchPhaseResult> listener
     ) {
-        final var acquired = new AtomicReference<ReaderContext>();
-        final var markAsUsed = new AtomicReference<Releasable>();
+        final var completionListenerRef = new AtomicReference<>(listener);
         ensureAfterSeqNoRefreshed(shard, request, () -> {
             final ReaderContext readerContext = createOrGetReaderContext(request);
-            acquired.set(readerContext);
-            markAsUsed.set(readerContext.markAsUsed(getKeepAlive(request)));
+            final Releasable markAsUsed = readerContext.markAsUsed(getKeepAlive(request));
+            completionListenerRef.set(wrapFailureListener(listener, readerContext, markAsUsed));
             return executeQueryPhase(request, task, readerContext);
-        }, ActionListener.wrap(result -> {
-            Releasables.closeWhileHandlingException(markAsUsed.getAndSet(null));
-            listener.onResponse(result);
-        }, e -> {
-            final ReaderContext readerContext = acquired.get();
-            if (readerContext != null) {
-                processFailure(readerContext, e);
-            }
-            Releasables.closeWhileHandlingException(markAsUsed.getAndSet(null));
-            listener.onFailure(e);
-        }));
+        }, ActionListener.wrap(
+            result -> completionListenerRef.get().onResponse(result),
+            e      -> completionListenerRef.get().onFailure(e)
+        ));
     }
 
     private <T extends RefCounted> void ensureAfterSeqNoRefreshed(

@@ -550,6 +550,20 @@ public class TransportSearchIT extends ESIntegTestCase {
         }
     }
 
+    public void testReaderContextFreedOnSerializationFailure() throws Exception {
+        String coordinatingNode = internalCluster().startCoordinatingOnlyNode(Settings.EMPTY);
+        indexSomeDocs("test", 1, 3);
+        ensureGreen("test");
+
+        updateClusterSettings(Settings.builder().put("indices.breaker.request.limit", "1b"));
+        try {
+            expectThrows(Exception.class, client(coordinatingNode).prepareSearch("test")::get);
+            assertBusy(MockSearchService::assertNoInFlightContext);
+        } finally {
+            updateClusterSettings(Settings.builder().putNull("indices.breaker.request.limit"));
+        }
+    }
+
     public void testCircuitBreakerFetchFail() throws Exception {
         int numShards = randomIntBetween(1, 10);
         int numDocs = numShards * 10;
