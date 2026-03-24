@@ -20,7 +20,9 @@ import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.store.Directory;
 import org.elasticsearch.TransportVersion;
 import org.elasticsearch.cluster.metadata.IndexMetadata;
+import org.elasticsearch.common.breaker.CircuitBreaker;
 import org.elasticsearch.common.io.stream.NamedWriteableRegistry;
+import org.elasticsearch.common.settings.ClusterSettings;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.core.CheckedFunction;
 import org.elasticsearch.index.IndexMode;
@@ -39,8 +41,13 @@ import org.elasticsearch.index.mapper.MapperMetrics;
 import org.elasticsearch.index.mapper.Mapping;
 import org.elasticsearch.index.mapper.MappingLookup;
 import org.elasticsearch.index.mapper.TestDocumentParserContext;
+import org.elasticsearch.index.query.QueryBuilder;
+import org.elasticsearch.index.query.RegexpQueryBuilder;
 import org.elasticsearch.index.query.SearchExecutionContext;
 import org.elasticsearch.index.query.TermQueryBuilder;
+import org.elasticsearch.index.query.WildcardQueryBuilder;
+import org.elasticsearch.indices.breaker.CircuitBreakerMetrics;
+import org.elasticsearch.indices.breaker.HierarchyCircuitBreakerService;
 import org.elasticsearch.script.field.BinaryDocValuesField;
 import org.elasticsearch.search.SearchModule;
 import org.elasticsearch.search.aggregations.support.CoreValuesSourceType;
@@ -158,6 +165,125 @@ public class QueryBuilderStoreTests extends ESTestCase {
                     TermQuery query = (TermQuery) queries.apply(i);
                     assertEquals(queryBuilders[i].fieldName(), query.getTerm().field());
                     assertEquals(queryBuilders[i].value(), query.getTerm().text());
+                }
+            }
+        }
+    }
+
+    public void testCircuitBreakerReleasedAfterPerDocumentQueryConstruction() throws IOException {
+        Settings breakerSettings = Settings.builder()
+            .put("indices.breaker.request.limit", "100mb")
+            .put("indices.breaker.request.overhead", "1.0")
+            .build();
+        ClusterSettings clusterSettings = new ClusterSettings(breakerSettings, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS);
+        CircuitBreaker circuitBreaker = new HierarchyCircuitBreakerService(
+            CircuitBreakerMetrics.NOOP,
+            breakerSettings,
+            Collections.emptyList(),
+            clusterSettings
+        ).getBreaker(CircuitBreaker.REQUEST);
+
+        String fieldName = "keyword_field";
+        QueryBuilder[] queryBuilders = new QueryBuilder[] {
+            new WildcardQueryBuilder(fieldName, "test*pattern*with*wildcards"),
+            new RegexpQueryBuilder(fieldName, ".*test.*regexp.*pattern.*"),
+            new WildcardQueryBuilder(fieldName, "another*wildcard*query"),
+            new RegexpQueryBuilder(fieldName, "prefix[0-9]+suffix"),
+        };
+
+        try (Directory directory = newDirectory()) {
+            IndexWriterConfig config = new IndexWriterConfig(new WhitespaceAnalyzer());
+            config.setMergePolicy(NoMergePolicy.INSTANCE);
+            BinaryFieldMapper fieldMapper = PercolatorFieldMapper.Builder.createQueryBuilderFieldBuilder(
+                MapperBuilderContext.root(false, false)
+            );
+
+            IndexVersion indexVersion = IndexVersion.current();
+            try (IndexWriter indexWriter = new IndexWriter(directory, config)) {
+                for (QueryBuilder queryBuilder : queryBuilders) {
+                    DocumentParserContext documentParserContext = new TestDocumentParserContext();
+                    PercolatorFieldMapper.createQueryBuilderField(
+                        indexVersion,
+                        TransportVersion.current(),
+                        fieldMapper,
+                        queryBuilder,
+                        documentParserContext
+                    );
+                    indexWriter.addDocument(documentParserContext.doc());
+                }
+            }
+
+            NamedWriteableRegistry writeableRegistry = writableRegistry();
+            XContentParserConfiguration parserConfig = parserConfig();
+            Settings indexSettingsSettings = indexSettings(indexVersion, 1, 1).build();
+            IndexSettings indexSettings = new IndexSettings(
+                IndexMetadata.builder("test").settings(indexSettingsSettings).build(),
+                Settings.EMPTY
+            );
+
+            KeywordFieldMapper keywordMapper = new KeywordFieldMapper.Builder(fieldName, indexSettings).build(
+                MapperBuilderContext.root(false, false)
+            );
+            MappingLookup mappingLookup = MappingLookup.fromMappers(
+                Mapping.EMPTY,
+                List.of(keywordMapper),
+                Collections.emptyList(),
+                IndexMode.STANDARD
+            );
+
+            BytesBinaryIndexFieldData fieldData = new BytesBinaryIndexFieldData(
+                fieldMapper.fullPath(),
+                CoreValuesSourceType.KEYWORD,
+                BinaryDocValuesField::new
+            );
+            BiFunction<MappedFieldType, FieldDataContext, IndexFieldData<?>> indexFieldDataLookup = (mft, fdc) -> fieldData;
+
+            // Build a base context (no CB), then wrap it with the real circuit breaker.
+            SearchExecutionContext baseContext = new SearchExecutionContext(
+                0,
+                0,
+                indexSettings,
+                null,
+                indexFieldDataLookup,
+                null,
+                mappingLookup,
+                null,
+                null,
+                parserConfig,
+                writeableRegistry,
+                null,
+                null,
+                System::currentTimeMillis,
+                null,
+                null,
+                () -> true,
+                null,
+                Collections.emptyMap(),
+                null,
+                MapperMetrics.NOOP,
+                SHARD_SEARCH_STATS
+            );
+            SearchExecutionContext searchExecutionContext = new SearchExecutionContext(baseContext, circuitBreaker);
+
+            PercolateQuery.QueryStore queryStore = PercolateQueryBuilder.createStore(
+                fieldMapper.fieldType(),
+                false,
+                searchExecutionContext
+            );
+
+            try (IndexReader indexReader = DirectoryReader.open(directory)) {
+                LeafReaderContext leafContext = indexReader.leaves().get(0);
+                CheckedFunction<Integer, Query, IOException> queries = queryStore.getQueries(leafContext);
+                assertEquals(queryBuilders.length, leafContext.reader().numDocs());
+
+                long baselineUsed = circuitBreaker.getUsed();
+                for (int i = 0; i < queryBuilders.length; i++) {
+                    queries.apply(i);
+                    assertEquals(
+                        "Circuit breaker bytes must be fully released after processing percolator document " + i,
+                        baselineUsed,
+                        circuitBreaker.getUsed()
+                    );
                 }
             }
         }

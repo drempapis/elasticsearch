@@ -578,8 +578,12 @@ public class PercolateQueryBuilder extends LeafQueryBuilder<PercolateQueryBuilde
                         return percolateShardContext.parseDocument(sourceToParse).rootDoc().getBinaryValue(queryBuilderFieldType.name());
                     });
 
-                    queryBuilder = Rewriteable.rewrite(queryBuilder, percolateShardContext);
-                    return queryBuilder.toQuery(percolateShardContext);
+                    try {
+                        queryBuilder = Rewriteable.rewrite(queryBuilder, percolateShardContext);
+                        return queryBuilder.toQuery(percolateShardContext);
+                    } finally {
+                        percolateShardContext.releaseQueryConstructionMemory();
+                    }
                 } else {
                     return null;
                 }
