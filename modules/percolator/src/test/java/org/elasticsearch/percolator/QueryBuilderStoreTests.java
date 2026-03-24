@@ -188,8 +188,7 @@ public class QueryBuilderStoreTests extends ESTestCase {
             new WildcardQueryBuilder(fieldName, "test*pattern*with*wildcards"),
             new RegexpQueryBuilder(fieldName, ".*test.*regexp.*pattern.*"),
             new WildcardQueryBuilder(fieldName, "another*wildcard*query"),
-            new RegexpQueryBuilder(fieldName, "prefix[0-9]+suffix"),
-        };
+            new RegexpQueryBuilder(fieldName, "prefix[0-9]+suffix"), };
 
         try (Directory directory = newDirectory()) {
             IndexWriterConfig config = new IndexWriterConfig(new WhitespaceAnalyzer());
