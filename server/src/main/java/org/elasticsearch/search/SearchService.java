@@ -158,6 +158,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiFunction;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
@@ -1696,9 +1697,32 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
     }
 
     private <T> ActionListener<T> wrapFailureListener(ActionListener<T> listener, ReaderContext context, Releasable releasable) {
+        return wrapFailureListener(listener, releasable, e -> processFailure(context, e));
+    }
+
+    /**
+     * Returns a listener that guarantees {@code releasable} via {@link ActionListener#releaseAfter} is closed
+     * and {@code listener} is notified, regardless of whether the operation succeeds or fails.
+     *
+     * Success: {@code listener.onResponse} is called, then {@code releasable} is closed.
+     * Failure: {@code onFailureCleanup} is called first to clean up the {@link ReaderContext}.
+     *          Then, in a {@code finally} block, {@code listener.onFailure} is called,
+     *          ensuring the caller is always notified even if {@code onFailureCleanup} throws.
+     *          Finally, {@code releasable} is closed.
+     *
+     * This visible for testing
+     */
+    static <T> ActionListener<T> wrapFailureListener(
+        ActionListener<T> listener,
+        Releasable releasable,
+        Consumer<Exception> onFailureCleanup
+    ) {
         return ActionListener.releaseAfter(ActionListener.wrap(listener::onResponse, e -> {
-            processFailure(context, e);
-            listener.onFailure(e);
+            try {
+                onFailureCleanup.accept(e);
+            } finally {
+                listener.onFailure(e);
+            }
         }), releasable);
     }
 
