@@ -362,7 +362,9 @@ public class SearchServiceTests extends IndexShardTestCase {
         var wrapped = wrapFailureListener(
             ActionListener.<String>wrap(r -> fail("unexpected response"), failure::set),
             () -> releasableClosed.set(true),
-            e -> { throw new RuntimeException("cleanup exploded"); }
+            e -> {
+                throw new RuntimeException("cleanup exploded");
+            }
         );
         try {
             wrapped.onFailure(cause);
