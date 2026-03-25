@@ -22,8 +22,8 @@ import org.elasticsearch.TransportVersion;
 import org.elasticsearch.cluster.metadata.IndexMetadata;
 import org.elasticsearch.common.breaker.CircuitBreaker;
 import org.elasticsearch.common.io.stream.NamedWriteableRegistry;
-import org.elasticsearch.common.settings.ClusterSettings;
 import org.elasticsearch.common.settings.Settings;
+import org.elasticsearch.common.unit.ByteSizeValue;
 import org.elasticsearch.core.CheckedFunction;
 import org.elasticsearch.index.IndexMode;
 import org.elasticsearch.index.IndexSettings;
@@ -46,8 +46,6 @@ import org.elasticsearch.index.query.RegexpQueryBuilder;
 import org.elasticsearch.index.query.SearchExecutionContext;
 import org.elasticsearch.index.query.TermQueryBuilder;
 import org.elasticsearch.index.query.WildcardQueryBuilder;
-import org.elasticsearch.indices.breaker.CircuitBreakerMetrics;
-import org.elasticsearch.indices.breaker.HierarchyCircuitBreakerService;
 import org.elasticsearch.script.field.BinaryDocValuesField;
 import org.elasticsearch.search.SearchModule;
 import org.elasticsearch.search.aggregations.support.CoreValuesSourceType;
@@ -63,6 +61,7 @@ import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 
 import static org.elasticsearch.index.query.SearchExecutionContextHelper.SHARD_SEARCH_STATS;
+import static org.hamcrest.Matchers.greaterThan;
 
 public class QueryBuilderStoreTests extends ESTestCase {
 
@@ -126,7 +125,8 @@ public class QueryBuilderStoreTests extends ESTestCase {
                 Collections.emptyList(),
                 IndexMode.STANDARD
             );
-            SearchExecutionContext searchExecutionContext = new SearchExecutionContext(
+            CircuitBreaker breaker = newLimitedBreaker(ByteSizeValue.ofMb(100));
+            SearchExecutionContext baseContext = new SearchExecutionContext(
                 0,
                 0,
                 indexSettings,
@@ -150,6 +150,7 @@ public class QueryBuilderStoreTests extends ESTestCase {
                 MapperMetrics.NOOP,
                 SHARD_SEARCH_STATS
             );
+            SearchExecutionContext searchExecutionContext = new SearchExecutionContext(baseContext, breaker);
 
             PercolateQuery.QueryStore queryStore = PercolateQueryBuilder.createStore(
                 fieldMapper.fieldType(),
@@ -171,17 +172,7 @@ public class QueryBuilderStoreTests extends ESTestCase {
     }
 
     public void testCircuitBreakerReleasedAfterPerDocumentQueryConstruction() throws IOException {
-        Settings breakerSettings = Settings.builder()
-            .put("indices.breaker.request.limit", "100mb")
-            .put("indices.breaker.request.overhead", "1.0")
-            .build();
-        ClusterSettings clusterSettings = new ClusterSettings(breakerSettings, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS);
-        CircuitBreaker circuitBreaker = new HierarchyCircuitBreakerService(
-            CircuitBreakerMetrics.NOOP,
-            breakerSettings,
-            Collections.emptyList(),
-            clusterSettings
-        ).getBreaker(CircuitBreaker.REQUEST);
+        CircuitBreaker circuitBreaker = newLimitedBreaker(ByteSizeValue.ofMb(100));
 
         String fieldName = "keyword_field";
         QueryBuilder[] queryBuilders = new QueryBuilder[] {
@@ -237,7 +228,6 @@ public class QueryBuilderStoreTests extends ESTestCase {
             );
             BiFunction<MappedFieldType, FieldDataContext, IndexFieldData<?>> indexFieldDataLookup = (mft, fdc) -> fieldData;
 
-            // Build a base context (no CB), then wrap it with the real circuit breaker.
             SearchExecutionContext baseContext = new SearchExecutionContext(
                 0,
                 0,
@@ -278,12 +268,15 @@ public class QueryBuilderStoreTests extends ESTestCase {
                 long baselineUsed = circuitBreaker.getUsed();
                 for (int i = 0; i < queryBuilders.length; i++) {
                     queries.apply(i);
-                    assertEquals(
-                        "Circuit breaker bytes must be fully released after processing percolator document " + i,
-                        baselineUsed,
-                        circuitBreaker.getUsed()
+                    assertThat(
+                        "CB bytes should still be tracked (not leaked) after document " + i,
+                        circuitBreaker.getUsed(),
+                        greaterThan(baselineUsed)
                     );
                 }
+
+                searchExecutionContext.releaseQueryConstructionMemory();
+                assertEquals("All CB bytes must be released after the request-end release", baselineUsed, circuitBreaker.getUsed());
             }
         }
     }

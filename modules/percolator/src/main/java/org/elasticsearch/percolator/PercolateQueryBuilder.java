@@ -578,12 +578,8 @@ public class PercolateQueryBuilder extends LeafQueryBuilder<PercolateQueryBuilde
                         return percolateShardContext.parseDocument(sourceToParse).rootDoc().getBinaryValue(queryBuilderFieldType.name());
                     });
 
-                    try {
-                        queryBuilder = Rewriteable.rewrite(queryBuilder, percolateShardContext);
-                        return queryBuilder.toQuery(percolateShardContext);
-                    } finally {
-                        percolateShardContext.releaseQueryConstructionMemory();
-                    }
+                    queryBuilder = Rewriteable.rewrite(queryBuilder, percolateShardContext);
+                    return queryBuilder.toQuery(percolateShardContext);
                 } else {
                     return null;
                 }
@@ -702,6 +698,21 @@ public class PercolateQueryBuilder extends LeafQueryBuilder<PercolateQueryBuilde
             @Override
             public void addNamedQuery(String name, Query query) {
                 source.addNamedQuery(name, query);
+            }
+
+            @Override
+            public void addCircuitBreakerMemory(long bytes, String label) {
+                source.addCircuitBreakerMemory(bytes, label);
+            }
+
+            @Override
+            public long getQueryConstructionMemoryUsed() {
+                return source.getQueryConstructionMemoryUsed();
+            }
+
+            @Override
+            public void releaseQueryConstructionMemory() {
+                source.releaseQueryConstructionMemory();
             }
         };
 
