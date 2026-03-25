@@ -766,13 +766,20 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
         CancellableTask task,
         ActionListener<SearchPhaseResult> listener
     ) {
+        // wrapFailureListener requires readerContext and markAsUsed, but those are created inside the supplier
+        // lambda below. The ActionListener.wrap callbacks are constructed (before the supplier runs) and must
+        // therefore read the listener indirectly. completionListenerRef starts as the plain listener so that any
+        // failure before the supplier runs is still forwarded. Once the supplier sets it to the wrapped version,
+        // the ActionListener.wrap callbacks will invoke the one that handles readerContext cleanup on failure.
         final var completionListenerRef = new AtomicReference<>(listener);
         ensureAfterSeqNoRefreshed(shard, request, () -> {
             final ReaderContext readerContext = createOrGetReaderContext(request);
             final Releasable markAsUsed = readerContext.markAsUsed(getKeepAlive(request));
             completionListenerRef.set(wrapFailureListener(listener, readerContext, markAsUsed));
             return executeQueryPhase(request, task, readerContext);
-        }, ActionListener.wrap(result -> completionListenerRef.get().onResponse(result), e -> completionListenerRef.get().onFailure(e)));
+        }, ActionListener.wrap(
+            result -> completionListenerRef.get().onResponse(result),
+            e -> completionListenerRef.get().onFailure(e)));
     }
 
     private <T extends RefCounted> void ensureAfterSeqNoRefreshed(
