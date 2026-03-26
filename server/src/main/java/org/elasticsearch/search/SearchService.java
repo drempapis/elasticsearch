@@ -1699,29 +1699,39 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
     }
 
     /**
-     * Returns a listener that guarantees {@code releasable} via {@link ActionListener#releaseAfter} is closed
-     * and {@code listener} is notified, regardless of whether the operation succeeds or fails.
+     * Returns a listener that guarantees {@code releasable} is closed and {@code listener}
+     * is notified, regardless of whether the operation succeeds or fails.
      *
-     * Success: {@code listener.onResponse} is called, then {@code releasable} is closed.
-     * Failure: {@code onFailureCleanup} is called first to clean up the {@link ReaderContext}.
-     *          Then, in a {@code finally} block, {@code listener.onFailure} is called,
-     *          ensuring the caller is always notified even if {@code onFailureCleanup} throws.
-     *          Finally, {@code releasable} is closed.
-     *
-     * This visible for testing
+     * Visible for testing.
      */
     static <T> ActionListener<T> wrapFailureListener(
         ActionListener<T> listener,
         Releasable releasable,
         Consumer<Exception> onFailureCleanup
     ) {
-        return ActionListener.releaseAfter(ActionListener.wrap(listener::onResponse, e -> {
-            try {
-                onFailureCleanup.accept(e);
-            } finally {
-                listener.onFailure(e);
+        return new ActionListener<>() {
+            @Override
+            public void onResponse(T response) {
+                try {
+                    listener.onResponse(response);
+                } finally {
+                    Releasables.close(releasable);
+                }
             }
-        }), releasable);
+
+            @Override
+            public void onFailure(Exception e) {
+                try {
+                    onFailureCleanup.accept(e);
+                } finally {
+                    try {
+                        Releasables.close(releasable);
+                    } finally {
+                        listener.onFailure(e);
+                    }
+                }
+            }
+        };
     }
 
     private static boolean isScrollContext(ReaderContext context) {

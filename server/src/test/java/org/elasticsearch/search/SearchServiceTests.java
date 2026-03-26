@@ -366,10 +366,8 @@ public class SearchServiceTests extends IndexShardTestCase {
                 throw new RuntimeException("cleanup exploded");
             }
         );
-        try {
-            wrapped.onFailure(cause);
-        } catch (AssertionError ignored) {}
 
+        expectThrows(RuntimeException.class, () -> wrapped.onFailure(cause));
         assertTrue("releasable must be closed even when cleanup throws", releasableClosed.get());
         assertSame("listener.onFailure must be called even when cleanup throws", cause, failure.get());
     }
