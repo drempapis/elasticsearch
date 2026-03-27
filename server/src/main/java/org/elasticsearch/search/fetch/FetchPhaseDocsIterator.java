@@ -23,6 +23,7 @@ import org.elasticsearch.search.query.SearchTimeoutException;
 
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.Objects;
 
 /**
  * Iterates through a set of document IDs, fetching each document and collecting
@@ -134,7 +135,7 @@ abstract class FetchPhaseDocsIterator {
                     SearchTimeoutException.handleTimeout(allowPartialResults, shardTarget, querySearchResult);
                     assert allowPartialResults;
                     SearchHit[] partialSearchHits = new SearchHit[i];
-                    System.arraycopy(searchHits, 0, partialSearchHits, 0, i);
+                    System.arraycopy(searchHits, 0, partialSearchHits, 0, i); // TODO
                     return new IterateResult(partialSearchHits);
                 }
             }
@@ -148,6 +149,15 @@ abstract class FetchPhaseDocsIterator {
             throw new FetchPhaseExecutionException(shardTarget, "Error running fetch phase for doc [" + currentDoc + "]", e);
         }
         return new IterateResult(searchHits);
+    }
+
+    private static SearchHit[] stripNulls(SearchHit[] searchHits) {
+        for (SearchHit hit : searchHits) {
+            if (hit == null) {
+                return Arrays.stream(searchHits).filter(Objects::nonNull).toArray(SearchHit[]::new);
+            }
+        }
+        return searchHits;
     }
 
     private static void purgeSearchHits(SearchHit[] searchHits) {
