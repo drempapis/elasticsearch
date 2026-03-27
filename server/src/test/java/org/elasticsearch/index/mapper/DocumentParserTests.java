@@ -3244,6 +3244,117 @@ public class DocumentParserTests extends MapperServiceTestCase {
         }
     }
 
+    public void testArrayObjectsLimitAtExactLimit() throws Exception {
+        int limit = 3;
+        DocumentMapper mapper = createMapperService(
+            Settings.builder().put(getIndexSettings()).put(MapperService.INDEX_MAPPING_ARRAY_OBJECTS_LIMIT_SETTING.getKey(), limit).build(),
+            mapping(b -> {})
+        ).documentMapper();
+
+        mapper.parse(source(b -> {
+            b.startArray("array");
+            for (int i = 0; i < limit; i++) {
+                b.startObject().field("value", i).endObject();
+            }
+            b.endArray();
+        }));
+    }
+
+    public void testArrayObjectsLimitExceeded() throws Exception {
+        int limit = 3;
+        DocumentMapper mapper = createMapperService(
+            Settings.builder().put(getIndexSettings()).put(MapperService.INDEX_MAPPING_ARRAY_OBJECTS_LIMIT_SETTING.getKey(), limit).build(),
+            mapping(b -> {})
+        ).documentMapper();
+
+        DocumentParsingException e = expectThrows(DocumentParsingException.class, () -> mapper.parse(source(b -> {
+            b.startArray("array");
+            for (int i = 0; i < limit + 1; i++) {
+                b.startObject().field("value", i).endObject();
+            }
+            b.endArray();
+        })));
+        assertThat(e.getMessage(), containsString("The number of objects in an array has exceeded the allowed limit of [" + limit + "]"));
+    }
+
+    public void testArrayObjectsLimitWithMixedMappedAndDynamicFields() throws Exception {
+        int limit = 3;
+        DocumentMapper mapper = createMapperService(
+            Settings.builder().put(getIndexSettings()).put(MapperService.INDEX_MAPPING_ARRAY_OBJECTS_LIMIT_SETTING.getKey(), limit).build(),
+            mapping(b -> {
+                b.startObject("array").startObject("properties");
+                b.startObject("value").field("type", "integer").endObject();
+                b.endObject().endObject();
+            })
+        ).documentMapper();
+
+        DocumentParsingException e = expectThrows(DocumentParsingException.class, () -> mapper.parse(source(b -> {
+            b.startArray("array");
+            for (int i = 0; i < limit + 1; i++) {
+                b.startObject().field("value", i).endObject();
+            }
+            b.endArray();
+        })));
+        assertThat(e.getMessage(), containsString("The number of objects in an array has exceeded the allowed limit of [" + limit + "]"));
+    }
+
+    public void testArrayObjectsLimitNestedArraysCountIndependently() throws Exception {
+        int limit = 2;
+        DocumentMapper mapper = createMapperService(
+            Settings.builder().put(getIndexSettings()).put(MapperService.INDEX_MAPPING_ARRAY_OBJECTS_LIMIT_SETTING.getKey(), limit).build(),
+            mapping(b -> {})
+        ).documentMapper();
+
+        mapper.parse(source(b -> {
+            b.startObject("outer");
+            b.startArray("a");
+            for (int i = 0; i < limit; i++) {
+                b.startObject().field("v", i).endObject();
+            }
+            b.endArray();
+            b.startArray("b");
+            for (int i = 0; i < limit; i++) {
+                b.startObject().field("v", i).endObject();
+            }
+            b.endArray();
+            b.endObject();
+        }));
+    }
+
+    public void testArrayObjectsLimitSiblingArraysIsolated() throws Exception {
+        int limit = 2;
+        DocumentMapper mapper = createMapperService(
+            Settings.builder().put(getIndexSettings()).put(MapperService.INDEX_MAPPING_ARRAY_OBJECTS_LIMIT_SETTING.getKey(), limit).build(),
+            mapping(b -> {})
+        ).documentMapper();
+
+        DocumentParsingException e = expectThrows(DocumentParsingException.class, () -> mapper.parse(source(b -> {
+            b.startArray("arrayA");
+            for (int i = 0; i < limit; i++) {
+                b.startObject().field("v", i).endObject();
+            }
+            b.endArray();
+            b.startArray("arrayB");
+            for (int i = 0; i < limit + 1; i++) {
+                b.startObject().field("v", i).endObject();
+            }
+            b.endArray();
+        })));
+        assertThat(e.getMessage(), containsString("The number of objects in an array has exceeded the allowed limit of [" + limit + "]"));
+    }
+
+    public void testArrayObjectsLimitEmptyArrayAccepted() throws Exception {
+        DocumentMapper mapper = createMapperService(
+            Settings.builder().put(getIndexSettings()).put(MapperService.INDEX_MAPPING_ARRAY_OBJECTS_LIMIT_SETTING.getKey(), 1).build(),
+            mapping(b -> {})
+        ).documentMapper();
+
+        mapper.parse(source(b -> {
+            b.startArray("array");
+            b.endArray();
+        }));
+    }
+
     /**
      * Mapper plugin providing a mock metadata field mapper implementation that supports setting its value
      */

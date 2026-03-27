@@ -634,7 +634,7 @@ public class IndicesRequestIT extends ESIntegTestCase {
 
             assertThat(
                 e.getMessage(),
-                containsString("The number of array objects has exceeded " + "the allowed limit of [" + arrayLimit + "]")
+                containsString("The number of objects in an array has exceeded the allowed limit of [" + arrayLimit + "]")
             );
         }
     }
@@ -664,11 +664,11 @@ public class IndicesRequestIT extends ESIntegTestCase {
             doc.endObject();
 
             Exception e = expectThrows(DocumentParsingException.class, () -> client().prepareIndex(indexName).setSource(doc).get());
-            assertThat(e.getMessage(), containsString("The number of array objects has exceeded the allowed limit of [2]"));
+            assertThat(e.getMessage(), containsString("The number of objects in an array has exceeded the allowed limit of [2]"));
         }
     }
 
-    public void testDocumentAcceptedWhenArrayFieldsVary() throws Exception {
+    public void testRejectDocumentWhenArrayFieldsVaryAndExceedsLimit() throws Exception {
         String indexName = "vary-fields-array";
         int arrayLimit = 2;
 
@@ -698,7 +698,7 @@ public class IndicesRequestIT extends ESIntegTestCase {
             doc.endObject();
 
             Exception e = expectThrows(DocumentParsingException.class, () -> client().prepareIndex(indexName).setSource(doc).get());
-            assertThat(e.getMessage(), containsString("The number of array objects has exceeded the allowed limit of [2]"));
+            assertThat(e.getMessage(), containsString("The number of objects in an array has exceeded the allowed limit of [2]"));
         }
     }
 
@@ -737,7 +737,7 @@ public class IndicesRequestIT extends ESIntegTestCase {
             doc.endObject();
 
             Exception e = expectThrows(DocumentParsingException.class, () -> client().prepareIndex(indexName).setSource(doc).get());
-            assertThat(e.getMessage(), containsString("The number of array objects has exceeded the allowed limit of [2]"));
+            assertThat(e.getMessage(), containsString("The number of objects in an array has exceeded the allowed limit of [2]"));
         }
     }
 

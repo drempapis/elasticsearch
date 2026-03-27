@@ -1,0 +1,42 @@
+---
+setup:
+
+  - do:
+      indices.create:
+          index: test_1
+          body:
+              settings:
+                  index.mapping.array_objects.limit: 2
+
+---
+"Indexing a doc with array objects at or below index.mapping.array_objects.limit should succeed":
+
+  - do:
+      create:
+          index:  test_1
+          id:     "1"
+          body:
+              "array" : [ { "value": 1 }, { "value": 2 } ]
+  - match:   { _version: 1}
+
+---
+"Indexing a doc with array objects exceeding index.mapping.array_objects.limit should fail":
+
+  - do:
+      catch: /The number of objects in an array has exceeded the allowed limit of \[2\]. This limit can be set by changing the \[index.mapping.array_objects.limit\] index level setting\./
+      create:
+          index:  test_1
+          id:     "1"
+          body:
+              "array" : [ { "value": 1 }, { "value": 2 }, { "value": 3 } ]
+
+---
+"Indexing a doc with an empty array should succeed":
+
+  - do:
+      create:
+          index:  test_1
+          id:     "2"
+          body:
+              "array" : []
+  - match:   { _version: 1}
