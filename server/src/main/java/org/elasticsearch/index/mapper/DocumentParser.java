@@ -343,7 +343,7 @@ public final class DocumentParser {
         }
 
         if (context.parent().isNested()) {
-            // Handle a nested object that doesn't contain an array. Arrays are handled in #parseNonDynamicArray.
+            // Handle a nested object that doesn't contain an array. Arrays are handled in #parseArrayElements.
             context = context.createNestedContext((NestedObjectMapper) context.parent());
         }
 
@@ -649,7 +649,7 @@ public final class DocumentParser {
             if (parsesArrayValue(mapper)) {
                 parseObjectOrField(context, mapper);
             } else {
-                parseNonDynamicArray(context, mapper, lastFieldName, lastFieldName);
+                parseArrayElements(context, mapper, lastFieldName, lastFieldName);
             }
         } else {
             parseArrayDynamic(context, lastFieldName);
@@ -714,7 +714,7 @@ public final class DocumentParser {
                 return;
             }
 
-            parseNonDynamicArray(context, null, currentFieldName, currentFieldName);
+            parseArrayElements(context, null, currentFieldName, currentFieldName);
         } else {
             MapperBuilderContext builderContext = context.createDynamicMapperBuilderContext();
             Mapper objectMapperFromTemplate = builderFromTemplate.build(builderContext);
@@ -728,7 +728,7 @@ public final class DocumentParser {
                 parseObjectOrField(context, mapper);
                 context.path().remove();
             } else {
-                parseNonDynamicArray(context, objectMapperFromTemplate, currentFieldName, currentFieldName);
+                parseArrayElements(context, objectMapperFromTemplate, currentFieldName, currentFieldName);
             }
         }
     }
@@ -737,7 +737,7 @@ public final class DocumentParser {
         return mapper instanceof FieldMapper && ((FieldMapper) mapper).parsesArrayValue();
     }
 
-    private static void parseNonDynamicArray(
+    private static void parseArrayElements(
         DocumentParserContext context,
         @Nullable Mapper mapper,
         final String lastFieldName,
