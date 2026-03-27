@@ -26,14 +26,13 @@ import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.unit.ByteSizeValue;
 import org.elasticsearch.common.util.PageCacheRecycler;
 import org.elasticsearch.index.Index;
+import org.elasticsearch.index.cache.query.TrivialQueryCachingPolicy;
 import org.elasticsearch.index.shard.ShardId;
 import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.SearchService;
 import org.elasticsearch.search.SearchShardTarget;
 import org.elasticsearch.search.fetch.FetchPhaseDocsIterator.IterateResult;
 import org.elasticsearch.search.fetch.chunk.FetchPhaseResponseChunk;
-import org.elasticsearch.index.cache.query.TrivialQueryCachingPolicy;
-import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.internal.ContextIndexSearcher;
 import org.elasticsearch.search.query.QuerySearchResult;
 import org.elasticsearch.tasks.TaskCancelledException;
@@ -476,31 +475,6 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
         StreamingFetchPhaseDocsIterator it = new StreamingFetchPhaseDocsIterator() {
             private int count = 0;
 
-    public void testTimeoutReturnsCompactPartialResults() throws IOException {
-        int docCount = 400;
-        Directory directory = newDirectory();
-        RandomIndexWriter writer = new RandomIndexWriter(random(), directory);
-        for (int i = 0; i < docCount; i++) {
-            Document doc = new Document();
-            doc.add(new StringField("field", "foo", Field.Store.NO));
-            writer.addDocument(doc);
-            if (i % 50 == 0) {
-                writer.commit();
-            }
-        }
-        writer.commit();
-        IndexReader reader = writer.getReader();
-        writer.close();
-
-        ContextIndexSearcher searcher = new ContextIndexSearcher(reader, null, null, TrivialQueryCachingPolicy.NEVER, randomBoolean());
-
-        // deliberately unsorted doc ids so that the doc-id-sorted iteration order
-        // differs from the original order
-        int[] docs = new int[] { 250, 10, 150, 50, 300, 100, 200, 350 };
-        // in doc-id order: 10, 50, 100, 150, 200, ... timeout at doc 200
-        final int timeoutAfterDocId = 200;
-
-        FetchPhaseDocsIterator it = new FetchPhaseDocsIterator() {
             @Override
             protected void setNextReader(LeafReaderContext ctx, int[] docsInLeaf) {}
 
@@ -508,8 +482,6 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
             protected SearchHit nextDoc(int doc) {
                 if (++count > 50) {
                     throw new RuntimeException("Simulated producer failure");
-                if (doc == timeoutAfterDocId) {
-                    searcher.throwTimeExceededException();
                 }
                 return new SearchHit(doc);
             }
@@ -617,12 +589,51 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
 
         docs.reader.close();
         docs.directory.close();
-        SearchHit[] hits = it.iterate(null, reader, docs, true, new QuerySearchResult());
+    }
+
+    public void testTimeoutReturnsCompactPartialResults() throws IOException {
+        int docCount = 400;
+        Directory directory = newDirectory();
+        RandomIndexWriter writer = new RandomIndexWriter(random(), directory);
+        for (int i = 0; i < docCount; i++) {
+            Document doc = new Document();
+            doc.add(new StringField("field", "foo", Field.Store.NO));
+            writer.addDocument(doc);
+            if (i % 50 == 0) {
+                writer.commit();
+            }
+        }
+        writer.commit();
+        IndexReader reader = writer.getReader();
+        writer.close();
+
+        ContextIndexSearcher searcher = new ContextIndexSearcher(reader, null, null, TrivialQueryCachingPolicy.NEVER, randomBoolean());
+
+        // deliberately unsorted doc ids so that the doc-id-sorted iteration order
+        // differs from the original order
+        int[] docs = new int[] { 250, 10, 150, 50, 300, 100, 200, 350 };
+        // in doc-id order: 10, 50, 100, 150, 200, ... timeout at doc 200
+        final int timeoutAfterDocId = 200;
+
+        FetchPhaseDocsIterator it = new FetchPhaseDocsIterator() {
+            @Override
+            protected void setNextReader(LeafReaderContext ctx, int[] docsInLeaf) {}
+
+            @Override
+            protected SearchHit nextDoc(int doc) {
+                if (doc == timeoutAfterDocId) {
+                    searcher.throwTimeExceededException();
+                }
+                return new SearchHit(doc);
+            }
+        };
+
+        IterateResult result = it.iterate(null, reader, docs, true, new QuerySearchResult());
 
         // the returned array is compact — no null entries, shorter than input
-        assertThat(hits.length, greaterThan(0));
-        assertThat(hits.length, lessThan(docs.length));
-        for (SearchHit hit : hits) {
+        assertThat(result.hits.length, greaterThan(0));
+        assertThat(result.hits.length, lessThan(docs.length));
+        for (SearchHit hit : result.hits) {
             assertNotNull(hit);
             assertThat(hit.docId(), greaterThanOrEqualTo(0));
             hit.decRef();

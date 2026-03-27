@@ -134,9 +134,7 @@ abstract class FetchPhaseDocsIterator {
                     }
                     SearchTimeoutException.handleTimeout(allowPartialResults, shardTarget, querySearchResult);
                     assert allowPartialResults;
-                    SearchHit[] partialSearchHits = new SearchHit[i];
-                    System.arraycopy(searchHits, 0, partialSearchHits, 0, i); // TODO
-                    return new IterateResult(partialSearchHits);
+                    return new IterateResult( stripNulls(searchHits));
                 }
             }
         } catch (SearchTimeoutException e) {
