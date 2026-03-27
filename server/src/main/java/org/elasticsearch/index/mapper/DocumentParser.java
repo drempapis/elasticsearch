@@ -801,6 +801,7 @@ public final class DocumentParser {
         XContentParser.Token previousToken = parser.currentToken();
         int elements = 0;
         int countArray = 0;
+        int valueElements = 0;
         long arrayObjectsLimit = context.indexSettings().getMappingArrayObjectsLimit();
         while ((token = parser.nextToken()) != XContentParser.Token.END_ARRAY) {
             if (token == XContentParser.Token.START_OBJECT) {
