@@ -34,17 +34,12 @@ public final class CountDistinctBytesRefAggregatorFunction implements Aggregator
 
   private final int precision;
 
-  public CountDistinctBytesRefAggregatorFunction(DriverContext driverContext,
-      List<Integer> channels, HllStates.SingleState state, int precision) {
+  CountDistinctBytesRefAggregatorFunction(DriverContext driverContext, List<Integer> channels,
+      int precision) {
+    this.precision = precision;
     this.driverContext = driverContext;
     this.channels = channels;
-    this.state = state;
-    this.precision = precision;
-  }
-
-  public static CountDistinctBytesRefAggregatorFunction create(DriverContext driverContext,
-      List<Integer> channels, int precision) {
-    return new CountDistinctBytesRefAggregatorFunction(driverContext, channels, CountDistinctBytesRefAggregator.initSingle(driverContext.bigArrays(), precision), precision);
+    this.state = CountDistinctBytesRefAggregator.initSingle(driverContext, precision);
   }
 
   public static List<IntermediateStateDesc> intermediateStateDesc() {
@@ -151,8 +146,8 @@ public final class CountDistinctBytesRefAggregatorFunction implements Aggregator
     }
     BytesRefVector hll = ((BytesRefBlock) hllUncast).asVector();
     assert hll.getPositionCount() == 1;
-    BytesRef scratch = new BytesRef();
-    CountDistinctBytesRefAggregator.combineIntermediate(state, hll.getBytesRef(0, scratch));
+    BytesRef hllScratch = new BytesRef();
+    CountDistinctBytesRefAggregator.combineIntermediate(state, hll.getBytesRef(0, hllScratch));
   }
 
   @Override

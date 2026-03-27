@@ -84,6 +84,11 @@ public class ReindexRequest extends AbstractBulkIndexByScrollRequest<ReindexRequ
     }
 
     @Override
+    public boolean supportsRemoteIndicesSearch() {
+        return true;
+    }
+
+    @Override
     public ActionRequestValidationException validate() {
         ActionRequestValidationException e = super.validate();
         if (getSearchRequest().indices() == null || getSearchRequest().indices().length == 0) {
@@ -115,6 +120,12 @@ public class ReindexRequest extends AbstractBulkIndexByScrollRequest<ReindexRequ
             }
             if (getSlices() == AbstractBulkByScrollRequest.AUTO_SLICES || getSlices() > 1) {
                 e = addValidationError("reindex from remote sources doesn't support slices > 1 but was [" + getSlices() + "]", e);
+            }
+            if (getSearchRequest().source().slice() != null) {
+                e = addValidationError(
+                    "reindex from remote sources doesn't support source.slice but was [" + getSearchRequest().source().slice() + "]",
+                    e
+                );
             }
             if (getRemoteInfo().getUsername() != null && getRemoteInfo().getPassword() == null) {
                 e = addValidationError("reindex from remote source included username but not password", e);
@@ -255,6 +266,7 @@ public class ReindexRequest extends AbstractBulkIndexByScrollRequest<ReindexRequ
     public ReindexRequest forSlice(TaskId slicingTask, SearchRequest slice, int totalSlices) {
         ReindexRequest sliced = doForSlice(new ReindexRequest(slice, destination, false), slicingTask, totalSlices);
         sliced.setRemoteInfo(remoteInfo);
+        sliced.setEligibleForRelocationOnShutdown(isEligibleForRelocationOnShutdown());
         return sliced;
     }
 
@@ -342,7 +354,7 @@ public class ReindexRequest extends AbstractBulkIndexByScrollRequest<ReindexRequ
                     parser.contentType()
                 )
             ) {
-                request.getSearchRequest().source().parseXContent(innerParser, false, context);
+                request.getSearchRequest().source().parseXContent(request.getSearchRequest(), innerParser, false, context);
             }
         };
 

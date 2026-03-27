@@ -81,15 +81,16 @@ public class Values extends AggregateFunction implements ToAggregator {
             "long",
             "unsigned_long",
             "version" },
-        preview = true,
-        appliesTo = { @FunctionAppliesTo(lifeCycle = FunctionAppliesToLifecycle.PREVIEW) },
+        appliesTo = {
+            @FunctionAppliesTo(lifeCycle = FunctionAppliesToLifecycle.PREVIEW, version = "8.14.0"),
+            @FunctionAppliesTo(lifeCycle = FunctionAppliesToLifecycle.GA, version = "9.4.0"), },
         description = """
-            Returns unique values as a multivalued field. The order of the returned values isn’t guaranteed.
+            Returns unique (deduplicated) values as a multivalued field. The order of the returned values isn’t guaranteed.
             If you need the values returned in order use
-            [`MV_SORT`](/reference/query-languages/esql/functions-operators/mv-functions.md#esql-mv_sort).""",
+            [`MV_SORT`](/reference/query-languages/esql/functions-operators/mv-functions/mv_sort.md).""",
         appendix = """
             ::::{tip}
-            Use [`TOP`](/reference/query-languages/esql/functions-operators/aggregation-functions.md#esql-top)
+            Use [`TOP`](/reference/query-languages/esql/functions-operators/aggregation-functions/top.md)
             if you need to keep repeated values.
             ::::
             ::::{warning}
@@ -127,11 +128,11 @@ public class Values extends AggregateFunction implements ToAggregator {
                 "version" }
         ) Expression v
     ) {
-        this(source, v, Literal.TRUE);
+        this(source, v, Literal.TRUE, NO_WINDOW);
     }
 
-    public Values(Source source, Expression field, Expression filter) {
-        super(source, field, filter, emptyList());
+    public Values(Source source, Expression field, Expression filter, Expression window) {
+        super(source, field, filter, window, emptyList());
     }
 
     private Values(StreamInput in) throws IOException {
@@ -145,17 +146,17 @@ public class Values extends AggregateFunction implements ToAggregator {
 
     @Override
     protected NodeInfo<Values> info() {
-        return NodeInfo.create(this, Values::new, field(), filter());
+        return NodeInfo.create(this, Values::new, field(), filter(), window());
     }
 
     @Override
     public Values replaceChildren(List<Expression> newChildren) {
-        return new Values(source(), newChildren.get(0), newChildren.get(1));
+        return new Values(source(), newChildren.get(0), newChildren.get(1), newChildren.get(2));
     }
 
     @Override
     public Values withFilter(Expression filter) {
-        return new Values(source(), field(), filter);
+        return new Values(source(), field(), filter, window());
     }
 
     @Override
@@ -165,7 +166,7 @@ public class Values extends AggregateFunction implements ToAggregator {
 
     @Override
     protected TypeResolution resolveType() {
-        return TypeResolutions.isRepresentableExceptCountersDenseVectorAndAggregateMetricDouble(field(), sourceText(), DEFAULT);
+        return TypeResolutions.isRepresentableExceptCountersDenseVectorAggregateMetricDoubleAndHistogram(field(), sourceText(), DEFAULT);
     }
 
     @Override

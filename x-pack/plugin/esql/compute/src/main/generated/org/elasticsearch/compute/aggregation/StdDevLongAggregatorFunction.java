@@ -31,20 +31,18 @@ public final class StdDevLongAggregatorFunction implements AggregatorFunction {
 
   private final DriverContext driverContext;
 
-  private final StdDevStates.SingleState state;
+  private final VarianceStates.SingleState state;
 
   private final List<Integer> channels;
 
-  public StdDevLongAggregatorFunction(DriverContext driverContext, List<Integer> channels,
-      StdDevStates.SingleState state) {
+  private final boolean stdDev;
+
+  StdDevLongAggregatorFunction(DriverContext driverContext, List<Integer> channels,
+      boolean stdDev) {
+    this.stdDev = stdDev;
     this.driverContext = driverContext;
     this.channels = channels;
-    this.state = state;
-  }
-
-  public static StdDevLongAggregatorFunction create(DriverContext driverContext,
-      List<Integer> channels) {
-    return new StdDevLongAggregatorFunction(driverContext, channels, StdDevLongAggregator.initSingle());
+    this.state = StdDevLongAggregator.initSingle(stdDev);
   }
 
   public static List<IntermediateStateDesc> intermediateStateDesc() {

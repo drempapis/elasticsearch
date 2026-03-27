@@ -34,16 +34,11 @@ public final class MedianAbsoluteDeviationFloatAggregatorFunction implements Agg
 
   private final List<Integer> channels;
 
-  public MedianAbsoluteDeviationFloatAggregatorFunction(DriverContext driverContext,
-      List<Integer> channels, QuantileStates.SingleState state) {
+  MedianAbsoluteDeviationFloatAggregatorFunction(DriverContext driverContext,
+      List<Integer> channels) {
     this.driverContext = driverContext;
     this.channels = channels;
-    this.state = state;
-  }
-
-  public static MedianAbsoluteDeviationFloatAggregatorFunction create(DriverContext driverContext,
-      List<Integer> channels) {
-    return new MedianAbsoluteDeviationFloatAggregatorFunction(driverContext, channels, MedianAbsoluteDeviationFloatAggregator.initSingle(driverContext));
+    this.state = MedianAbsoluteDeviationFloatAggregator.initSingle(driverContext);
   }
 
   public static List<IntermediateStateDesc> intermediateStateDesc() {
@@ -146,8 +141,8 @@ public final class MedianAbsoluteDeviationFloatAggregatorFunction implements Agg
     }
     BytesRefVector quart = ((BytesRefBlock) quartUncast).asVector();
     assert quart.getPositionCount() == 1;
-    BytesRef scratch = new BytesRef();
-    MedianAbsoluteDeviationFloatAggregator.combineIntermediate(state, quart.getBytesRef(0, scratch));
+    BytesRef quartScratch = new BytesRef();
+    MedianAbsoluteDeviationFloatAggregator.combineIntermediate(state, quart.getBytesRef(0, quartScratch));
   }
 
   @Override

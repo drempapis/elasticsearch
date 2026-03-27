@@ -8,7 +8,6 @@
 package org.elasticsearch.xpack.core.inference.chunking;
 
 import org.elasticsearch.TransportVersion;
-import org.elasticsearch.TransportVersions;
 import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.ValidationException;
 import org.elasticsearch.common.io.stream.StreamInput;
@@ -77,9 +76,7 @@ public class SentenceBoundaryChunkingSettings implements ChunkingSettings {
             );
         }
 
-        if (validationException.validationErrors().isEmpty() == false) {
-            throw validationException;
-        }
+        validationException.throwIfValidationErrorsExist();
     }
 
     @Override
@@ -126,9 +123,7 @@ public class SentenceBoundaryChunkingSettings implements ChunkingSettings {
             );
         }
 
-        if (validationException.validationErrors().isEmpty() == false) {
-            throw validationException;
-        }
+        validationException.throwIfValidationErrorsExist();
 
         return new SentenceBoundaryChunkingSettings(maxChunkSize, sentenceOverlap);
     }
@@ -152,7 +147,7 @@ public class SentenceBoundaryChunkingSettings implements ChunkingSettings {
 
     @Override
     public TransportVersion getMinimalSupportedVersion() {
-        return TransportVersions.V_8_16_0;
+        return TransportVersion.minimumCompatible();
     }
 
     @Override

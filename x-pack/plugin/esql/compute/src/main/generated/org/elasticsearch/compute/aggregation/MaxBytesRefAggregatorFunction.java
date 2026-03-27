@@ -34,16 +34,10 @@ public final class MaxBytesRefAggregatorFunction implements AggregatorFunction {
 
   private final List<Integer> channels;
 
-  public MaxBytesRefAggregatorFunction(DriverContext driverContext, List<Integer> channels,
-      MaxBytesRefAggregator.SingleState state) {
+  MaxBytesRefAggregatorFunction(DriverContext driverContext, List<Integer> channels) {
     this.driverContext = driverContext;
     this.channels = channels;
-    this.state = state;
-  }
-
-  public static MaxBytesRefAggregatorFunction create(DriverContext driverContext,
-      List<Integer> channels) {
-    return new MaxBytesRefAggregatorFunction(driverContext, channels, MaxBytesRefAggregator.initSingle(driverContext));
+    this.state = MaxBytesRefAggregator.initSingle(driverContext);
   }
 
   public static List<IntermediateStateDesc> intermediateStateDesc() {
@@ -156,8 +150,8 @@ public final class MaxBytesRefAggregatorFunction implements AggregatorFunction {
     }
     BooleanVector seen = ((BooleanBlock) seenUncast).asVector();
     assert seen.getPositionCount() == 1;
-    BytesRef scratch = new BytesRef();
-    MaxBytesRefAggregator.combineIntermediate(state, max.getBytesRef(0, scratch), seen.getBoolean(0));
+    BytesRef maxScratch = new BytesRef();
+    MaxBytesRefAggregator.combineIntermediate(state, max.getBytesRef(0, maxScratch), seen.getBoolean(0));
   }
 
   @Override

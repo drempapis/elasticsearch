@@ -8,7 +8,6 @@
 package org.elasticsearch.xpack.inference.services.cohere.completion;
 
 import org.elasticsearch.TransportVersion;
-import org.elasticsearch.TransportVersions;
 import org.elasticsearch.common.ValidationException;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
@@ -66,9 +65,7 @@ public class CohereCompletionServiceSettings extends FilteredXContentObject impl
             }
         }
 
-        if (validationException.validationErrors().isEmpty() == false) {
-            throw validationException;
-        }
+        validationException.throwIfValidationErrorsExist();
 
         return new CohereCompletionServiceSettings(uri, modelId, rateLimitSettings, apiVersion);
     }
@@ -146,7 +143,7 @@ public class CohereCompletionServiceSettings extends FilteredXContentObject impl
 
     @Override
     public TransportVersion getMinimalSupportedVersion() {
-        return TransportVersions.V_8_15_0;
+        return TransportVersion.minimumCompatible();
     }
 
     @Override

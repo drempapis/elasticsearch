@@ -35,17 +35,11 @@ public final class SampleIntAggregatorFunction implements AggregatorFunction {
 
   private final int limit;
 
-  public SampleIntAggregatorFunction(DriverContext driverContext, List<Integer> channels,
-      SampleIntAggregator.SingleState state, int limit) {
+  SampleIntAggregatorFunction(DriverContext driverContext, List<Integer> channels, int limit) {
+    this.limit = limit;
     this.driverContext = driverContext;
     this.channels = channels;
-    this.state = state;
-    this.limit = limit;
-  }
-
-  public static SampleIntAggregatorFunction create(DriverContext driverContext,
-      List<Integer> channels, int limit) {
-    return new SampleIntAggregatorFunction(driverContext, channels, SampleIntAggregator.initSingle(driverContext.bigArrays(), limit), limit);
+    this.state = SampleIntAggregator.initSingle(driverContext.bigArrays(), limit);
   }
 
   public static List<IntermediateStateDesc> intermediateStateDesc() {
@@ -148,7 +142,7 @@ public final class SampleIntAggregatorFunction implements AggregatorFunction {
     }
     BytesRefBlock sample = (BytesRefBlock) sampleUncast;
     assert sample.getPositionCount() == 1;
-    BytesRef scratch = new BytesRef();
+    BytesRef sampleScratch = new BytesRef();
     SampleIntAggregator.combineIntermediate(state, sample);
   }
 

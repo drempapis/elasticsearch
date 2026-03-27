@@ -37,16 +37,10 @@ public final class LastBytesRefByTimestampAggregatorFunction implements Aggregat
 
   private final List<Integer> channels;
 
-  public LastBytesRefByTimestampAggregatorFunction(DriverContext driverContext,
-      List<Integer> channels, LongBytesRefState state) {
+  LastBytesRefByTimestampAggregatorFunction(DriverContext driverContext, List<Integer> channels) {
     this.driverContext = driverContext;
     this.channels = channels;
-    this.state = state;
-  }
-
-  public static LastBytesRefByTimestampAggregatorFunction create(DriverContext driverContext,
-      List<Integer> channels) {
-    return new LastBytesRefByTimestampAggregatorFunction(driverContext, channels, LastBytesRefByTimestampAggregator.initSingle(driverContext));
+    this.state = LastBytesRefByTimestampAggregator.initSingle(driverContext);
   }
 
   public static List<IntermediateStateDesc> intermediateStateDesc() {
@@ -237,8 +231,8 @@ public final class LastBytesRefByTimestampAggregatorFunction implements Aggregat
     }
     BooleanVector seen = ((BooleanBlock) seenUncast).asVector();
     assert seen.getPositionCount() == 1;
-    BytesRef scratch = new BytesRef();
-    LastBytesRefByTimestampAggregator.combineIntermediate(state, timestamps.getLong(0), values.getBytesRef(0, scratch), seen.getBoolean(0));
+    BytesRef valuesScratch = new BytesRef();
+    LastBytesRefByTimestampAggregator.combineIntermediate(state, timestamps.getLong(0), values.getBytesRef(0, valuesScratch), seen.getBoolean(0));
   }
 
   @Override

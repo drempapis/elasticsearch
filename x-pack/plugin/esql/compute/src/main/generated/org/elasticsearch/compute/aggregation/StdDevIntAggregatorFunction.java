@@ -33,20 +33,17 @@ public final class StdDevIntAggregatorFunction implements AggregatorFunction {
 
   private final DriverContext driverContext;
 
-  private final StdDevStates.SingleState state;
+  private final VarianceStates.SingleState state;
 
   private final List<Integer> channels;
 
-  public StdDevIntAggregatorFunction(DriverContext driverContext, List<Integer> channels,
-      StdDevStates.SingleState state) {
+  private final boolean stdDev;
+
+  StdDevIntAggregatorFunction(DriverContext driverContext, List<Integer> channels, boolean stdDev) {
+    this.stdDev = stdDev;
     this.driverContext = driverContext;
     this.channels = channels;
-    this.state = state;
-  }
-
-  public static StdDevIntAggregatorFunction create(DriverContext driverContext,
-      List<Integer> channels) {
-    return new StdDevIntAggregatorFunction(driverContext, channels, StdDevIntAggregator.initSingle());
+    this.state = StdDevIntAggregator.initSingle(stdDev);
   }
 
   public static List<IntermediateStateDesc> intermediateStateDesc() {

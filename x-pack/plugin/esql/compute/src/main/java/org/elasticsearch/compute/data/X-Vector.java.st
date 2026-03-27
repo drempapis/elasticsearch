@@ -11,7 +11,6 @@ package org.elasticsearch.compute.data;
 $if(BytesRef)$
 import org.apache.lucene.util.BytesRef;
 $endif$
-import org.elasticsearch.TransportVersions;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.unit.ByteSizeValue;
@@ -26,15 +25,19 @@ import java.io.IOException;
  */
 $if(BytesRef)$
 public sealed interface BytesRefVector extends Vector permits ConstantBytesRefVector, BytesRefArrayVector, ConstantNullVector,
-    OrdinalBytesRefVector {
+    OrdinalBytesRefVector, org.elasticsearch.compute.data.arrow.BytesRefArrowBufVector {
 $elseif(boolean)$
 public sealed interface $Type$Vector extends Vector permits Constant$Type$Vector, $Type$ArrayVector, $Type$BigArrayVector,
-    ConstantNullVector {
+    ConstantNullVector, org.elasticsearch.compute.data.arrow.$Type$ArrowBufVector {
+$elseif(int)$
+public sealed interface $Type$Vector extends Vector permits Constant$Type$Vector, $Type$ArrayVector, $Type$BigArrayVector, $Type$RangeVector,
+    ConstantNullVector, org.elasticsearch.compute.data.arrow.$Type$ArrowBufVector {
 $elseif(double)$
 public sealed interface $Type$Vector extends Vector permits Constant$Type$Vector, $Type$ArrayVector, $Type$BigArrayVector,
-    ConstantNullVector {
+    ConstantNullVector, org.elasticsearch.compute.data.arrow.$Type$ArrowBufVector {
 $else$
-public sealed interface $Type$Vector extends Vector permits Constant$Type$Vector, $Type$ArrayVector, $Type$BigArrayVector, ConstantNullVector {
+public sealed interface $Type$Vector extends Vector permits Constant$Type$Vector, $Type$ArrayVector, $Type$BigArrayVector, ConstantNullVector,
+    org.elasticsearch.compute.data.arrow.$Type$ArrowBufVector {
 $endif$
 
 $if(BytesRef)$
@@ -56,7 +59,7 @@ $if(BytesRef)$
 
 $endif$
     @Override
-    $Type$Vector filter(int... positions);
+    $Type$Vector filter(boolean mayContainDuplicates, int... positions);
 
     @Override
     $Type$Block keepMask(BooleanVector mask);
@@ -76,6 +79,15 @@ $endif$
 
     @Override
     ReleasableIterator<? extends $Type$Block> lookup(IntBlock positions, ByteSizeValue targetBlockSize);
+
+    /**
+     * Return a subset of this vector from {@code beginInclusive} to
+     * {@code endExclusive}. This <strong>may</strong> return the same
+     * instance if the range covers all positions, but if it does it
+     * will {@link #incRef()} it.
+     */
+    @Override
+    $Type$Vector slice(int beginInclusive, int endExclusive);
 
 $if(int)$
     /**
@@ -234,17 +246,6 @@ $else$
 $endif$
         }
     }
-
-$if(int)$
-    /** Create a vector for a range of ints. */
-    static IntVector range(int startInclusive, int endExclusive, BlockFactory blockFactory) {
-        int[] values = new int[endExclusive - startInclusive];
-        for (int i = 0; i < values.length; i++) {
-            values[i] = startInclusive + i;
-        }
-        return blockFactory.newIntArrayVector(values, values.length);
-    }
-$endif$
 
     /**
      * A builder that grows as needed.

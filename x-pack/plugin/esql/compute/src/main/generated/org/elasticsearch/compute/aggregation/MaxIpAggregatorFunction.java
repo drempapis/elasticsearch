@@ -34,16 +34,10 @@ public final class MaxIpAggregatorFunction implements AggregatorFunction {
 
   private final List<Integer> channels;
 
-  public MaxIpAggregatorFunction(DriverContext driverContext, List<Integer> channels,
-      MaxIpAggregator.SingleState state) {
+  MaxIpAggregatorFunction(DriverContext driverContext, List<Integer> channels) {
     this.driverContext = driverContext;
     this.channels = channels;
-    this.state = state;
-  }
-
-  public static MaxIpAggregatorFunction create(DriverContext driverContext,
-      List<Integer> channels) {
-    return new MaxIpAggregatorFunction(driverContext, channels, MaxIpAggregator.initSingle());
+    this.state = MaxIpAggregator.initSingle();
   }
 
   public static List<IntermediateStateDesc> intermediateStateDesc() {
@@ -156,8 +150,8 @@ public final class MaxIpAggregatorFunction implements AggregatorFunction {
     }
     BooleanVector seen = ((BooleanBlock) seenUncast).asVector();
     assert seen.getPositionCount() == 1;
-    BytesRef scratch = new BytesRef();
-    MaxIpAggregator.combineIntermediate(state, max.getBytesRef(0, scratch), seen.getBoolean(0));
+    BytesRef maxScratch = new BytesRef();
+    MaxIpAggregator.combineIntermediate(state, max.getBytesRef(0, maxScratch), seen.getBoolean(0));
   }
 
   @Override

@@ -24,7 +24,6 @@ import org.elasticsearch.xcontent.json.JsonXContent;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -158,7 +157,7 @@ public interface SourceLoader {
         public Leaf leaf(LeafReader reader, int[] docIdsInLeaf) throws IOException {
             SyntheticFieldLoader loader = syntheticFieldLoaderLeafSupplier.get();
             return new LeafWithMetrics(
-                new SyntheticLeaf(filter, loader, loader.docValuesLoader(reader, docIdsInLeaf), ignoredSourceFormat),
+                new SyntheticLeaf(filter, loader, loader.docValuesLoader(reader, docIdsInLeaf), ignoredSourceFormat, reader),
                 metrics
             );
         }
@@ -194,12 +193,14 @@ public interface SourceLoader {
             private final SyntheticFieldLoader.DocValuesLoader docValuesLoader;
             private final Map<String, SyntheticFieldLoader.StoredFieldLoader> storedFieldLoaders;
             private final IgnoredSourceFieldMapper.IgnoredSourceFormat ignoredSourceFormat;
+            private final LeafReader leafReader;
 
             private SyntheticLeaf(
                 SourceFilter filter,
                 SyntheticFieldLoader loader,
                 SyntheticFieldLoader.DocValuesLoader docValuesLoader,
-                IgnoredSourceFieldMapper.IgnoredSourceFormat ignoredSourceFormat
+                IgnoredSourceFieldMapper.IgnoredSourceFormat ignoredSourceFormat,
+                LeafReader leafReader
             ) {
                 this.filter = filter;
                 this.loader = loader;
@@ -208,6 +209,7 @@ public interface SourceLoader {
                     loader.storedFieldLoaders().collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue))
                 );
                 this.ignoredSourceFormat = ignoredSourceFormat;
+                this.leafReader = leafReader;
             }
 
             @Override
@@ -228,12 +230,14 @@ public interface SourceLoader {
                 }
 
                 // Maps the names of existing objects to lists of ignored fields they contain.
-                Map<String, List<IgnoredSourceFieldMapper.NameValue>> objectsWithIgnoredFields = ignoredSourceFormat.loadAllIgnoredFields(
+                Map<String, List<IgnoredSourceFieldMapper.NameValue>> objectsWithIgnoredFields = ignoredSourceFormat.loadIgnoredFields(
                     filter,
-                    storedFieldLoader.storedFields()
+                    storedFieldLoader.storedFields(),
+                    docId,
+                    leafReader
                 );
 
-                if (objectsWithIgnoredFields != null) {
+                if (objectsWithIgnoredFields.isEmpty() == false) {
                     loader.setIgnoredValues(objectsWithIgnoredFields);
                 }
                 if (docValuesLoader != null) {
@@ -467,13 +471,7 @@ public interface SourceLoader {
      * @return a new {@link Source} with the patches applied
      */
     static Source applySyntheticVectors(Source originalSource, List<SyntheticVectorPatch> patches) {
-        Map<String, Object> newMap = originalSource.source();
-        // Make sure we have a mutable map, empty implies `Map.of()`
-        if (newMap.isEmpty()) {
-            newMap = new LinkedHashMap<>();
-        }
-        applyPatches("", newMap, patches);
-        return Source.fromMap(newMap, originalSource.sourceContentType());
+        return originalSource.withMutations(map -> applyPatches("", map, patches));
     }
 
     /**

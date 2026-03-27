@@ -35,10 +35,13 @@ import org.apache.lucene.index.VectorEncoding;
 import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FSDirectory;
+import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.MMapDirectory;
 import org.apache.lucene.store.NativeFSLockFactory;
+import org.apache.lucene.store.ReadAdvice;
 import org.apache.lucene.util.PrintStreamInfoStream;
 import org.elasticsearch.common.io.Channels;
+import org.elasticsearch.index.StandardIOBehaviorHint;
 import org.elasticsearch.index.store.FsDirectoryFactory;
 
 import java.io.IOException;
@@ -51,12 +54,14 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiFunction;
 
 import static org.elasticsearch.test.knn.KnnIndexTester.logger;
 
@@ -103,6 +108,12 @@ class KnnIndexer {
     }
 
     void createIndex(KnnIndexTester.Results result) throws IOException, InterruptedException, ExecutionException {
+        try (Directory dir = getDirectory(indexPath)) {
+            createIndex(result, dir);
+        }
+    }
+
+    void createIndex(KnnIndexTester.Results result, Directory dir) throws IOException, InterruptedException, ExecutionException {
         IndexWriterConfig iwc = new IndexWriterConfig().setOpenMode(IndexWriterConfig.OpenMode.CREATE);
         iwc.setCodec(codec);
         iwc.setMaxBufferedDocs(writerMaxBufferedDocs);
@@ -135,7 +146,7 @@ class KnnIndexer {
 
         long start = System.nanoTime();
         AtomicInteger numDocsIndexed = new AtomicInteger();
-        try (Directory dir = getDirectory(indexPath); IndexWriter iw = new IndexWriter(dir, iwc)) {
+        try (IndexWriter iw = new IndexWriter(dir, iwc)) {
             for (Path docsPath : this.docsPath) {
                 int dim = this.dim;
                 try (FileChannel in = FileChannel.open(docsPath)) {
@@ -218,6 +229,12 @@ class KnnIndexer {
     }
 
     void forceMerge(KnnIndexTester.Results results, int maxNumSegments) throws Exception {
+        try (Directory dir = getDirectory(indexPath)) {
+            forceMerge(results, maxNumSegments, dir);
+        }
+    }
+
+    void forceMerge(KnnIndexTester.Results results, int maxNumSegments, Directory dir) throws Exception {
         IndexWriterConfig iwc = new IndexWriterConfig().setOpenMode(IndexWriterConfig.OpenMode.APPEND);
         iwc.setInfoStream(new PrintStreamInfoStream(System.out) {
             @Override
@@ -229,7 +246,7 @@ class KnnIndexer {
         iwc.setUseCompoundFile(false);
         logger.info("KnnIndexer: forceMerge in {} into {} segments", indexPath, maxNumSegments);
         long startNS = System.nanoTime();
-        try (IndexWriter iw = new IndexWriter(getDirectory(indexPath), iwc)) {
+        try (IndexWriter iw = new IndexWriter(dir, iwc)) {
             iw.forceMerge(maxNumSegments);
         }
         long endNS = System.nanoTime();
@@ -241,9 +258,48 @@ class KnnIndexer {
     static Directory getDirectory(Path indexPath) throws IOException {
         Directory dir = FSDirectory.open(indexPath);
         if (dir instanceof MMapDirectory mmapDir) {
+            mmapDir.setReadAdvice(getReadAdviceFunc()); // enable madvise
             return new FsDirectoryFactory.HybridDirectory(NativeFSLockFactory.INSTANCE, mmapDir, 64);
         }
         return dir;
+    }
+
+    /**
+     * Opens a frozen (searchable snapshot) directory for the given index path.
+     */
+    static Directory openFrozenDirectory(Path indexPath) throws IOException {
+        Path workPath = indexPath.resolveSibling(indexPath.getFileName() + ".snap_work");
+        Files.createDirectories(workPath);
+        logger.info("Opening frozen snapshot directory for index at {} with work path {}", indexPath, workPath);
+        return openSearchableSnapshotDirectory(indexPath, workPath);
+    }
+
+    /**
+     * Creates a directory backed by searchable snapshot infrastructure, wrapping an existing
+     * Lucene index on disk. Loaded via reflection because the factory resides in the
+     * searchable-snapshots test artifact (unnamed module) which cannot be directly referenced
+     * from this named module ({@code org.elasticsearch.test.knn}).
+     */
+    private static Directory openSearchableSnapshotDirectory(Path indexPath, Path workPath) throws IOException {
+        try {
+            Class<?> factoryClass = Class.forName("org.elasticsearch.xpack.searchablesnapshots.store.SearchableSnapshotDirectoryFactory");
+            var method = factoryClass.getMethod("newDirectoryFromIndex", Path.class, Path.class);
+            return (Directory) method.invoke(null, indexPath, workPath);
+        } catch (Exception e) {
+            throw new IOException(
+                "Failed to create searchable snapshot directory. Ensure the searchable-snapshots test artifact is on the classpath.",
+                e
+            );
+        }
+    }
+
+    private static BiFunction<String, IOContext, Optional<ReadAdvice>> getReadAdviceFunc() {
+        return (name, context) -> {
+            if (context.hints().contains(StandardIOBehaviorHint.INSTANCE) || name.endsWith(".cfs")) {
+                return Optional.of(ReadAdvice.NORMAL);
+            }
+            return MMapDirectory.ADVISE_BY_CONTEXT.apply(name, context);
+        };
     }
 
     static class IndexerThread extends Thread {
@@ -392,7 +448,7 @@ class KnnIndexer {
 
         synchronized void next(byte[] dest) throws IOException {
             readNext();
-            bytes.get(dest);
+            bytes.get(dest).position(0);
         }
     }
 }

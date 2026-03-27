@@ -7,6 +7,7 @@
 
 package org.elasticsearch.xpack.esql.telemetry;
 
+import org.elasticsearch.index.IndexMode;
 import org.elasticsearch.license.XPackLicenseState;
 import org.elasticsearch.test.ESTestCase;
 import org.elasticsearch.xpack.core.watcher.common.stats.Counters;
@@ -14,15 +15,16 @@ import org.elasticsearch.xpack.esql.action.EsqlCapabilities;
 import org.elasticsearch.xpack.esql.analysis.Verifier;
 import org.elasticsearch.xpack.esql.expression.function.EsqlFunctionRegistry;
 import org.elasticsearch.xpack.esql.expression.function.FunctionDefinition;
-import org.elasticsearch.xpack.esql.parser.EsqlParser;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import static org.elasticsearch.xpack.esql.EsqlTestUtils.TEST_FUNCTION_REGISTRY;
+import static org.elasticsearch.xpack.esql.EsqlTestUtils.TEST_PARSER;
+import static org.elasticsearch.xpack.esql.EsqlTestUtils.analyzer;
 import static org.elasticsearch.xpack.esql.EsqlTestUtils.withDefaultLimitWarning;
-import static org.elasticsearch.xpack.esql.analysis.AnalyzerTestUtils.analyzer;
 import static org.elasticsearch.xpack.esql.telemetry.FeatureMetric.DISSECT;
 import static org.elasticsearch.xpack.esql.telemetry.FeatureMetric.DROP;
 import static org.elasticsearch.xpack.esql.telemetry.FeatureMetric.ENRICH;
@@ -35,6 +37,7 @@ import static org.elasticsearch.xpack.esql.telemetry.FeatureMetric.LIMIT;
 import static org.elasticsearch.xpack.esql.telemetry.FeatureMetric.LOOKUP_JOIN;
 import static org.elasticsearch.xpack.esql.telemetry.FeatureMetric.LOOKUP_JOIN_ON_EXPRESSION;
 import static org.elasticsearch.xpack.esql.telemetry.FeatureMetric.MV_EXPAND;
+import static org.elasticsearch.xpack.esql.telemetry.FeatureMetric.PROMQL;
 import static org.elasticsearch.xpack.esql.telemetry.FeatureMetric.RENAME;
 import static org.elasticsearch.xpack.esql.telemetry.FeatureMetric.ROW;
 import static org.elasticsearch.xpack.esql.telemetry.FeatureMetric.SHOW;
@@ -47,8 +50,6 @@ import static org.elasticsearch.xpack.esql.telemetry.Metrics.FUNC_PREFIX;
 
 public class VerifierMetricsTests extends ESTestCase {
 
-    private EsqlParser parser = new EsqlParser();
-
     public void testDissectQuery() {
         Counters c = esql("from employees | dissect concat(first_name, \" \", last_name) \"%{a} %{b}\"");
         assertEquals(1L, dissect(c));
@@ -57,6 +58,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(0, limit(c));
         assertEquals(0, sort(c));
         assertEquals(0, stats(c));
+        assertEquals(0, promql(c));
         assertEquals(0, where(c));
         assertEquals(0, enrich(c));
         assertEquals(0, mvExpand(c));
@@ -70,6 +72,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(0, lookupJoinOnFields(c));
         assertEquals(0, lookupJoinOnExpression(c));
         assertEquals(0, inlineStats(c));
+        assertEquals(0, subqueryInFromCommand(c));
         assertEquals(1, function("concat", c));
     }
 
@@ -81,6 +84,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(0, limit(c));
         assertEquals(0, sort(c));
         assertEquals(0, stats(c));
+        assertEquals(0, promql(c));
         assertEquals(0, where(c));
         assertEquals(0, enrich(c));
         assertEquals(0, mvExpand(c));
@@ -94,6 +98,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(0, lookupJoinOnFields(c));
         assertEquals(0, lookupJoinOnExpression(c));
         assertEquals(0, inlineStats(c));
+        assertEquals(0, subqueryInFromCommand(c));
         assertEquals(1, function("length", c));
     }
 
@@ -105,6 +110,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(0, limit(c));
         assertEquals(0, sort(c));
         assertEquals(0, stats(c));
+        assertEquals(0, promql(c));
         assertEquals(0, where(c));
         assertEquals(0, enrich(c));
         assertEquals(0, mvExpand(c));
@@ -118,6 +124,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(0, lookupJoinOnFields(c));
         assertEquals(0, lookupJoinOnExpression(c));
         assertEquals(0, inlineStats(c));
+        assertEquals(0, subqueryInFromCommand(c));
         assertEquals(1, function("concat", c));
     }
 
@@ -129,6 +136,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(1L, limit(c));
         assertEquals(0, sort(c));
         assertEquals(0, stats(c));
+        assertEquals(0, promql(c));
         assertEquals(0, where(c));
         assertEquals(0, enrich(c));
         assertEquals(0, mvExpand(c));
@@ -142,6 +150,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(0, lookupJoinOnFields(c));
         assertEquals(0, lookupJoinOnExpression(c));
         assertEquals(0, inlineStats(c));
+        assertEquals(0, subqueryInFromCommand(c));
     }
 
     public void testSortQuery() {
@@ -152,6 +161,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(0, limit(c));
         assertEquals(1L, sort(c));
         assertEquals(0, stats(c));
+        assertEquals(0, promql(c));
         assertEquals(0, where(c));
         assertEquals(0, enrich(c));
         assertEquals(0, mvExpand(c));
@@ -165,6 +175,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(0, lookupJoinOnFields(c));
         assertEquals(0, lookupJoinOnExpression(c));
         assertEquals(0, inlineStats(c));
+        assertEquals(0, subqueryInFromCommand(c));
     }
 
     public void testStatsQuery() {
@@ -175,6 +186,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(0, limit(c));
         assertEquals(0, sort(c));
         assertEquals(1L, stats(c));
+        assertEquals(0, promql(c));
         assertEquals(0, where(c));
         assertEquals(0, enrich(c));
         assertEquals(0, mvExpand(c));
@@ -188,6 +200,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(0, lookupJoinOnFields(c));
         assertEquals(0, lookupJoinOnExpression(c));
         assertEquals(0, inlineStats(c));
+        assertEquals(0, subqueryInFromCommand(c));
         assertEquals(1, function("max", c));
     }
 
@@ -199,6 +212,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(0, limit(c));
         assertEquals(0, sort(c));
         assertEquals(0, stats(c));
+        assertEquals(0, promql(c));
         assertEquals(1L, where(c));
         assertEquals(0, enrich(c));
         assertEquals(0, mvExpand(c));
@@ -212,6 +226,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(0, lookupJoinOnFields(c));
         assertEquals(0, lookupJoinOnExpression(c));
         assertEquals(0, inlineStats(c));
+        assertEquals(0, subqueryInFromCommand(c));
     }
 
     public void testTwoWhereQuery() {
@@ -222,6 +237,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(1L, limit(c));
         assertEquals(1L, sort(c));
         assertEquals(0, stats(c));
+        assertEquals(0, promql(c));
         assertEquals(1L, where(c));
         assertEquals(0, enrich(c));
         assertEquals(0, mvExpand(c));
@@ -235,10 +251,11 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(0, lookupJoinOnFields(c));
         assertEquals(0, lookupJoinOnExpression(c));
         assertEquals(0, inlineStats(c));
+        assertEquals(0, subqueryInFromCommand(c));
     }
 
     public void testTwoQueriesExecuted() {
-        Metrics metrics = new Metrics(new EsqlFunctionRegistry());
+        Metrics metrics = new Metrics(TEST_FUNCTION_REGISTRY, true, true);
         Verifier verifier = new Verifier(metrics, new XPackLicenseState(() -> 0L));
         esqlWithVerifier("""
                from employees
@@ -265,6 +282,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(1L, limit(c));
         assertEquals(2L, sort(c));
         assertEquals(1L, stats(c));
+        assertEquals(0, promql(c));
         assertEquals(2L, where(c));
         assertEquals(0, enrich(c));
         assertEquals(0, mvExpand(c));
@@ -278,6 +296,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(0, lookupJoinOnFields(c));
         assertEquals(0, lookupJoinOnExpression(c));
         assertEquals(0, inlineStats(c));
+        assertEquals(0, subqueryInFromCommand(c));
 
         assertEquals(1, function("length", c));
         assertEquals(1, function("concat", c));
@@ -289,7 +308,7 @@ public class VerifierMetricsTests extends ESTestCase {
     }
 
     public void testMultipleFunctions() {
-        Metrics metrics = new Metrics(new EsqlFunctionRegistry());
+        Metrics metrics = new Metrics(TEST_FUNCTION_REGISTRY, true, true);
         Verifier verifier = new Verifier(metrics, new XPackLicenseState(() -> 0L));
         esqlWithVerifier("""
                from employees
@@ -322,7 +341,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(1, function("max", c));
         assertEquals(1, function("min", c));
 
-        EsqlFunctionRegistry fr = new EsqlFunctionRegistry().snapshotRegistry();
+        EsqlFunctionRegistry fr = TEST_FUNCTION_REGISTRY.snapshotRegistry();
         Map<Class<?>, String> functions = new HashMap<>();
         for (FunctionDefinition func : fr.listFunctions()) {
             if (functions.containsKey(func.clazz()) == false) {
@@ -352,6 +371,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(1L, limit(c));
         assertEquals(1L, sort(c));
         assertEquals(0, stats(c));
+        assertEquals(0, promql(c));
         assertEquals(0, where(c));
         assertEquals(1L, enrich(c));
         assertEquals(0, mvExpand(c));
@@ -365,6 +385,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(0, inlineStats(c));
         assertEquals(0, lookupJoinOnFields(c));
         assertEquals(0, lookupJoinOnExpression(c));
+        assertEquals(0, subqueryInFromCommand(c));
         assertEquals(1, function("to_string", c));
     }
 
@@ -385,6 +406,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(1L, limit(c));
         assertEquals(0, sort(c));
         assertEquals(0, stats(c));
+        assertEquals(0, promql(c));
         assertEquals(1L, where(c));
         assertEquals(0, enrich(c));
         assertEquals(1L, mvExpand(c));
@@ -398,6 +420,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(0, inlineStats(c));
         assertEquals(0, lookupJoinOnFields(c));
         assertEquals(0, lookupJoinOnExpression(c));
+        assertEquals(0, subqueryInFromCommand(c));
     }
 
     public void testShowInfo() {
@@ -408,6 +431,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(0, limit(c));
         assertEquals(0, sort(c));
         assertEquals(1L, stats(c));
+        assertEquals(0, promql(c));
         assertEquals(0, where(c));
         assertEquals(0, enrich(c));
         assertEquals(1L, mvExpand(c));
@@ -421,6 +445,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(0, inlineStats(c));
         assertEquals(0, lookupJoinOnFields(c));
         assertEquals(0, lookupJoinOnExpression(c));
+        assertEquals(0, subqueryInFromCommand(c));
         assertEquals(1, function("count", c));
     }
 
@@ -432,6 +457,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(0, limit(c));
         assertEquals(0, sort(c));
         assertEquals(0, stats(c));
+        assertEquals(0, promql(c));
         assertEquals(0, where(c));
         assertEquals(1L, enrich(c));
         assertEquals(0, mvExpand(c));
@@ -445,6 +471,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(0, inlineStats(c));
         assertEquals(0, lookupJoinOnFields(c));
         assertEquals(0, lookupJoinOnExpression(c));
+        assertEquals(0, subqueryInFromCommand(c));
     }
 
     public void testDropAndRename() {
@@ -455,6 +482,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(0, limit(c));
         assertEquals(1L, sort(c));
         assertEquals(1L, stats(c));
+        assertEquals(0, promql(c));
         assertEquals(0, where(c));
         assertEquals(0, enrich(c));
         assertEquals(0, mvExpand(c));
@@ -468,6 +496,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(0, inlineStats(c));
         assertEquals(0, lookupJoinOnFields(c));
         assertEquals(0, lookupJoinOnExpression(c));
+        assertEquals(0, subqueryInFromCommand(c));
         assertEquals(1, function("count", c));
     }
 
@@ -484,6 +513,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(0, limit(c));
         assertEquals(0, sort(c));
         assertEquals(0, stats(c));
+        assertEquals(0, promql(c));
         assertEquals(1L, where(c));
         assertEquals(0, enrich(c));
         assertEquals(0, mvExpand(c));
@@ -497,6 +527,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(0, inlineStats(c));
         assertEquals(0, lookupJoinOnFields(c));
         assertEquals(0, lookupJoinOnExpression(c));
+        assertEquals(0, subqueryInFromCommand(c));
     }
 
     public void testCategorize() {
@@ -511,6 +542,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(0, limit(c));
         assertEquals(0, sort(c));
         assertEquals(1L, stats(c));
+        assertEquals(0, promql(c));
         assertEquals(1L, where(c));
         assertEquals(0, enrich(c));
         assertEquals(0, mvExpand(c));
@@ -524,6 +556,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(0, inlineStats(c));
         assertEquals(0, lookupJoinOnFields(c));
         assertEquals(0, lookupJoinOnExpression(c));
+        assertEquals(0, subqueryInFromCommand(c));
         assertEquals(1, function("count", c));
         assertEquals(1, function("categorize", c));
     }
@@ -540,6 +573,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(0, limit(c));
         assertEquals(0, sort(c));
         assertEquals(0, stats(c));
+        assertEquals(0, promql(c));
         assertEquals(1L, where(c));
         assertEquals(0, enrich(c));
         assertEquals(0, mvExpand(c));
@@ -553,6 +587,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(1L, inlineStats(c));
         assertEquals(0, lookupJoinOnFields(c));
         assertEquals(0, lookupJoinOnExpression(c));
+        assertEquals(0, subqueryInFromCommand(c));
         assertEquals(1, function("max", c));
     }
 
@@ -569,6 +604,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(0, limit(c));
         assertEquals(0, sort(c));
         assertEquals(1L, stats(c));
+        assertEquals(0, promql(c));
         assertEquals(1L, where(c));
         assertEquals(0, enrich(c));
         assertEquals(0, mvExpand(c));
@@ -582,6 +618,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(1L, inlineStats(c));
         assertEquals(0, lookupJoinOnFields(c));
         assertEquals(0, lookupJoinOnExpression(c));
+        assertEquals(0, subqueryInFromCommand(c));
         assertEquals(1, function("max", c));
     }
 
@@ -597,6 +634,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(0, limit(c));
         assertEquals(0, sort(c));
         assertEquals(1L, stats(c));
+        assertEquals(0, promql(c));
         assertEquals(0, where(c));
         assertEquals(0, enrich(c));
         assertEquals(0, mvExpand(c));
@@ -610,6 +648,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(0, inlineStats(c));
         assertEquals(1L, lookupJoinOnFields(c));
         assertEquals(0, lookupJoinOnExpression(c));
+        assertEquals(0, subqueryInFromCommand(c));
         assertEquals(1, function("max", c));
     }
 
@@ -630,6 +669,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(0, limit(c));
         assertEquals(0, sort(c));
         assertEquals(1L, stats(c));
+        assertEquals(0, promql(c));
         assertEquals(0, where(c));
         assertEquals(0, enrich(c));
         assertEquals(0, mvExpand(c));
@@ -643,6 +683,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(0, inlineStats(c));
         assertEquals(0, lookupJoinOnFields(c));
         assertEquals(1L, lookupJoinOnExpression(c));
+        assertEquals(0, subqueryInFromCommand(c));
         assertEquals(1, function("max", c));
     }
 
@@ -659,6 +700,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(0, limit(c));
         assertEquals(0, sort(c));
         assertEquals(0, stats(c));
+        assertEquals(0, promql(c));
         assertEquals(0, where(c));
         assertEquals(0, enrich(c));
         assertEquals(0, mvExpand(c));
@@ -672,20 +714,22 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(1L, inlineStats(c));
         assertEquals(1L, lookupJoinOnFields(c));
         assertEquals(0, lookupJoinOnExpression(c));
+        assertEquals(0, subqueryInFromCommand(c));
         assertEquals(1, function("max", c));
     }
 
     public void testTimeSeriesAggregate() {
         assumeTrue("TS required", EsqlCapabilities.Cap.TS_COMMAND_V0.isEnabled());
         Counters c = esql("""
-            TS metrics
-            | STATS sum(avg_over_time(salary))""");
+            TS k8s
+            | STATS sum(avg_over_time(network.cost))""");
         assertEquals(0, dissect(c));
         assertEquals(0, eval(c));
         assertEquals(0, grok(c));
         assertEquals(0, limit(c));
         assertEquals(0, sort(c));
         assertEquals(1L, stats(c));
+        assertEquals(0, promql(c));
         assertEquals(0, where(c));
         assertEquals(0, enrich(c));
         assertEquals(0, mvExpand(c));
@@ -699,6 +743,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(0, inlineStats(c));
         assertEquals(0, lookupJoinOnFields(c));
         assertEquals(0, lookupJoinOnExpression(c));
+        assertEquals(0, subqueryInFromCommand(c));
         assertEquals(1, function("sum", c));
         assertEquals(1, function("avg_over_time", c));
     }
@@ -714,6 +759,7 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(0, limit(c));
         assertEquals(0, sort(c));
         assertEquals(0, stats(c));
+        assertEquals(0, promql(c));
         assertEquals(0, where(c));
         assertEquals(0, enrich(c));
         assertEquals(0, mvExpand(c));
@@ -727,6 +773,67 @@ public class VerifierMetricsTests extends ESTestCase {
         assertEquals(0, inlineStats(c));
         assertEquals(0, lookupJoinOnFields(c));
         assertEquals(0, lookupJoinOnExpression(c));
+        assertEquals(0, subqueryInFromCommand(c));
+    }
+
+    public void testBinaryPlanAfterSubqueryInFromCommand() {
+        assumeTrue("requires SUBQUERY IN FROM capability", EsqlCapabilities.Cap.SUBQUERY_IN_FROM_COMMAND.isEnabled());
+
+        Counters c = esql("""
+             from employees
+                      , (from employees | stats max = max(salary) by languages)
+                      , (from employees | stats min = min(salary) by languages)
+            | where min > 0 and max < 100000
+            """);
+        assertEquals(0, dissect(c));
+        assertEquals(1L, eval(c));
+        assertEquals(0, grok(c));
+        assertEquals(0, limit(c));
+        assertEquals(0, sort(c));
+        assertEquals(1L, stats(c));
+        assertEquals(0, promql(c));
+        assertEquals(1L, where(c));
+        assertEquals(0, enrich(c));
+        assertEquals(0, mvExpand(c));
+        assertEquals(0, show(c));
+        assertEquals(0, row(c));
+        assertEquals(1L, from(c));
+        assertEquals(0, ts(c));
+        assertEquals(0, drop(c));
+        assertEquals(0, keep(c));
+        assertEquals(0, rename(c));
+        assertEquals(0, inlineStats(c));
+        assertEquals(0, lookupJoinOnFields(c));
+        assertEquals(0, lookupJoinOnExpression(c));
+        assertEquals(1L, subqueryInFromCommand(c));
+        assertEquals(1L, function("max", c));
+        assertEquals(1L, function("min", c));
+    }
+
+    public void testPromql() {
+        Counters c = esql("""
+            PROMQL index=k8s step=5m sum(network.cost)""");
+        assertEquals(0, dissect(c));
+        assertEquals(0, eval(c));
+        assertEquals(0, grok(c));
+        assertEquals(0, limit(c));
+        assertEquals(0, sort(c));
+        assertEquals(0, stats(c));
+        assertEquals(1, promql(c));
+        assertEquals(0, where(c));
+        assertEquals(0, enrich(c));
+        assertEquals(0, mvExpand(c));
+        assertEquals(0, show(c));
+        assertEquals(0, row(c));
+        assertEquals(0, from(c));
+        assertEquals(1L, ts(c));
+        assertEquals(0, drop(c));
+        assertEquals(0, keep(c));
+        assertEquals(0, rename(c));
+        assertEquals(0, inlineStats(c));
+        assertEquals(0, lookupJoinOnFields(c));
+        assertEquals(0, lookupJoinOnExpression(c));
+        assertEquals(0, subqueryInFromCommand(c));
     }
 
     private long dissect(Counters c) {
@@ -781,6 +888,10 @@ public class VerifierMetricsTests extends ESTestCase {
         return c.get(FEATURES_PREFIX + TS);
     }
 
+    private long promql(Counters c) {
+        return c.get(FEATURES_PREFIX + PROMQL);
+    }
+
     private long drop(Counters c) {
         return c.get(FEATURES_PREFIX + DROP);
     }
@@ -803,6 +914,10 @@ public class VerifierMetricsTests extends ESTestCase {
 
     private long lookupJoinOnExpression(Counters c) {
         return c.get(FEATURES_PREFIX + LOOKUP_JOIN_ON_EXPRESSION);
+    }
+
+    private long subqueryInFromCommand(Counters c) {
+        return c.get(FEATURES_PREFIX + FeatureMetric.SUBQUERY);
     }
 
     private long function(String function, Counters c) {
@@ -830,10 +945,16 @@ public class VerifierMetricsTests extends ESTestCase {
         Verifier verifier = v;
         Metrics metrics = null;
         if (v == null) {
-            metrics = new Metrics(new EsqlFunctionRegistry());
+            metrics = new Metrics(TEST_FUNCTION_REGISTRY, true, true);
             verifier = new Verifier(metrics, new XPackLicenseState(() -> 0L));
         }
-        analyzer(verifier).analyze(parser.createStatement(esql));
+        analyzer().addIndex("metrics", "mapping-basic.json", IndexMode.TIME_SERIES)
+            .addK8s()
+            .addEmployees()
+            .addAnalysisTestsEnrichResolution()
+            .addLanguagesLookup()
+            .buildAnalyzer(verifier)
+            .analyze(TEST_PARSER.parseQuery(esql));
 
         return metrics == null ? null : metrics.stats();
     }

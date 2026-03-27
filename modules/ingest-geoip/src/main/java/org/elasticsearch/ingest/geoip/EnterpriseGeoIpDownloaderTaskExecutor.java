@@ -99,7 +99,7 @@ public class EnterpriseGeoIpDownloaderTaskExecutor extends PersistentTasksExecut
             this.pollInterval = pollInterval;
             EnterpriseGeoIpDownloader currentDownloader = getCurrentTask();
             if (currentDownloader != null) {
-                currentDownloader.requestReschedule();
+                currentDownloader.restartPeriodicRun();
             }
         }
     }
@@ -144,13 +144,18 @@ public class EnterpriseGeoIpDownloaderTaskExecutor extends PersistentTasksExecut
     }
 
     @Override
+    public boolean automaticReassignmentOnShutdown() {
+        return false;
+    }
+
+    @Override
     protected void nodeOperation(AllocatedPersistentTask task, EnterpriseGeoIpTaskParams params, PersistentTaskState state) {
         EnterpriseGeoIpDownloader downloader = (EnterpriseGeoIpDownloader) task;
         EnterpriseGeoIpTaskState geoIpTaskState = (state == null) ? EnterpriseGeoIpTaskState.EMPTY : (EnterpriseGeoIpTaskState) state;
         downloader.setState(geoIpTaskState);
         currentTask.set(downloader);
         if (ENABLED_SETTING.get(clusterService.state().metadata().settings(), settings)) {
-            downloader.runDownloader();
+            downloader.restartPeriodicRun();
         }
     }
 
@@ -165,7 +170,8 @@ public class EnterpriseGeoIpDownloaderTaskExecutor extends PersistentTasksExecut
             boolean hasGeoIpMetadataChanges = event.metadataChanged()
                 && event.changedCustomProjectMetadataSet().contains(IngestGeoIpMetadata.TYPE);
             if (hasGeoIpMetadataChanges) {
-                currentDownloader.requestReschedule(); // watching the cluster changed events to kick the thing off if it's not running
+                // watching the cluster changed events to kick the thing off if it's not running
+                currentDownloader.requestRunOnDemand();
             }
         }
     }

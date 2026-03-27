@@ -37,18 +37,15 @@ public final class IrateIntGroupingAggregatorFunction implements GroupingAggrega
 
   private final boolean isDelta;
 
-  public IrateIntGroupingAggregatorFunction(List<Integer> channels,
-      IrateIntAggregator.IntIrateGroupingState state, DriverContext driverContext,
-      boolean isDelta) {
-    this.channels = channels;
-    this.state = state;
-    this.driverContext = driverContext;
-    this.isDelta = isDelta;
-  }
+  private final boolean isDateNanos;
 
-  public static IrateIntGroupingAggregatorFunction create(List<Integer> channels,
-      DriverContext driverContext, boolean isDelta) {
-    return new IrateIntGroupingAggregatorFunction(channels, IrateIntAggregator.initGrouping(driverContext, isDelta), driverContext, isDelta);
+  IrateIntGroupingAggregatorFunction(List<Integer> channels, DriverContext driverContext,
+      boolean isDelta, boolean isDateNanos) {
+    this.isDelta = isDelta;
+    this.isDateNanos = isDateNanos;
+    this.channels = channels;
+    this.state = IrateIntAggregator.initGrouping(driverContext, isDelta, isDateNanos);
+    this.driverContext = driverContext;
   }
 
   public static List<IntermediateStateDesc> intermediateStateDesc() {
@@ -367,14 +364,24 @@ public final class IrateIntGroupingAggregatorFunction implements GroupingAggrega
   }
 
   @Override
-  public void evaluateIntermediate(Block[] blocks, int offset, IntVector selected) {
-    state.toIntermediate(blocks, offset, selected, driverContext);
+  public GroupingAggregatorFunction.PreparedForEvaluation prepareEvaluateIntermediate(
+      IntVector selected, GroupingAggregatorEvaluationContext ctx) {
+    return this::evaluateIntermediate;
+  }
+
+  private void evaluateIntermediate(Block[] blocks, int offset, IntVector selectedInPage) {
+    state.toIntermediate(blocks, offset, selectedInPage, driverContext);
   }
 
   @Override
-  public void evaluateFinal(Block[] blocks, int offset, IntVector selected,
+  public GroupingAggregatorFunction.PreparedForEvaluation prepareEvaluateFinal(IntVector selected,
       GroupingAggregatorEvaluationContext ctx) {
-    blocks[offset] = IrateIntAggregator.evaluateFinal(state, selected, ctx);
+    return (blocks, offset, selectedInPage) -> evaluateFinal(blocks, offset, selectedInPage, ctx);
+  }
+
+  private void evaluateFinal(Block[] blocks, int offset, IntVector selectedInPage,
+      GroupingAggregatorEvaluationContext ctx) {
+    blocks[offset] = IrateIntAggregator.evaluateFinal(state, selectedInPage, ctx);
   }
 
   @Override
