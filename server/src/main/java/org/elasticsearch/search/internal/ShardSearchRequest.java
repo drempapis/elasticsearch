@@ -56,7 +56,7 @@ import java.io.IOException;
 import java.util.Map;
 
 import static java.util.Collections.emptyMap;
-import static org.elasticsearch.search.fetch.chunk.TransportFetchPhaseCoordinationAction.CHUNKED_FETCH_PHASE;
+import static org.elasticsearch.search.fetch.chunk.TransportFetchPhaseCoordinationAction.CHUNKED_FETCH_DOC_ID_ORDER;
 import static org.elasticsearch.search.internal.SearchContext.TRACK_TOTAL_HITS_DISABLED;
 
 /**
@@ -331,7 +331,7 @@ public class ShardSearchRequest extends AbstractTransportRequest implements Indi
 
         originalIndices = OriginalIndices.readOriginalIndices(in);
 
-        if (in.getTransportVersion().supports(CHUNKED_FETCH_PHASE)) {
+        if (in.getTransportVersion().supports(CHUNKED_FETCH_DOC_ID_ORDER)) {
             coordinatingNode = in.readOptionalWriteable(DiscoveryNode::new);
         }
     }
@@ -342,7 +342,7 @@ public class ShardSearchRequest extends AbstractTransportRequest implements Indi
         innerWriteTo(out, false);
         OriginalIndices.writeOriginalIndices(originalIndices, out);
 
-        if (out.getTransportVersion().supports(CHUNKED_FETCH_PHASE)) {
+        if (out.getTransportVersion().supports(CHUNKED_FETCH_DOC_ID_ORDER)) {
             out.writeOptionalWriteable(coordinatingNode);
         }
     }

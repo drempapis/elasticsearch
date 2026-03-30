@@ -27,7 +27,7 @@ import org.elasticsearch.transport.LeakTracker;
 
 import java.io.IOException;
 
-import static org.elasticsearch.search.fetch.chunk.TransportFetchPhaseCoordinationAction.CHUNKED_FETCH_PHASE;
+import static org.elasticsearch.search.fetch.chunk.TransportFetchPhaseCoordinationAction.CHUNKED_FETCH_DOC_ID_ORDER;
 
 public final class FetchSearchResult extends SearchPhaseResult {
 
@@ -72,7 +72,7 @@ public final class FetchSearchResult extends SearchPhaseResult {
         hits = SearchHits.readFrom(in, true);
         profileResult = in.readOptionalWriteable(ProfileResult::new);
 
-        if (in.getTransportVersion().supports(CHUNKED_FETCH_PHASE)) {
+        if (in.getTransportVersion().supports(CHUNKED_FETCH_DOC_ID_ORDER)) {
             lastChunkSequenceStart = in.readLong();
             lastChunkHitCount = in.readInt();
             if (lastChunkHitCount > 0) {
@@ -88,7 +88,7 @@ public final class FetchSearchResult extends SearchPhaseResult {
         hits.writeTo(out);
         out.writeOptionalWriteable(profileResult);
 
-        if (out.getTransportVersion().supports(CHUNKED_FETCH_PHASE)) {
+        if (out.getTransportVersion().supports(CHUNKED_FETCH_DOC_ID_ORDER)) {
             out.writeLong(lastChunkSequenceStart);
             out.writeInt(lastChunkHitCount);
             if (lastChunkHitCount > 0 && lastChunkBytes != null) {
