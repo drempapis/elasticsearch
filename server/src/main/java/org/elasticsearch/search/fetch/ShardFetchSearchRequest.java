@@ -25,7 +25,7 @@ import org.elasticsearch.search.rank.RankDocShardInfo;
 import java.io.IOException;
 import java.util.List;
 
-import static org.elasticsearch.search.fetch.chunk.TransportFetchPhaseCoordinationAction.CHUNKED_FETCH_DOC_ID_ORDER;
+import static org.elasticsearch.search.fetch.chunk.TransportFetchPhaseCoordinationAction.CHUNKED_FETCH_PHASE;
 
 /**
  * Shard level fetch request used with search. Holds indices taken from the original search request
@@ -67,7 +67,7 @@ public class ShardFetchSearchRequest extends ShardFetchRequest implements Indice
         aggregatedDfs = in.readOptionalWriteable(AggregatedDfs::new);
         this.rankDocs = in.readOptionalWriteable(RankDocShardInfo::new);
 
-        if (in.getTransportVersion().supports(CHUNKED_FETCH_DOC_ID_ORDER)) {
+        if (in.getTransportVersion().supports(CHUNKED_FETCH_PHASE)) {
             coordinatingNode = in.readOptionalWriteable(DiscoveryNode::new);
             coordinatingTaskId = in.readLong();
         }
@@ -82,7 +82,7 @@ public class ShardFetchSearchRequest extends ShardFetchRequest implements Indice
         out.writeOptionalWriteable(aggregatedDfs);
         out.writeOptionalWriteable(rankDocs);
 
-        if (out.getTransportVersion().supports(CHUNKED_FETCH_DOC_ID_ORDER)) {
+        if (out.getTransportVersion().supports(CHUNKED_FETCH_PHASE)) {
             out.writeOptionalWriteable(coordinatingNode);
             out.writeLong(coordinatingTaskId);
         }
