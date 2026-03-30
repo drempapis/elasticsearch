@@ -80,16 +80,12 @@ public class AbstractThrottledTaskRunner<T extends ActionListener<Releasable>> {
     private void pollAndSpawn() {
         // Only one thread may be in the polling loop at a time. Re-entrant calls (from releasable.close()
         // when a task completes synchronously) and concurrent calls from other threads return immediately
-        for (;;) {
-            if (pollAndSpawnPermit.compareAndSet(false, true) == false) {
-                return;
-            }
+        while (pollAndSpawnPermit.compareAndSet(false, true)) {
             try {
                 pollAndSpawnLoop();
             } finally {
                 pollAndSpawnPermit.set(false);
             }
-
             if (tasks.peek() == null || runningTasks.get() >= maxRunningTasks) {
                 return;
             }
@@ -97,9 +93,8 @@ public class AbstractThrottledTaskRunner<T extends ActionListener<Releasable>> {
     }
 
     private void pollAndSpawnLoop() {
-        // A pollAndSpawn attempts to run a new task. There could be many concurrent pollAndSpawn calls competing
-        // to get a "free slot", since we attempt to run a new task on every enqueueTask call and every time an
-        // existing task is finished.
+        // Only one thread runs this loop at a time (guarded by pollAndSpawnPermit in pollAndSpawn).
+        // It attempts to fill free slots with queued tasks.
         while (incrementRunningTasks()) {
             T task = tasks.poll();
             if (task == null) {
