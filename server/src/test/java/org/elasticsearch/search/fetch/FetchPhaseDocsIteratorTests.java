@@ -638,17 +638,7 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
         CountDownLatch refsComplete = new CountDownLatch(1);
         RefCountingListener refs = new RefCountingListener(ActionListener.running(refsComplete::countDown));
 
-        it.iterateAsync(
-            createShardTarget(),
-            reader,
-            docIds,
-            chunkWriter,
-            1024 * 1024,
-            refs,
-            4,
-            sendFailure,
-            cancelled::get,
-            future);
+        it.iterateAsync(createShardTarget(), reader, docIds, chunkWriter, 1024 * 1024, refs, 4, sendFailure, cancelled::get, future);
 
         IterateResult result = future.get(10, TimeUnit.SECONDS);
         refs.close();
