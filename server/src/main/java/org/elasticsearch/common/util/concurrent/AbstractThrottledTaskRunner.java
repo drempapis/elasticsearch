@@ -38,7 +38,6 @@ public class AbstractThrottledTaskRunner<T extends ActionListener<Releasable>> {
     private final AtomicInteger runningTasks = new AtomicInteger();
     private final Queue<T> tasks;
     private final Executor executor;
-    private final AtomicBoolean pollAndSpawnPermit = new AtomicBoolean();
 
     public AbstractThrottledTaskRunner(final String name, final int maxRunningTasks, final Executor executor, final Queue<T> taskQueue) {
         assert maxRunningTasks > 0;
@@ -78,23 +77,9 @@ public class AbstractThrottledTaskRunner<T extends ActionListener<Releasable>> {
     }
 
     private void pollAndSpawn() {
-        // Only one thread may be in the polling loop at a time. Re-entrant calls (from releasable.close()
-        // when a task completes synchronously) and concurrent calls from other threads return immediately
-        while (pollAndSpawnPermit.compareAndSet(false, true)) {
-            try {
-                pollAndSpawnLoop();
-            } finally {
-                pollAndSpawnPermit.set(false);
-            }
-            if (tasks.peek() == null || runningTasks.get() >= maxRunningTasks) {
-                return;
-            }
-        }
-    }
-
-    private void pollAndSpawnLoop() {
-        // Only one thread runs this loop at a time (guarded by pollAndSpawnPermit in pollAndSpawn).
-        // It attempts to fill free slots with queued tasks.
+        // A pollAndSpawn attempts to run a new task. There could be many concurrent pollAndSpawn calls competing
+        // to get a "free slot", since we attempt to run a new task on every enqueueTask call and every time an
+        // existing task is finished.
         while (incrementRunningTasks()) {
             T task = tasks.poll();
             if (task == null) {
@@ -111,6 +96,11 @@ public class AbstractThrottledTaskRunner<T extends ActionListener<Releasable>> {
                 if (tasks.peek() == null) break;
             } else {
                 final boolean isForceExecution = isForceExecution(task);
+                // Detects whether the task completes inline (during executor.execute) or asynchronously.
+                // Whichever side CAS's first takes responsibility for continuing work via the while loop;
+                // the other side calls pollAndSpawn. This prevents stack overflow with direct executors
+                // while preserving concurrent pollAndSpawn for async executors.
+                final var chainedCall = new AtomicBoolean(false);
                 executor.execute(new AbstractRunnable() {
                     private boolean rejected; // need not be volatile - if we're rejected then that happens-before calling onAfter
 
@@ -120,7 +110,7 @@ public class AbstractThrottledTaskRunner<T extends ActionListener<Releasable>> {
                         int decremented = runningTasks.decrementAndGet();
                         assert decremented >= 0;
 
-                        if (rejected == false) {
+                        if (rejected == false && chainedCall.compareAndSet(false, true) == false) {
                             pollAndSpawn();
                         }
                     });
@@ -160,6 +150,8 @@ public class AbstractThrottledTaskRunner<T extends ActionListener<Releasable>> {
                         return task.toString();
                     }
                 });
+
+                chainedCall.compareAndSet(false, true);
             }
         }
     }
