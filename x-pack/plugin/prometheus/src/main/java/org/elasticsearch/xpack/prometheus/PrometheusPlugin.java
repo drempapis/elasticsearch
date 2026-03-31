@@ -22,6 +22,7 @@ import org.elasticsearch.plugins.Plugin;
 import org.elasticsearch.rest.RestHandler;
 import org.elasticsearch.xpack.core.XPackSettings;
 import org.elasticsearch.xpack.prometheus.rest.PrometheusLabelValuesRestAction;
+import org.elasticsearch.xpack.prometheus.rest.PrometheusLabelsRestAction;
 import org.elasticsearch.xpack.prometheus.rest.PrometheusQueryRangeRestAction;
 import org.elasticsearch.xpack.prometheus.rest.PrometheusRemoteWriteRestAction;
 import org.elasticsearch.xpack.prometheus.rest.PrometheusRemoteWriteTransportAction;
@@ -99,6 +100,7 @@ public class PrometheusPlugin extends Plugin implements ActionPlugin {
             return List.of(
                 new PrometheusRemoteWriteRestAction(indexingPressure.get(), maxProtobufContentLengthBytes, recycler.get()),
                 new PrometheusQueryRangeRestAction(),
+                new PrometheusLabelsRestAction(),
                 new PrometheusLabelValuesRestAction()
             );
         }
