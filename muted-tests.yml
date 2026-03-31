@@ -75,9 +75,6 @@ tests:
 - class: org.elasticsearch.index.engine.CompletionStatsCacheTests
   method: testCompletionStatsCache
   issue: https://github.com/elastic/elasticsearch/issues/126910
-- class: org.elasticsearch.xpack.ml.integration.ClassificationHousePricingIT
-  method: testFeatureImportanceValues
-  issue: https://github.com/elastic/elasticsearch/issues/124341
 - class: org.elasticsearch.xpack.ccr.action.ShardFollowTaskReplicationTests
   method: testChangeFollowerHistoryUUID
   issue: https://github.com/elastic/elasticsearch/issues/127680
@@ -129,9 +126,6 @@ tests:
 - class: org.elasticsearch.search.basic.SearchWithRandomDisconnectsIT
   method: testSearchWithRandomDisconnects
   issue: https://github.com/elastic/elasticsearch/issues/138128
-- class: org.elasticsearch.xpack.ml.integration.RegressionIT
-  method: testTwoJobsWithSameRandomizeSeedUseSameTrainingSet
-  issue: https://github.com/elastic/elasticsearch/issues/138319
 - class: org.elasticsearch.smoketest.SmokeTestMultiNodeClientYamlTestSuiteIT
   method: test {yaml=termvectors/30_realtime/Realtime Term Vectors}
   issue: https://github.com/elastic/elasticsearch/issues/138370
@@ -404,6 +398,12 @@ tests:
 - class: org.elasticsearch.xpack.esql.qa.mixed.MixedClusterEsqlSpecIT
   method: test {csv-spec:external-basic.topSnippetsFunction}
   issue: https://github.com/elastic/elasticsearch/issues/145353
+- class: org.elasticsearch.xpack.sql.qa.jdbc.single_node.SingleNodeJdbcResultSetIT
+  method: testGettingInvalidBigInteger
+  issue: https://github.com/elastic/elasticsearch/issues/145355
+- class: org.elasticsearch.xpack.sql.qa.jdbc.single_node.SingleNodeJdbcResultSetIT
+  method: testGettingBooleanValuesFromUnsignedLong
+  issue: https://github.com/elastic/elasticsearch/issues/145358
 
 # Examples:
 #
