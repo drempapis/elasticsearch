@@ -96,13 +96,9 @@ public class AbstractThrottledTaskRunner<T extends ActionListener<Releasable>> {
                 if (tasks.peek() == null) break;
             } else {
                 final boolean isForceExecution = isForceExecution(task);
-                // Detects whether the task completes inline (during executor.execute) or asynchronously.
-                // Whichever side CAS's first takes responsibility for continuing work via the while loop;
-                // the other side calls pollAndSpawn. This prevents stack overflow with direct executors
-                // while preserving concurrent pollAndSpawn for async executors.
-                final var chainedCall = new AtomicBoolean(false);
-                executor.execute(new AbstractRunnable() {
+                var runnable = new AbstractRunnable() {
                     private boolean rejected; // need not be volatile - if we're rejected then that happens-before calling onAfter
+                    private volatile boolean callerLoopProceeded;
 
                     private final Releasable releasable = Releasables.releaseOnce(() -> {
                         // To avoid missing to run tasks that are enqueued and waiting, we check the queue again once running
@@ -110,7 +106,7 @@ public class AbstractThrottledTaskRunner<T extends ActionListener<Releasable>> {
                         int decremented = runningTasks.decrementAndGet();
                         assert decremented >= 0;
 
-                        if (rejected == false && chainedCall.compareAndSet(false, true) == false) {
+                        if (rejected == false && callerLoopProceeded) {
                             pollAndSpawn();
                         }
                     });
@@ -149,9 +145,9 @@ public class AbstractThrottledTaskRunner<T extends ActionListener<Releasable>> {
                     public String toString() {
                         return task.toString();
                     }
-                });
-
-                chainedCall.compareAndSet(false, true);
+                };
+                executor.execute(runnable);
+                runnable.callerLoopProceeded = true;
             }
         }
     }
