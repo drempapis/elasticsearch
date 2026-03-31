@@ -96,7 +96,7 @@ public class AbstractThrottledTaskRunner<T extends ActionListener<Releasable>> {
                 if (tasks.peek() == null) break;
             } else {
                 final boolean isForceExecution = isForceExecution(task);
-                var runnable = new AbstractRunnable() {
+                executor.execute(new AbstractRunnable() {
                     private boolean rejected; // need not be volatile - if we're rejected then that happens-before calling onAfter
                     private volatile boolean callerLoopProceeded;
 
@@ -142,12 +142,15 @@ public class AbstractThrottledTaskRunner<T extends ActionListener<Releasable>> {
                     }
 
                     @Override
+                    public void onAfter() {
+                        callerLoopProceeded = true;
+                    }
+
+                    @Override
                     public String toString() {
                         return task.toString();
                     }
-                };
-                executor.execute(runnable);
-                runnable.callerLoopProceeded = true;
+                });
             }
         }
     }
