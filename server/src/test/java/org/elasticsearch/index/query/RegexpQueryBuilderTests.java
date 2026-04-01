@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.IntStream;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.instanceOf;
 
@@ -145,6 +146,13 @@ public class RegexpQueryBuilderTests extends AbstractQueryTestCase<RegexpQueryBu
             }""";
         e = expectThrows(ParsingException.class, () -> parseQuery(shortJson));
         assertEquals("[regexp] query doesn't support multiple fields, found [user1] and [user2]", e.getMessage());
+    }
+
+    public void testPathologicalQuantifierStackingRejected() {
+        RegexpQueryBuilder query = new RegexpQueryBuilder(TEXT_FIELD_NAME, "(.[^A-Za-z0-9_])?carhartt++++++++++++++++++++++++++++++.?");
+        SearchExecutionContext context = createSearchExecutionContext();
+        IllegalArgumentException e = expectThrows(IllegalArgumentException.class, () -> query.toQuery(context));
+        assertThat(e.getMessage(), containsString("consecutive repetition operators"));
     }
 
     public void testRegexpQueryCircuitBreakerAccounting() throws IOException {

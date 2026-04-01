@@ -1174,6 +1174,7 @@ public final class KeywordFieldMapper extends FieldMapper {
             if (indexType.hasTerms()) {
                 return super.regexpQuery(value, syntaxFlags, matchFlags, maxDeterminizedStates, method, context);
             } else {
+                AutomatonQueries.validateRegexRepetitionDepth(value, AutomatonQueries.MAX_CONSECUTIVE_REGEX_QUANTIFIERS);
                 if (matchFlags != 0) {
                     throw new IllegalArgumentException("Match flags not yet implemented [" + matchFlags + "]");
                 }

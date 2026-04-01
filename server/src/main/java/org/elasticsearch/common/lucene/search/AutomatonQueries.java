@@ -117,6 +117,71 @@ public class AutomatonQueries {
         return a;
     }
 
+    /**
+     * Maximum number of consecutive repetition operators ({@code +}, {@code *}, {@code ?}) allowed
+     * in a regex pattern. Stacking more than this many is always semantically redundant (e.g.
+     * {@code x+++} = {@code x+}) and causes exponential NFA growth in Lucene's
+     * {@code RegExp.toAutomaton()}.
+     */
+    public static final int MAX_CONSECUTIVE_REGEX_QUANTIFIERS = 2;
+
+    /**
+     * Validates that a Lucene regex pattern does not contain more than {@code maxConsecutiveQuantifiers}
+     * consecutive repetition operators ({@code +}, {@code *}, {@code ?}). Stacking quantifiers beyond
+     * two is semantically redundant and causes exponential NFA state growth in
+     * {@link org.apache.lucene.util.automaton.RegExp#toAutomaton()}, leading to OOM.
+     * <p>
+     * The scan respects escape sequences ({@code \+}), character classes ({@code [+*?]}), and
+     * Lucene quoted strings ({@code "+++"}) where these characters are literals.
+     *
+     * @param pattern                  the raw regex pattern string
+     * @param maxConsecutiveQuantifiers the maximum allowed consecutive quantifier operators
+     * @throws IllegalArgumentException if the pattern exceeds the limit
+     */
+    public static void validateRegexRepetitionDepth(String pattern, int maxConsecutiveQuantifiers) {
+        final int length = pattern.length();
+        int consecutive = 0;
+        boolean inCharClass = false;
+        boolean inQuotedString = false;
+        for (int i = 0; i < length; i++) {
+            char c = pattern.charAt(i);
+            if (c == '\\' && i + 1 < length) {
+                i++;
+                consecutive = 0;
+            } else if (inQuotedString) {
+                if (c == '"') {
+                    inQuotedString = false;
+                }
+                consecutive = 0;
+            } else if (inCharClass) {
+                if (c == ']') {
+                    inCharClass = false;
+                }
+                consecutive = 0;
+            } else if (c == '"') {
+                inQuotedString = true;
+                consecutive = 0;
+            } else if (c == '[') {
+                inCharClass = true;
+                consecutive = 0;
+            } else if (c == '+' || c == '*' || c == '?') {
+                if (++consecutive > maxConsecutiveQuantifiers) {
+                    throw new IllegalArgumentException(
+                        "Regex pattern has ["
+                            + consecutive
+                            + "] consecutive repetition operators at position ["
+                            + i
+                            + "], exceeding the maximum allowed ["
+                            + maxConsecutiveQuantifiers
+                            + "]. Simplify the pattern to avoid redundant quantifiers."
+                    );
+                }
+            } else {
+                consecutive = 0;
+            }
+        }
+    }
+
     public static Automaton toCaseInsensitiveChar(int codepoint) {
         Automaton case1 = Automata.makeChar(codepoint);
         // For now we only work with ASCII characters

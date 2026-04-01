@@ -24,6 +24,7 @@ import org.apache.lucene.util.BytesRefBuilder;
 import org.apache.lucene.util.automaton.Operations;
 import org.elasticsearch.ElasticsearchException;
 import org.elasticsearch.common.lucene.BytesRefs;
+import org.elasticsearch.common.lucene.search.AutomatonQueries;
 import org.elasticsearch.common.lucene.search.CaseInsensitivePrefixQuery;
 import org.elasticsearch.common.lucene.search.CaseInsensitiveWildcardQuery;
 import org.elasticsearch.common.unit.Fuzziness;
@@ -201,6 +202,7 @@ public abstract class StringFieldType extends TermBasedFieldType {
             );
         }
         failIfNotIndexed();
+        AutomatonQueries.validateRegexRepetitionDepth(value, AutomatonQueries.MAX_CONSECUTIVE_REGEX_QUANTIFIERS);
         AutomatonQuery query = method == null
             ? new RegexpQuery(new Term(name(), indexedValueForSearch(value)), syntaxFlags, matchFlags, maxDeterminizedStates)
             : new RegexpQuery(
