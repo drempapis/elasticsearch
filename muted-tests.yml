@@ -375,6 +375,9 @@ tests:
 - class: org.elasticsearch.xpack.esql.CsvTests
   method: test {csv-spec:inlinestats.maxOfLongByKeyword}
   issue: https://github.com/elastic/elasticsearch/issues/145433
+- class: org.elasticsearch.xpack.sql.qa.jdbc.single_node.SingleNodeJdbcResultSetIT
+  method: testGettingValidLongWithCasting
+  issue: https://github.com/elastic/elasticsearch/issues/145435
 
 # Examples:
 #
