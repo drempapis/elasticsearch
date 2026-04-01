@@ -11,10 +11,15 @@ package org.elasticsearch.common.lucene.search;
 
 import org.apache.lucene.index.Term;
 import org.apache.lucene.search.AutomatonQuery;
+import org.apache.lucene.search.WildcardQuery;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.automaton.Automata;
 import org.apache.lucene.util.automaton.Automaton;
 import org.apache.lucene.util.automaton.Operations;
+import org.apache.lucene.util.automaton.RegExp;
+import org.elasticsearch.common.breaker.CircuitBreaker;
+import org.elasticsearch.core.Nullable;
+import org.elasticsearch.lucene.util.automaton.CircuitBreakingOperations;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -69,6 +74,57 @@ public class AutomatonQueries {
      */
     @SuppressWarnings("fallthrough")
     public static Automaton toCaseInsensitiveWildcardAutomaton(Term wildcardquery) {
+        return toCaseInsensitiveWildcardAutomaton(wildcardquery, null);
+    }
+
+    /**
+     * Convert Lucene wildcard syntax into an automaton, optionally checking a circuit breaker
+     * during determinization to prevent OOM from huge automatons.
+     */
+    public static Automaton toCaseInsensitiveWildcardAutomaton(Term wildcardquery, @Nullable CircuitBreaker circuitBreaker) {
+        Automaton nfa = toCaseInsensitiveWildcardNFA(wildcardquery);
+        return CircuitBreakingOperations.determinize(
+            nfa,
+            Operations.DEFAULT_DETERMINIZE_WORK_LIMIT,
+            circuitBreaker,
+            "wildcard-ci:" + wildcardquery.field()
+        );
+    }
+
+    /**
+     * Convert Lucene wildcard syntax into a case-sensitive automaton, optionally checking a circuit breaker
+     * during determinization to prevent OOM from huge automatons.
+     */
+    public static Automaton toWildcardAutomaton(Term wildcardquery, @Nullable CircuitBreaker circuitBreaker) {
+        Automaton nfa = toWildcardNFA(wildcardquery);
+        return CircuitBreakingOperations.determinize(
+            nfa,
+            Operations.DEFAULT_DETERMINIZE_WORK_LIMIT,
+            circuitBreaker,
+            "wildcard:" + wildcardquery.field()
+        );
+    }
+
+    /**
+     * Build a deterministic automaton from a regular expression, optionally checking a circuit breaker
+     * during determinization to prevent OOM from huge automatons.
+     */
+    public static Automaton toRegexpAutomaton(
+        Term term,
+        int syntaxFlags,
+        int matchFlags,
+        int maxDeterminizedStates,
+        @Nullable CircuitBreaker circuitBreaker
+    ) {
+        Automaton nfa = new RegExp(term.text(), syntaxFlags, matchFlags).toAutomaton();
+        return CircuitBreakingOperations.determinize(nfa, maxDeterminizedStates, circuitBreaker, "regexp:" + term.field());
+    }
+
+    /**
+     * Build the NFA for a case-insensitive wildcard pattern without determinizing.
+     */
+    @SuppressWarnings("fallthrough")
+    static Automaton toCaseInsensitiveWildcardNFA(Term wildcardquery) {
         List<Automaton> automata = new ArrayList<>();
 
         String wildcardText = wildcardquery.text();
@@ -97,7 +153,43 @@ public class AutomatonQueries {
             i += length;
         }
 
-        return Operations.determinize(Operations.concatenate(automata), Operations.DEFAULT_DETERMINIZE_WORK_LIMIT);
+        return Operations.concatenate(automata);
+    }
+
+    /**
+     * Build the NFA for a case-sensitive wildcard pattern without determinizing.
+     * This mirrors {@link WildcardQuery#toAutomaton(Term, int)} but stops before the determinize step.
+     */
+    public static Automaton toWildcardNFA(Term wildcardquery) {
+        List<Automaton> automata = new ArrayList<>();
+
+        String wildcardText = wildcardquery.text();
+
+        for (int i = 0; i < wildcardText.length();) {
+            final int c = wildcardText.codePointAt(i);
+            int length = Character.charCount(c);
+            switch (c) {
+                case WILDCARD_STRING:
+                    automata.add(Automata.makeAnyString());
+                    break;
+                case WILDCARD_CHAR:
+                    automata.add(Automata.makeAnyChar());
+                    break;
+                case WILDCARD_ESCAPE:
+                    // add the next codepoint instead, if it exists
+                    if (i + length < wildcardText.length()) {
+                        final int nextChar = wildcardText.codePointAt(i + length);
+                        length += Character.charCount(nextChar);
+                        automata.add(Automata.makeChar(nextChar));
+                        break;
+                    } // else fallthru, lenient parsing with a trailing \
+                default:
+                    automata.add(Automata.makeChar(c));
+            }
+            i += length;
+        }
+
+        return Operations.concatenate(automata);
     }
 
     protected static Automaton toCaseInsensitiveString(BytesRef br) {
