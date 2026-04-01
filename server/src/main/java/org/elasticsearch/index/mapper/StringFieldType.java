@@ -193,9 +193,7 @@ public abstract class StringFieldType extends TermBasedFieldType {
             }
         } else {
             if (caseInsensitive) {
-                query = method == null
-                    ? new CaseInsensitiveWildcardQuery(term)
-                    : new CaseInsensitiveWildcardQuery(term, false, method);
+                query = method == null ? new CaseInsensitiveWildcardQuery(term) : new CaseInsensitiveWildcardQuery(term, false, method);
             } else {
                 query = method == null
                     ? new WildcardQuery(term)
@@ -231,14 +229,7 @@ public abstract class StringFieldType extends TermBasedFieldType {
         } else {
             query = method == null
                 ? new RegexpQuery(new Term(name(), indexedValueForSearch(value)), syntaxFlags, matchFlags, maxDeterminizedStates)
-                : new RegexpQuery(
-                    term ,
-                    syntaxFlags,
-                    matchFlags,
-                    RegexpQuery.DEFAULT_PROVIDER,
-                    maxDeterminizedStates,
-                    method
-                );
+                : new RegexpQuery(term, syntaxFlags, matchFlags, RegexpQuery.DEFAULT_PROVIDER, maxDeterminizedStates, method);
         }
         context.addCircuitBreakerMemory(query.ramBytesUsed(), "regexp:" + name());
         return query;

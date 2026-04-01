@@ -64,10 +64,7 @@ public class CircuitBreakingOperationsTests extends ESTestCase {
     public void testDeterminizeExceedingWorkLimitThrowsTooComplex() {
         Automaton nfa = buildPathologicalNFA(20);
         CircuitBreaker breaker = newLimitedBreaker(ByteSizeValue.ofGb(1));
-        expectThrows(
-            TooComplexToDeterminizeException.class,
-            () -> CircuitBreakingOperations.determinize(nfa, 10, breaker, "test")
-        );
+        expectThrows(TooComplexToDeterminizeException.class, () -> CircuitBreakingOperations.determinize(nfa, 10, breaker, "test"));
     }
 
     public void testCircuitBreakerTripsOnLargeAutomaton() {
