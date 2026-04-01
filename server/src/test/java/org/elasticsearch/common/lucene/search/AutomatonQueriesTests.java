@@ -110,7 +110,7 @@ public class AutomatonQueriesTests extends ESTestCase {
     }
 
     public void testValidateRegexRepetitionDepthRejectsPathologicalPattern() {
-        assertInvalidRegex("(.[^A-Za-z0-9_])?carhartt++++++++++++++++++++++++++++++.?");
+        assertInvalidRegex("(.[^A-Za-z0-9_])?Ben++++++++++++++++++++++++++++++.?");
     }
 
     public void testValidateRegexRepetitionDepthHandlesEscapes() {
