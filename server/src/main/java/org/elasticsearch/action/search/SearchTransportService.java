@@ -25,6 +25,7 @@ import org.elasticsearch.client.internal.node.NodeClient;
 import org.elasticsearch.cluster.node.DiscoveryNode;
 import org.elasticsearch.common.breaker.CircuitBreaker;
 import org.elasticsearch.common.bytes.ReleasableBytesReference;
+import org.elasticsearch.common.io.stream.BytesStreamOutput;
 import org.elasticsearch.common.io.stream.NamedWriteableRegistry;
 import org.elasticsearch.common.io.stream.RecyclerBytesStreamOutput;
 import org.elasticsearch.common.io.stream.StreamInput;
@@ -38,6 +39,7 @@ import org.elasticsearch.common.util.concurrent.ThrottledTaskRunner;
 import org.elasticsearch.core.Nullable;
 import org.elasticsearch.core.Releasable;
 import org.elasticsearch.core.Releasables;
+import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.SearchPhaseResult;
 import org.elasticsearch.search.SearchService;
 import org.elasticsearch.search.SearchShardTarget;
@@ -758,7 +760,18 @@ public class SearchTransportService {
                     }
                 };
             }
-            searchService.executeFetchPhase(request, (SearchShardTask) task, chunkWriter, new ChannelActionListener<>(channel));
+            // BWC: old coordinator (CHUNKED_FETCH_PHASE) expects lastChunkBytes but this node
+            // (CHUNKED_FETCH_DOC_ID_ORDER) fell back to traditional fetch — serialize hits into
+            // lastChunkBytes in the old format so the coordinator's response stream isn't empty.
+            ActionListener<FetchSearchResult> responseListener = new ChannelActionListener<>(channel);
+            if (hasCoordinator && chunkWriter == null) {
+                final TransportVersion bwcVersion = channelVersion;
+                responseListener = responseListener.map(result -> {
+                    populateBwcLastChunkBytes(result, bwcVersion);
+                    return result;
+                });
+            }
+            searchService.executeFetchPhase(request, (SearchShardTask) task, chunkWriter, responseListener);
         };
 
         transportService.registerRequestHandler(
@@ -804,6 +817,25 @@ public class SearchTransportService {
             CanMatchNodeResponse::new,
             namedWriteableRegistry
         );
+    }
+
+    /**
+     * BWC: serializes hits into lastChunkBytes (old format, no vInt position prefix) for old coordinators
+     * whose TransportFetchPhaseCoordinationAction ignores FetchSearchResult.hits.
+     */
+    static void populateBwcLastChunkBytes(FetchSearchResult result, TransportVersion transportVersion) throws IOException {
+        SearchHit[] hits = result.hits().getHits();
+        if (hits.length == 0) {
+            return;
+        }
+        try (BytesStreamOutput out = new BytesStreamOutput()) {
+            out.setTransportVersion(transportVersion);
+            for (SearchHit hit : hits) {
+                hit.writeTo(out);
+            }
+            result.setLastChunkSequenceStart(0);
+            result.setLastChunkBytes(out.bytes(), hits.length);
+        }
     }
 
     private static Executor buildFreeContextExecutor(TransportService transportService) {
