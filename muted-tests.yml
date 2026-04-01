@@ -369,6 +369,12 @@ tests:
 - class: org.elasticsearch.xpack.esql.CsvTests
   method: test {csv-spec:unsigned_long.evalNullEqualsUnsignedLong}
   issue: https://github.com/elastic/elasticsearch/issues/145426
+- class: org.elasticsearch.xpack.esql.CsvTests
+  method: test {csv-spec:inlinestats.inlineStatsAfterSortDroppedAndResort}
+  issue: https://github.com/elastic/elasticsearch/issues/145431
+- class: org.elasticsearch.xpack.esql.CsvTests
+  method: test {csv-spec:inlinestats.maxOfLongByKeyword}
+  issue: https://github.com/elastic/elasticsearch/issues/145433
 
 # Examples:
 #
