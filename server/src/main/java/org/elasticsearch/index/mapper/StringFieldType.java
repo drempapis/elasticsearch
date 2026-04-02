@@ -31,6 +31,7 @@ import org.elasticsearch.common.lucene.search.CaseInsensitivePrefixQuery;
 import org.elasticsearch.common.lucene.search.CaseInsensitiveWildcardQuery;
 import org.elasticsearch.common.unit.Fuzziness;
 import org.elasticsearch.core.Nullable;
+import org.elasticsearch.index.query.AutomatonQueryWithDescription;
 import org.elasticsearch.index.query.SearchExecutionContext;
 
 import java.util.Map;
@@ -189,7 +190,9 @@ public abstract class StringFieldType extends TermBasedFieldType {
                     : new CaseInsensitiveWildcardQuery(term, false, method, circuitBreaker);
             } else {
                 Automaton dfa = AutomatonQueries.toWildcardAutomaton(term, circuitBreaker);
-                query = method == null ? new AutomatonQuery(term, dfa) : new AutomatonQuery(term, dfa, false, method);
+                query = method == null
+                    ? new AutomatonQueryWithDescription(term, dfa, term.text())
+                    : new AutomatonQuery(term, dfa, false, method);
             }
         } else {
             if (caseInsensitive) {
@@ -225,7 +228,9 @@ public abstract class StringFieldType extends TermBasedFieldType {
         CircuitBreaker circuitBreaker = context.getCircuitBreaker();
         if (circuitBreaker != null) {
             Automaton dfa = AutomatonQueries.toRegexpAutomaton(term, syntaxFlags, matchFlags, maxDeterminizedStates, circuitBreaker);
-            query = method == null ? new AutomatonQuery(term, dfa) : new AutomatonQuery(term, dfa, false, method);
+            query = method == null
+                ? new AutomatonQueryWithDescription(term, dfa, "/" + term.text() + "/")
+                : new AutomatonQuery(term, dfa, false, method);
         } else {
             query = method == null
                 ? new RegexpQuery(new Term(name(), indexedValueForSearch(value)), syntaxFlags, matchFlags, maxDeterminizedStates)
