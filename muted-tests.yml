@@ -298,15 +298,9 @@ tests:
 - class: org.elasticsearch.search.basic.SearchWithRandomIOExceptionsIT
   method: testRandomDirectoryIOExceptions
   issue: https://github.com/elastic/elasticsearch/issues/118733
-- class: org.elasticsearch.datastreams.TSDBSyntheticIdsIT
-  method: testNoopTombstones
-  issue: https://github.com/elastic/elasticsearch/issues/145217
 - class: org.elasticsearch.xpack.sql.qa.jdbc.single_node.SingleNodeJdbcResultSetIT
   method: testGettingValidShortWithoutCasting
   issue: https://github.com/elastic/elasticsearch/issues/145241
-- class: org.elasticsearch.xpack.restart.FullClusterRestartIT
-  method: testWatcherWithApiKey {cluster=UPGRADED}
-  issue: https://github.com/elastic/elasticsearch/issues/131964
 - class: org.elasticsearch.xpack.sql.qa.jdbc.single_node.SingleNodeJdbcResultSetIT
   method: testNoInfiniteRecursiveGetObjectCalls
   issue: https://github.com/elastic/elasticsearch/issues/145269
@@ -423,6 +417,9 @@ tests:
 - class: org.elasticsearch.xpack.esql.CsvTests
   method: test {csv-spec:floats.values}
   issue: https://github.com/elastic/elasticsearch/issues/145524
+- class: org.elasticsearch.index.codec.tsdb.es819.ES819TSDBDocValuesFormatTests
+  method: testContainsIterator
+  issue: https://github.com/elastic/elasticsearch/issues/145532
 
 # Examples:
 #
