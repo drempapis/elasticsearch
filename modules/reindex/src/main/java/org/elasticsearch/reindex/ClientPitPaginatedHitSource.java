@@ -12,26 +12,25 @@ package org.elasticsearch.reindex;
 import org.apache.logging.log4j.Logger;
 import org.elasticsearch.ExceptionsHelper;
 import org.elasticsearch.action.ActionListener;
-import org.elasticsearch.action.search.ClearScrollRequest;
-import org.elasticsearch.action.search.ClearScrollResponse;
 import org.elasticsearch.action.search.SearchRequest;
 import org.elasticsearch.action.search.SearchResponse;
-import org.elasticsearch.action.search.SearchScrollRequest;
 import org.elasticsearch.action.search.ShardSearchFailure;
-import org.elasticsearch.client.internal.Client;
 import org.elasticsearch.client.internal.ParentTaskAssigningClient;
 import org.elasticsearch.common.BackoffPolicy;
-import org.elasticsearch.common.Strings;
+import org.elasticsearch.common.bytes.BytesReference;
 import org.elasticsearch.common.util.concurrent.EsRejectedExecutionException;
 import org.elasticsearch.core.TimeValue;
 import org.elasticsearch.index.reindex.PaginatedSearchFailure;
 import org.elasticsearch.index.reindex.RejectAwareActionListener;
-import org.elasticsearch.index.reindex.ResumeInfo.ScrollWorkerResumeInfo;
+import org.elasticsearch.index.reindex.ResumeInfo.PitWorkerResumeInfo;
 import org.elasticsearch.search.SearchHit;
+import org.elasticsearch.search.builder.PointInTimeBuilder;
+import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.elasticsearch.threadpool.ThreadPool;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 import static java.util.Collections.emptyList;
@@ -40,18 +39,19 @@ import static org.elasticsearch.common.util.CollectionUtils.isEmpty;
 import static org.elasticsearch.core.TimeValue.timeValueNanos;
 
 /**
- * Scrollable search lets you retrieve large result sets by opening a search context and repeatedly requesting
- * the next batch using a {@code _scroll_id}, effectively acting like a cursor over a snapshot of the index at the time of the
- * initial search. It is no longer recommended for deep pagination due to resource costs and limits on open scrolls.
+ * PIT-based paginated search retrieves large result sets by opening a point-in-time and repeatedly
+ * requesting the next batch using {@code search_after} with the sort values of the last hit.
+ * This is the recommended approach for deep pagination as it avoids the resource costs of scroll.
  * <p>
- * This implementation is a scrollable source of hits from a {@linkplain Client} instance. For a remote client instance,
- * please use {@code RemoteScrollablePaginatedHitSource}
+ * This implementation is a PIT-based source of hits from a {@linkplain org.elasticsearch.client.internal.Client} instance.
+ * The PIT must already be opened and injected into the search request before this hit source is used.
  */
-public class ClientScrollablePaginatedHitSource extends ScrollablePaginatedHitSource {
+public class ClientPitPaginatedHitSource extends PitPaginatedHitSource {
     private final ParentTaskAssigningClient client;
     private final SearchRequest firstSearchRequest;
+    private final AtomicReference<PointInTimeBuilder> pitBuilder;
 
-    public ClientScrollablePaginatedHitSource(
+    public ClientPitPaginatedHitSource(
         Logger logger,
         BackoffPolicy backoffPolicy,
         ThreadPool threadPool,
@@ -64,35 +64,68 @@ public class ClientScrollablePaginatedHitSource extends ScrollablePaginatedHitSo
         super(logger, backoffPolicy, threadPool, countSearchRetry, onResponse, fail);
         this.client = client;
         this.firstSearchRequest = firstSearchRequest;
+        SearchSourceBuilder source = firstSearchRequest.source();
+        PointInTimeBuilder initialPit = source == null ? null : source.pointInTimeBuilder();
+        if (initialPit == null) {
+            throw new IllegalArgumentException("SearchRequest must have pointInTimeBuilder set for PIT-based pagination");
+        }
+        this.pitBuilder = new AtomicReference<>(initialPit);
         firstSearchRequest.allowPartialSearchResults(false);
     }
 
     @Override
-    protected void doFirstSearch(RejectAwareActionListener<Response> searchListener) {
+    public void doFirstSearch(RejectAwareActionListener<Response> searchListener) {
         logger.debug(
-            "executing initial local scroll search against {}",
+            "executing initial local PIT search against {}",
             () -> isEmpty(firstSearchRequest.indices()) ? "all indices" : firstSearchRequest.indices()
         );
         client.search(firstSearchRequest, wrapListener(searchListener));
     }
 
     @Override
-    protected void restoreScrollState(ScrollWorkerResumeInfo resumeInfo) {
-        setScrollId(resumeInfo.scrollId());
+    public BytesReference getPitId() {
+        PointInTimeBuilder pit = pitBuilder.get();
+        return pit != null ? pit.getEncodedId() : null;
     }
 
     @Override
-    protected void doNextScrollSearch(String scrollId, TimeValue extraKeepAlive, RejectAwareActionListener<Response> searchListener) {
-        SearchScrollRequest request = new SearchScrollRequest();
-        // Add the wait time into the scroll timeout so it won't timeout while we wait for throttling
-        request.scrollId(scrollId).scroll(timeValueNanos(firstSearchRequest.scroll().nanos() + extraKeepAlive.nanos()));
-        client.searchScroll(request, wrapListener(searchListener));
+    protected void restorePitState(PitWorkerResumeInfo resumeInfo) {
+        pitBuilder.set(
+            new PointInTimeBuilder(resumeInfo.pitId()).setKeepAlive(firstSearchRequest.source().pointInTimeBuilder().getKeepAlive())
+        );
+        setSearchAfterValues(resumeInfo.searchAfterValues());
     }
 
-    private static ActionListener<SearchResponse> wrapListener(RejectAwareActionListener<Response> searchListener) {
+    @Override
+    protected void doNextPitSearch(Object[] searchAfter, TimeValue extraKeepAlive, RejectAwareActionListener<Response> searchListener) {
+        SearchSourceBuilder source = firstSearchRequest.source()
+            .shallowCopy()
+            .searchAfter(searchAfter)
+            .pointInTimeBuilder(extendPitKeepAlive(pitBuilder.get(), extraKeepAlive));
+        SearchRequest nextRequest = new SearchRequest(firstSearchRequest).source(source);
+        client.search(nextRequest, wrapListener(searchListener));
+    }
+
+    private static PointInTimeBuilder extendPitKeepAlive(PointInTimeBuilder pit, TimeValue extraKeepAlive) {
+        TimeValue keepAlive = pit.getKeepAlive();
+        if (keepAlive == null || extraKeepAlive == null || extraKeepAlive.nanos() == 0) {
+            return pit;
+        }
+        return new PointInTimeBuilder(pit.getEncodedId()).setKeepAlive(timeValueNanos(keepAlive.nanos() + extraKeepAlive.nanos()));
+    }
+
+    private ActionListener<SearchResponse> wrapListener(RejectAwareActionListener<Response> searchListener) {
         return new ActionListener<>() {
             @Override
             public void onResponse(SearchResponse searchResponse) {
+                if (searchResponse.pointInTimeId() != null) {
+                    PointInTimeBuilder currentPit = pitBuilder.get();
+                    pitBuilder.set(
+                        new PointInTimeBuilder(searchResponse.pointInTimeId()).setKeepAlive(
+                            currentPit != null ? currentPit.getKeepAlive() : null
+                        )
+                    );
+                }
                 searchListener.onResponse(wrapSearchResponse(searchResponse));
             }
 
@@ -105,34 +138,6 @@ public class ClientScrollablePaginatedHitSource extends ScrollablePaginatedHitSo
                 }
             }
         };
-    }
-
-    @Override
-    protected void releaseSearchContext(Runnable onCompletion) {
-        String sid = getScrollId();
-        if (Strings.hasLength(sid) == false) {
-            onCompletion.run();
-            return;
-        }
-        ClearScrollRequest clearScrollRequest = new ClearScrollRequest();
-        clearScrollRequest.addScrollId(sid);
-        /*
-         * Unwrap the client so we don't set our task as the parent. If we *did* set our ID then the clear scroll would be cancelled as
-         * if this task is cancelled. But we want to clear the scroll regardless of whether or not the main request was cancelled.
-         */
-        client.unwrap().clearScroll(clearScrollRequest, new ActionListener<ClearScrollResponse>() {
-            @Override
-            public void onResponse(ClearScrollResponse response) {
-                logger.debug("Freed [{}] contexts", response.getNumFreed());
-                onCompletion.run();
-            }
-
-            @Override
-            public void onFailure(Exception e) {
-                logger.warn(() -> "Failed to clear scroll [" + sid + "]", e);
-                onCompletion.run();
-            }
-        });
     }
 
     @Override
@@ -162,6 +167,12 @@ public class ClientScrollablePaginatedHitSource extends ScrollablePaginatedHitSo
             hits = unmodifiableList(hits);
         }
         long total = response.getHits().getTotalHits().value();
-        return new Response(response.isTimedOut(), failures, total, hits, response.getScrollId());
+        Object[] searchAfterValues = null;
+        if (hits.isEmpty() == false) {
+            Hit lastHit = hits.getLast();
+            searchAfterValues = lastHit.getSortValues();
+        }
+        // PIT search returns no scrollId; search_after values come from last hit's sort values
+        return new Response(response.isTimedOut(), failures, total, hits, null, searchAfterValues, response.pointInTimeId());
     }
 }
