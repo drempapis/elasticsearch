@@ -181,9 +181,6 @@ tests:
 - class: org.elasticsearch.xpack.esql.common.spatial.H3SphericalGeometryTests
   method: testIndexPoints
   issue: https://github.com/elastic/elasticsearch/issues/142439
-- class: org.elasticsearch.xpack.esql.qa.single_node.GenerativeForkIT
-  method: test {csv-spec:match-function.testMatchWithReplace}
-  issue: https://github.com/elastic/elasticsearch/issues/142501
 - class: org.elasticsearch.search.query.VectorIT
   method: testFilteredQueryStrategy
   issue: https://github.com/elastic/elasticsearch/issues/142511
@@ -307,9 +304,6 @@ tests:
 - class: org.elasticsearch.xpack.sql.qa.jdbc.single_node.SingleNodeJdbcResultSetIT
   method: testGettingValidShortWithoutCasting
   issue: https://github.com/elastic/elasticsearch/issues/145241
-- class: org.elasticsearch.xpack.restart.FullClusterRestartIT
-  method: testWatcherWithApiKey {cluster=UPGRADED}
-  issue: https://github.com/elastic/elasticsearch/issues/131964
 - class: org.elasticsearch.xpack.sql.qa.jdbc.single_node.SingleNodeJdbcResultSetIT
   method: testNoInfiniteRecursiveGetObjectCalls
   issue: https://github.com/elastic/elasticsearch/issues/145269
@@ -426,6 +420,9 @@ tests:
 - class: org.elasticsearch.xpack.esql.CsvTests
   method: test {csv-spec:floats.values}
   issue: https://github.com/elastic/elasticsearch/issues/145524
+- class: org.elasticsearch.index.codec.tsdb.es819.ES819TSDBDocValuesFormatTests
+  method: testContainsIterator
+  issue: https://github.com/elastic/elasticsearch/issues/145532
 
 # Examples:
 #
