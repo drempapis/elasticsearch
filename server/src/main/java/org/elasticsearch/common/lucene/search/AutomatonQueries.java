@@ -18,7 +18,6 @@ import org.apache.lucene.util.automaton.Automaton;
 import org.apache.lucene.util.automaton.Operations;
 import org.apache.lucene.util.automaton.RegExp;
 import org.elasticsearch.common.breaker.CircuitBreaker;
-import org.elasticsearch.core.Nullable;
 import org.elasticsearch.lucene.util.automaton.CircuitBreakingOperations;
 
 import java.util.ArrayList;
@@ -72,16 +71,16 @@ public class AutomatonQueries {
     /**
      * Convert Lucene wildcard syntax into an automaton.
      */
-    @SuppressWarnings("fallthrough")
     public static Automaton toCaseInsensitiveWildcardAutomaton(Term wildcardquery) {
-        return toCaseInsensitiveWildcardAutomaton(wildcardquery, null);
+        Automaton nfa = toCaseInsensitiveWildcardNFA(wildcardquery);
+        return Operations.determinize(nfa, Operations.DEFAULT_DETERMINIZE_WORK_LIMIT);
     }
 
     /**
-     * Convert Lucene wildcard syntax into an automaton, optionally checking a circuit breaker
+     * Convert Lucene wildcard syntax into an automaton, checking a circuit breaker
      * during determinization to prevent OOM from huge automatons.
      */
-    public static Automaton toCaseInsensitiveWildcardAutomaton(Term wildcardquery, @Nullable CircuitBreaker circuitBreaker) {
+    public static Automaton toCaseInsensitiveWildcardAutomaton(Term wildcardquery, CircuitBreaker circuitBreaker) {
         Automaton nfa = toCaseInsensitiveWildcardNFA(wildcardquery);
         return CircuitBreakingOperations.determinize(
             nfa,
@@ -92,10 +91,10 @@ public class AutomatonQueries {
     }
 
     /**
-     * Convert Lucene wildcard syntax into a case-sensitive automaton, optionally checking a circuit breaker
+     * Convert Lucene wildcard syntax into a case-sensitive automaton, checking a circuit breaker
      * during determinization to prevent OOM from huge automatons.
      */
-    public static Automaton toWildcardAutomaton(Term wildcardquery, @Nullable CircuitBreaker circuitBreaker) {
+    public static Automaton toWildcardAutomaton(Term wildcardquery, CircuitBreaker circuitBreaker) {
         Automaton nfa = toWildcardNFA(wildcardquery);
         return CircuitBreakingOperations.determinize(
             nfa,
@@ -106,7 +105,7 @@ public class AutomatonQueries {
     }
 
     /**
-     * Build a deterministic automaton from a regular expression, optionally checking a circuit breaker
+     * Build a deterministic automaton from a regular expression, checking a circuit breaker
      * during determinization to prevent OOM from huge automatons.
      */
     public static Automaton toRegexpAutomaton(
@@ -114,7 +113,7 @@ public class AutomatonQueries {
         int syntaxFlags,
         int matchFlags,
         int maxDeterminizedStates,
-        @Nullable CircuitBreaker circuitBreaker
+        CircuitBreaker circuitBreaker
     ) {
         Automaton nfa = new RegExp(term.text(), syntaxFlags, matchFlags).toAutomaton();
         return CircuitBreakingOperations.determinize(nfa, maxDeterminizedStates, circuitBreaker, "regexp:" + term.field());

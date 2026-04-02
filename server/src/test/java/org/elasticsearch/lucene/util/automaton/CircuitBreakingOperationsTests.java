@@ -26,11 +26,12 @@ import static org.apache.lucene.tests.util.automaton.AutomatonTestUtil.subsetOf;
 
 public class CircuitBreakingOperationsTests extends ESTestCase {
 
-    public void testDeterminizeWithNullBreakerDelegatesToLucene() {
+    public void testDeterminizeWithNullBreakerThrowsAssertionError() {
         Automaton a = buildSimpleWildcardNFA("*test*");
-        Automaton expected = Operations.determinize(a, Operations.DEFAULT_DETERMINIZE_WORK_LIMIT);
-        Automaton result = CircuitBreakingOperations.determinize(a, Operations.DEFAULT_DETERMINIZE_WORK_LIMIT, null, "test");
-        assertAcceptSameStrings(expected, result);
+        expectThrows(
+            AssertionError.class,
+            () -> CircuitBreakingOperations.determinize(a, Operations.DEFAULT_DETERMINIZE_WORK_LIMIT, null, "test")
+        );
     }
 
     public void testDeterminizeWithLimitedBreakerProducesCorrectResult() {

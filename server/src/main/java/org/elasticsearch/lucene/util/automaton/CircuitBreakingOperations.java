@@ -20,7 +20,6 @@ import org.apache.lucene.util.automaton.Operations;
 import org.apache.lucene.util.automaton.TooComplexToDeterminizeException;
 import org.apache.lucene.util.automaton.Transition;
 import org.elasticsearch.common.breaker.CircuitBreaker;
-import org.elasticsearch.core.Nullable;
 
 import java.util.ArrayDeque;
 import java.util.Arrays;
@@ -75,17 +74,14 @@ public final class CircuitBreakingOperations {
      *
      * @param a              the NFA to determinize
      * @param workLimit      maximum "effort" before throwing {@link TooComplexToDeterminizeException}
-     * @param circuitBreaker the circuit breaker to check, or {@code null} to behave identically
-     *                       to {@code Operations.determinize}
+     * @param circuitBreaker the circuit breaker to check (must not be {@code null})
      * @param label          descriptive label for circuit breaker error messages
      * @return the determinized automaton
      * @throws TooComplexToDeterminizeException if effort exceeds {@code workLimit}
      * @throws org.elasticsearch.common.breaker.CircuitBreakingException if the breaker trips
      */
-    public static Automaton determinize(Automaton a, int workLimit, @Nullable CircuitBreaker circuitBreaker, String label) {
-        if (circuitBreaker == null) {
-            return Operations.determinize(a, workLimit);
-        }
+    public static Automaton determinize(Automaton a, int workLimit, CircuitBreaker circuitBreaker, String label) {
+        assert circuitBreaker != null : "circuit breaker must not be null";
 
         if (a.isDeterministic()) {
             return a;
