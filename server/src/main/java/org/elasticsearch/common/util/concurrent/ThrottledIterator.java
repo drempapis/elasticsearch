@@ -10,6 +10,7 @@
 package org.elasticsearch.common.util.concurrent;
 
 import org.elasticsearch.core.AbstractRefCounted;
+import org.elasticsearch.core.Nullable;
 import org.elasticsearch.core.RefCounted;
 import org.elasticsearch.core.Releasable;
 import org.elasticsearch.core.Releasables;
@@ -19,6 +20,7 @@ import org.elasticsearch.logging.Logger;
 
 import java.util.Iterator;
 import java.util.Objects;
+import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
 
@@ -50,7 +52,25 @@ public class ThrottledIterator<T> implements Releasable {
      * @param onCompletion   Executed when all items are completed.
      */
     public static <T> void run(Iterator<T> iterator, BiConsumer<Releasable, T> itemConsumer, int maxConcurrency, Runnable onCompletion) {
-        try (var throttledIterator = new ThrottledIterator<>(iterator, itemConsumer, maxConcurrency, onCompletion)) {
+        run(iterator, itemConsumer, maxConcurrency, onCompletion, null);
+    }
+
+    /**
+     * Like {@link #run(Iterator, BiConsumer, int, Runnable)} but dispatches continuation work to the given executor when an item's
+     * {@link Releasable} is closed on a different thread. The initial burst of up to {@code maxConcurrency} items is always processed
+     * on the calling thread; subsequent items are dispatched to the executor.
+     *
+     * @param executor If non-null, {@link #run()} is dispatched to this executor from {@link #onItemRelease()} instead of running inline.
+     *                 If null, falls back to inline execution (same behaviour as the executor-less overload).
+     */
+    public static <T> void run(
+        Iterator<T> iterator,
+        BiConsumer<Releasable, T> itemConsumer,
+        int maxConcurrency,
+        Runnable onCompletion,
+        @Nullable Executor executor
+    ) {
+        try (var throttledIterator = new ThrottledIterator<>(iterator, itemConsumer, maxConcurrency, onCompletion, executor)) {
             throttledIterator.run();
         }
     }
@@ -59,9 +79,17 @@ public class ThrottledIterator<T> implements Releasable {
     private final Iterator<T> iterator;
     private final BiConsumer<Releasable, T> itemConsumer;
     private final AtomicInteger permits;
+    @Nullable
+    private final Executor executor;
     private final Releasable itemReleasable = this::onItemRelease;
 
-    private ThrottledIterator(Iterator<T> iterator, BiConsumer<Releasable, T> itemConsumer, int maxConcurrency, Runnable onCompletion) {
+    private ThrottledIterator(
+        Iterator<T> iterator,
+        BiConsumer<Releasable, T> itemConsumer,
+        int maxConcurrency,
+        Runnable onCompletion,
+        @Nullable Executor executor
+    ) {
         this.iterator = Objects.requireNonNull(iterator);
         this.itemConsumer = Objects.requireNonNull(itemConsumer);
         if (maxConcurrency <= 0) {
@@ -69,6 +97,7 @@ public class ThrottledIterator<T> implements Releasable {
         }
         this.permits = new AtomicInteger(maxConcurrency);
         this.refs = AbstractRefCounted.of(onCompletion);
+        this.executor = executor;
     }
 
     private void run() {
@@ -98,7 +127,23 @@ public class ThrottledIterator<T> implements Releasable {
     private void onItemRelease() {
         try {
             if (permits.getAndIncrement() == 0) {
-                run();
+                if (executor != null && iterator.hasNext()) {
+                    refs.mustIncRef();
+                    try {
+                        executor.execute(() -> {
+                            try {
+                                run();
+                            } finally {
+                                refs.decRef();
+                            }
+                        });
+                    } catch (Exception e) {
+                        logger.error("failed to dispatch ThrottledIterator continuation to executor", e);
+                        refs.decRef();
+                    }
+                } else {
+                    run();
+                }
             }
         } finally {
             refs.decRef();

@@ -183,6 +183,7 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
             4,
             sendFailure,
             cancelled::get,
+            null,
             future
         );
 
@@ -224,6 +225,7 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
             4,
             sendFailure,
             cancelled::get,
+            null,
             future
         );
 
@@ -270,6 +272,7 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
             4,
             sendFailure,
             cancelled::get,
+            null,
             future
         );
 
@@ -310,6 +313,7 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
             4,
             sendFailure,
             cancelled::get,
+            null,
             future
         );
 
@@ -365,6 +369,7 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
             4,
             sendFailure,
             cancelled::get,
+            null,
             future
         );
         chunkWriter.ackAll();
@@ -403,6 +408,7 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
             4,
             sendFailure,
             cancelled::get,
+            null,
             future
         );
 
@@ -447,7 +453,7 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
         CountDownLatch refsComplete = new CountDownLatch(1);
         RefCountingListener refs = new RefCountingListener(ActionListener.running(refsComplete::countDown));
 
-        it.iterateAsync(createShardTarget(), docs.reader, docs.docIds, chunkWriter, 50, refs, 4, sendFailure, cancelled::get, future);
+        it.iterateAsync(createShardTarget(), docs.reader, docs.docIds, chunkWriter, 50, refs, 4, sendFailure, cancelled::get, null, future);
 
         Exception e = expectThrows(Exception.class, () -> future.get(10, TimeUnit.SECONDS));
         assertTrue(
@@ -491,7 +497,7 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
         CountDownLatch refsComplete = new CountDownLatch(1);
         RefCountingListener refs = new RefCountingListener(ActionListener.running(refsComplete::countDown));
 
-        it.iterateAsync(createShardTarget(), docs.reader, docs.docIds, chunkWriter, 50, refs, 4, sendFailure, cancelled::get, future);
+        it.iterateAsync(createShardTarget(), docs.reader, docs.docIds, chunkWriter, 50, refs, 4, sendFailure, cancelled::get, null, future);
 
         Exception e = expectThrows(Exception.class, () -> future.get(10, TimeUnit.SECONDS));
         assertThat(e.getCause().getMessage(), containsString("Simulated producer failure"));
@@ -526,6 +532,7 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
             4,
             sendFailure,
             cancelled::get,
+            null,
             future
         );
 
@@ -575,6 +582,7 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
             4,
             sendFailure,
             cancelled::get,
+            null,
             future
         );
 
@@ -638,7 +646,7 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
         CountDownLatch refsComplete = new CountDownLatch(1);
         RefCountingListener refs = new RefCountingListener(ActionListener.running(refsComplete::countDown));
 
-        it.iterateAsync(createShardTarget(), reader, docIds, chunkWriter, 1024 * 1024, refs, 4, sendFailure, cancelled::get, future);
+        it.iterateAsync(createShardTarget(), reader, docIds, chunkWriter, 1024 * 1024, refs, 4, sendFailure, cancelled::get, null, future);
 
         IterateResult result = future.get(10, TimeUnit.SECONDS);
         refs.close();
@@ -685,7 +693,7 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
         reader.close();
         directory.close();
     }
-
+    
     public void testTimeoutReturnsCompactPartialResults() throws IOException {
         int docCount = 400;
         Directory directory = newDirectory();
