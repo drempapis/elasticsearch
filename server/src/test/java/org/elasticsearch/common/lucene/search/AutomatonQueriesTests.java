@@ -16,8 +16,6 @@ import org.elasticsearch.test.ESTestCase;
 
 import java.util.Locale;
 
-import static org.hamcrest.Matchers.containsString;
-
 public class AutomatonQueriesTests extends ESTestCase {
 
     public void testToCaseInsensitiveChar() {
@@ -89,104 +87,73 @@ public class AutomatonQueriesTests extends ESTestCase {
         assertTrue(runAutomaton.run(br.bytes, br.offset, br.length));
     }
 
-    public void testValidateRegexRepetitionDepthAllowsSingleQuantifier() {
-        assertValidRegex("a+");
-        assertValidRegex("a*");
-        assertValidRegex("a?");
-        assertValidRegex(".*test.*pattern.*");
+    public void testCollapseConsecutiveQuantifiersSingleQuantifierUnchanged() {
+        assertCollapsed("a+", "a+");
+        assertCollapsed("a*", "a*");
+        assertCollapsed("a?", "a?");
+        assertCollapsed(".*test.*pattern.*", ".*test.*pattern.*");
     }
 
-    public void testValidateRegexRepetitionDepthAllowsTwoConsecutive() {
-        assertValidRegex("a++");
-        assertValidRegex("a+?");
-        assertValidRegex("a*?");
-        assertValidRegex("a+*");
-        assertValidRegex("a**");
+    public void testCollapseConsecutiveQuantifiersTwoCollapsedToOne() {
+        assertCollapsed("a++", "a+");
+        assertCollapsed("a+?", "a+");
+        assertCollapsed("a*?", "a*");
+        assertCollapsed("a+*", "a+");
+        assertCollapsed("a**", "a*");
     }
 
-    public void testValidateRegexRepetitionDepthRejectsThreeConsecutive() {
-        assertInvalidRegex("a+++");
-        assertInvalidRegex("a+*?");
+    public void testCollapseConsecutiveQuantifiersThreeOrMore() {
+        assertCollapsed("a+++", "a+");
+        assertCollapsed("a+*?", "a+");
     }
 
-    public void testValidateRegexRepetitionDepthRejectsPathologicalPattern() {
-        assertInvalidRegex("(.[^A-Za-z0-9_])?Ben++++++++++++++++++++++++++++++.?");
+    public void testCollapseConsecutiveQuantifiersPathologicalPattern() {
+        assertCollapsed("(.[^A-Za-z0-9_])?Ben++++++++++++++++++++++++++++++.?", "(.[^A-Za-z0-9_])?Ben+.?");
     }
 
-    public void testValidateRegexRepetitionDepthHandlesEscapes() {
-        assertValidRegex("a\\+\\+\\+");
-        assertValidRegex("a+\\++");
-        assertValidRegex("\\+\\*\\?");
+    public void testCollapseConsecutiveQuantifiersHandlesEscapes() {
+        assertCollapsed("a\\+\\+\\+", "a\\+\\+\\+");
+        assertCollapsed("a+\\++", "a+\\++");
+        assertCollapsed("\\+\\*\\?", "\\+\\*\\?");
     }
 
-    public void testValidateRegexRepetitionDepthHandlesCharClasses() {
-        assertValidRegex("[+*?]+");
-        assertValidRegex("[+++]+");
-        assertValidRegex("[^+*?]++");
+    public void testCollapseConsecutiveQuantifiersHandlesCharClasses() {
+        assertCollapsed("[+*?]+", "[+*?]+");
+        assertCollapsed("[+++]+", "[+++]+");
+        assertCollapsed("[^+*?]++", "[^+*?]+");
     }
 
-    public void testValidateRegexRepetitionDepthHandlesQuotedStrings() {
-        assertValidRegex("\"+++\"a+");
-        assertValidRegex("\"***\"b+");
-        assertValidRegex("a+\"+++\"b+");
+    public void testCollapseConsecutiveQuantifiersHandlesQuotedStrings() {
+        assertCollapsed("\"+++\"a+", "\"+++\"a+");
+        assertCollapsed("\"***\"b+", "\"***\"b+");
+        assertCollapsed("a+\"+++\"b+", "a+\"+++\"b+");
     }
 
-    public void testValidateRegexRepetitionDepthEmptyAndSimplePatterns() {
-        assertValidRegex("");
-        assertValidRegex("abc");
-        assertValidRegex(".");
+    public void testCollapseConsecutiveQuantifiersEmptyAndSimplePatterns() {
+        assertCollapsed("", "");
+        assertCollapsed("abc", "abc");
+        assertCollapsed(".", ".");
     }
 
-    public void testValidateRegexRepetitionDepthTrailingBackslash() {
-        assertValidRegex("a\\");
+    public void testCollapseConsecutiveQuantifiersTrailingBackslash() {
+        assertCollapsed("a\\", "a\\");
     }
 
-    public void testValidateRegexRepetitionDepthResetsOnNonQuantifier() {
-        assertValidRegex("a++b++");
-        assertValidRegex("a??z**");
+    public void testCollapseConsecutiveQuantifiersResetsOnNonQuantifier() {
+        assertCollapsed("a++b++", "a+b+");
+        assertCollapsed("a??z**", "a?z*");
     }
 
-    public void testValidateRegexRepetitionDepthUnclosedQuoteOrClass() {
-        assertValidRegex("\"+++");
-        assertValidRegex("[+++");
+    public void testCollapseConsecutiveQuantifiersUnclosedQuoteOrClass() {
+        assertCollapsed("\"+++", "\"+++");
+        assertCollapsed("[+++", "[+++");
     }
 
-    public void testValidateRegexRepetitionDepthNullPattern() {
-        expectThrows(NullPointerException.class, () -> AutomatonQueries.validateRegexRepetitionDepth(null, 2));
+    public void testCollapseConsecutiveQuantifiersNullPattern() {
+        expectThrows(NullPointerException.class, () -> AutomatonQueries.collapseConsecutiveQuantifiers(null));
     }
 
-    public void testValidateRegexRepetitionDepthZeroMaxConsecutiveQuantifiers() {
-        assertInvalidRegex("a+", 0);
-        assertValidRegex("abc", 0);
-    }
-
-    public void testValidateRegexRepetitionDepthNegativeMaxConsecutiveQuantifiers() {
-        assertInvalidRegex("a+", -1);
-        assertValidRegex("abc", -1);
-    }
-
-    public void testValidateRegexRepetitionDepthCustomMaxConsecutiveQuantifiers() {
-        assertValidRegex("a+++", 3);
-        assertInvalidRegex("a++++", 3);
-    }
-
-    private static void assertValidRegex(String pattern) {
-        assertValidRegex(pattern, AutomatonQueries.MAX_CONSECUTIVE_REGEX_QUANTIFIERS);
-    }
-
-    private static void assertValidRegex(String pattern, int maxConsecutiveQuantifiers) {
-        AutomatonQueries.validateRegexRepetitionDepth(pattern, maxConsecutiveQuantifiers);
-    }
-
-    private void assertInvalidRegex(String pattern) {
-        assertInvalidRegex(pattern, AutomatonQueries.MAX_CONSECUTIVE_REGEX_QUANTIFIERS);
-    }
-
-    private void assertInvalidRegex(String pattern, int maxConsecutiveQuantifiers) {
-        IllegalArgumentException e = expectThrows(
-            IllegalArgumentException.class,
-            () -> AutomatonQueries.validateRegexRepetitionDepth(pattern, maxConsecutiveQuantifiers)
-        );
-        assertThat(e.getMessage(), containsString("consecutive repetition operators"));
+    private static void assertCollapsed(String input, String expected) {
+        assertEquals(expected, AutomatonQueries.collapseConsecutiveQuantifiers(input));
     }
 }

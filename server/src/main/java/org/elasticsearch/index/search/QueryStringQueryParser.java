@@ -733,7 +733,7 @@ public class QueryStringQueryParser extends QueryParser {
                     + "] index level setting."
             );
         }
-        AutomatonQueries.validateRegexRepetitionDepth(termStr, AutomatonQueries.MAX_CONSECUTIVE_REGEX_QUANTIFIERS);
+        termStr = AutomatonQueries.collapseConsecutiveQuantifiers(termStr);
         Map<String, Float> fields = extractMultiFields(field, false);
         if (fields.isEmpty()) {
             return newUnmappedFieldQuery(termStr);

@@ -209,68 +209,61 @@ public class AutomatonQueries {
     }
 
     /**
-     * Maximum number of consecutive repetition operators ({@code +}, {@code *}, {@code ?}) allowed
-     * in a regex pattern. Stacking more than this many is always semantically redundant (e.g.
-     * {@code x+++} = {@code x+}) and causes exponential NFA growth in Lucene's
-     * {@code RegExp.toAutomaton()}.
-     */
-    public static final int MAX_CONSECUTIVE_REGEX_QUANTIFIERS = 2;
-
-    /**
-     * Validates that a Lucene regex pattern does not contain more than {@code maxConsecutiveQuantifiers}
-     * consecutive repetition operators ({@code +}, {@code *}, {@code ?}). Stacking quantifiers beyond
-     * two is semantically redundant and causes exponential NFA state growth in
-     * {@link org.apache.lucene.util.automaton.RegExp#toAutomaton()}, leading to OOM.
+     * Collapses consecutive repetition operators ({@code +}, {@code *}, {@code ?}) in a Lucene regex
+     * pattern down to a single operator (the first one in each run). Stacking quantifiers is always
+     * semantically redundant (e.g. {@code x+++} = {@code x+}) and causes exponential NFA state growth
+     * in {@link org.apache.lucene.util.automaton.RegExp#toAutomaton()}, leading to OOM.
      * <p>
      * The scan respects escape sequences ({@code \+}), character classes ({@code [+*?]}), and
      * Lucene quoted strings ({@code "+++"}) where these characters are literals.
      *
-     * @param pattern                  the raw regex pattern string
-     * @param maxConsecutiveQuantifiers the maximum allowed consecutive quantifier operators
-     * @throws IllegalArgumentException if the pattern exceeds the limit
+     * @param pattern the raw regex pattern string
+     * @return the pattern with redundant consecutive quantifiers removed
      */
-    public static void validateRegexRepetitionDepth(String pattern, int maxConsecutiveQuantifiers) {
+    public static String collapseConsecutiveQuantifiers(String pattern) {
         final int length = pattern.length();
-        int consecutive = 0;
+        StringBuilder sb = new StringBuilder(length);
         boolean inCharClass = false;
         boolean inQuotedString = false;
+        boolean prevWasQuantifier = false;
         for (int i = 0; i < length; i++) {
             char c = pattern.charAt(i);
             if (c == '\\' && i + 1 < length) {
+                sb.append(c);
+                sb.append(pattern.charAt(i + 1));
                 i++;
-                consecutive = 0;
+                prevWasQuantifier = false;
             } else if (inQuotedString) {
+                sb.append(c);
                 if (c == '"') {
                     inQuotedString = false;
                 }
-                consecutive = 0;
+                prevWasQuantifier = false;
             } else if (inCharClass) {
+                sb.append(c);
                 if (c == ']') {
                     inCharClass = false;
                 }
-                consecutive = 0;
+                prevWasQuantifier = false;
             } else if (c == '"') {
+                sb.append(c);
                 inQuotedString = true;
-                consecutive = 0;
+                prevWasQuantifier = false;
             } else if (c == '[') {
+                sb.append(c);
                 inCharClass = true;
-                consecutive = 0;
+                prevWasQuantifier = false;
             } else if (c == '+' || c == '*' || c == '?') {
-                if (++consecutive > maxConsecutiveQuantifiers) {
-                    throw new IllegalArgumentException(
-                        "Regex pattern has ["
-                            + consecutive
-                            + "] consecutive repetition operators at position ["
-                            + i
-                            + "], exceeding the maximum allowed ["
-                            + maxConsecutiveQuantifiers
-                            + "]. Simplify the pattern to avoid redundant quantifiers."
-                    );
+                if (prevWasQuantifier == false) {
+                    sb.append(c);
+                    prevWasQuantifier = true;
                 }
             } else {
-                consecutive = 0;
+                sb.append(c);
+                prevWasQuantifier = false;
             }
         }
+        return sb.toString();
     }
 
     public static Automaton toCaseInsensitiveChar(int codepoint) {

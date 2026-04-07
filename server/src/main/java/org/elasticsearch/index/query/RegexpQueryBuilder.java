@@ -273,7 +273,7 @@ public class RegexpQueryBuilder extends LeafQueryBuilder<RegexpQueryBuilder> imp
                     + "] index level setting."
             );
         }
-        AutomatonQueries.validateRegexRepetitionDepth(value, AutomatonQueries.MAX_CONSECUTIVE_REGEX_QUANTIFIERS);
+        String safeValue = AutomatonQueries.collapseConsecutiveQuantifiers(value);
         MultiTermQuery.RewriteMethod method = QueryParsers.parseRewriteMethod(rewrite, null, LoggingDeprecationHandler.INSTANCE);
 
         int matchFlagsValue = caseInsensitive ? RegExp.ASCII_CASE_INSENSITIVE : 0;
@@ -284,13 +284,13 @@ public class RegexpQueryBuilder extends LeafQueryBuilder<RegexpQueryBuilder> imp
 
         MappedFieldType fieldType = context.getFieldType(fieldName);
         if (fieldType != null) {
-            Query query = fieldType.regexpQuery(value, sanitisedSyntaxFlag, matchFlagsValue, maxDeterminizedStates, method, context);
+            Query query = fieldType.regexpQuery(safeValue, sanitisedSyntaxFlag, matchFlagsValue, maxDeterminizedStates, method, context);
             if (query != null) {
                 return query;
             }
         }
         AutomatonQuery query;
-        Term term = new Term(fieldName, BytesRefs.toBytesRef(value));
+        Term term = new Term(fieldName, BytesRefs.toBytesRef(safeValue));
         if (context.getCircuitBreaker() != null) {
             Automaton dfa = AutomatonQueries.toRegexpAutomaton(
                 term,
