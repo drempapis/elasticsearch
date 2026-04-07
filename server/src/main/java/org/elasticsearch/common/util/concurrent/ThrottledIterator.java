@@ -10,7 +10,6 @@
 package org.elasticsearch.common.util.concurrent;
 
 import org.elasticsearch.core.AbstractRefCounted;
-import org.elasticsearch.core.Nullable;
 import org.elasticsearch.core.RefCounted;
 import org.elasticsearch.core.Releasable;
 import org.elasticsearch.core.Releasables;
@@ -52,7 +51,7 @@ public class ThrottledIterator<T> implements Releasable {
      * @param onCompletion   Executed when all items are completed.
      */
     public static <T> void run(Iterator<T> iterator, BiConsumer<Releasable, T> itemConsumer, int maxConcurrency, Runnable onCompletion) {
-        run(iterator, itemConsumer, maxConcurrency, onCompletion, null);
+        run(iterator, itemConsumer, maxConcurrency, onCompletion, EsExecutors.DIRECT_EXECUTOR_SERVICE);
     }
 
     /**
@@ -60,15 +59,16 @@ public class ThrottledIterator<T> implements Releasable {
      * {@link Releasable} is closed on a different thread. The initial burst of up to {@code maxConcurrency} items is always processed
      * on the calling thread; subsequent items are dispatched to the executor.
      *
-     * @param executor If non-null, {@link #run()} is dispatched to this executor from {@link #onItemRelease()} instead of running inline.
-     *                 If null, falls back to inline execution (same behaviour as the executor-less overload).
+     * @param executor Executor to dispatch {@link #run()} from {@link #onItemRelease()}.
+     *                 Use {@link EsExecutors#DIRECT_EXECUTOR_SERVICE} for inline execution
+     *                 (same behaviour as the executor-less overload).
      */
     public static <T> void run(
         Iterator<T> iterator,
         BiConsumer<Releasable, T> itemConsumer,
         int maxConcurrency,
         Runnable onCompletion,
-        @Nullable Executor executor
+        Executor executor
     ) {
         try (var throttledIterator = new ThrottledIterator<>(iterator, itemConsumer, maxConcurrency, onCompletion, executor)) {
             throttledIterator.run();
@@ -79,7 +79,6 @@ public class ThrottledIterator<T> implements Releasable {
     private final Iterator<T> iterator;
     private final BiConsumer<Releasable, T> itemConsumer;
     private final AtomicInteger permits;
-    @Nullable
     private final Executor executor;
     private final Releasable itemReleasable = this::onItemRelease;
 
@@ -88,7 +87,7 @@ public class ThrottledIterator<T> implements Releasable {
         BiConsumer<Releasable, T> itemConsumer,
         int maxConcurrency,
         Runnable onCompletion,
-        @Nullable Executor executor
+        Executor executor
     ) {
         this.iterator = Objects.requireNonNull(iterator);
         this.itemConsumer = Objects.requireNonNull(itemConsumer);
@@ -97,7 +96,7 @@ public class ThrottledIterator<T> implements Releasable {
         }
         this.permits = new AtomicInteger(maxConcurrency);
         this.refs = AbstractRefCounted.of(onCompletion);
-        this.executor = executor;
+        this.executor = Objects.requireNonNull(executor);
     }
 
     private void run() {
@@ -127,23 +126,23 @@ public class ThrottledIterator<T> implements Releasable {
     private void onItemRelease() {
         try {
             if (permits.getAndIncrement() == 0) {
-                if (executor != null && iterator.hasNext()) {
-                    refs.mustIncRef();
-                    try {
-                        executor.execute(() -> {
-                            try {
-                                run();
-                            } finally {
-                                refs.decRef();
-                            }
-                        });
-                    } catch (Exception e) {
+                refs.mustIncRef();
+                executor.execute(new AbstractRunnable() {
+                    @Override
+                    protected void doRun() {
+                        ThrottledIterator.this.run();
+                    }
+
+                    @Override
+                    public void onFailure(Exception e) {
                         logger.error("failed to dispatch ThrottledIterator continuation to executor", e);
+                    }
+
+                    @Override
+                    public void onAfter() {
                         refs.decRef();
                     }
-                } else {
-                    run();
-                }
+                });
             }
         } finally {
             refs.decRef();

@@ -116,7 +116,8 @@ abstract class StreamingFetchPhaseDocsIterator extends FetchPhaseDocsIterator {
             targetChunkBytes,
             isCancelled,
             sendFailure,
-            producerError);
+            producerError
+        );
 
         BiConsumer<Releasable, PendingChunk> sendConsumer = createSendConsumer(
             chunkWriter,
@@ -266,10 +267,7 @@ abstract class StreamingFetchPhaseDocsIterator extends FetchPhaseDocsIterator {
 
         @Override
         public boolean hasNext() {
-            return currentIdx < docs.length
-                && producerError.get() == null
-                && sendFailure.get() == null
-                && isCancelled.get() == false;
+            return currentIdx < docs.length && producerError.get() == null && sendFailure.get() == null && isCancelled.get() == false;
         }
 
         @Override
