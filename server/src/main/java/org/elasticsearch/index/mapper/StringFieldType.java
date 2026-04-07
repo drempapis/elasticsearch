@@ -222,7 +222,7 @@ public abstract class StringFieldType extends TermBasedFieldType {
             );
         }
         failIfNotIndexed();
-      
+
         AutomatonQueries.validateRegexRepetitionDepth(value, AutomatonQueries.MAX_CONSECUTIVE_REGEX_QUANTIFIERS);
         AutomatonQuery query;
         Term term = new Term(name(), indexedValueForSearch(value));
