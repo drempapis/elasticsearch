@@ -132,13 +132,7 @@ public class ThrottledIteratorTests extends ESTestCase {
     public void testRunContinuesOnContinuationExecutorAfterPermitRelease() throws Exception {
         final var threadPool = new TestThreadPool(
             "test",
-            new FixedExecutorBuilder(
-                Settings.EMPTY,
-                CONSTRAINED,
-                1,
-                10,
-                CONSTRAINED,
-                EsExecutors.TaskTrackingConfig.DO_NOT_TRACK)
+            new FixedExecutorBuilder(Settings.EMPTY, CONSTRAINED, 1, 10, CONSTRAINED, EsExecutors.TaskTrackingConfig.DO_NOT_TRACK)
         );
         try {
             final List<String> processingThreads = new CopyOnWriteArrayList<>();
