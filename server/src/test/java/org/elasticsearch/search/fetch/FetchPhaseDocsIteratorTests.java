@@ -25,6 +25,7 @@ import org.elasticsearch.common.io.stream.RecyclerBytesStreamOutput;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.unit.ByteSizeValue;
 import org.elasticsearch.common.util.PageCacheRecycler;
+import org.elasticsearch.common.util.concurrent.EsExecutors;
 import org.elasticsearch.index.Index;
 import org.elasticsearch.index.cache.query.TrivialQueryCachingPolicy;
 import org.elasticsearch.index.shard.ShardId;
@@ -43,6 +44,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
@@ -57,6 +59,7 @@ import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.lessThan;
+import static org.hamcrest.Matchers.lessThanOrEqualTo;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
 
@@ -183,6 +186,7 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
             4,
             sendFailure,
             cancelled::get,
+            EsExecutors.DIRECT_EXECUTOR_SERVICE,
             future
         );
 
@@ -224,6 +228,7 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
             4,
             sendFailure,
             cancelled::get,
+            EsExecutors.DIRECT_EXECUTOR_SERVICE,
             future
         );
 
@@ -270,6 +275,7 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
             4,
             sendFailure,
             cancelled::get,
+            EsExecutors.DIRECT_EXECUTOR_SERVICE,
             future
         );
 
@@ -310,6 +316,7 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
             4,
             sendFailure,
             cancelled::get,
+            EsExecutors.DIRECT_EXECUTOR_SERVICE,
             future
         );
 
@@ -344,6 +351,60 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
         docs.directory.close();
     }
 
+    public void testIterateAsyncRespectsMaxInFlightWithDelayedAcks() throws Exception {
+        for (int maxInFlightChunks : List.of(1, 2, 3)) {
+            LuceneDocs docs = createDocs(100);
+            CircuitBreaker circuitBreaker = newLimitedBreaker(ByteSizeValue.ofBytes(Long.MAX_VALUE));
+            InFlightTrackingChunkWriter chunkWriter = new InFlightTrackingChunkWriter(circuitBreaker);
+            AtomicReference<Throwable> sendFailure = new AtomicReference<>();
+            AtomicBoolean cancelled = new AtomicBoolean(false);
+
+            PlainActionFuture<IterateResult> future = new PlainActionFuture<>();
+            CountDownLatch refsComplete = new CountDownLatch(1);
+            RefCountingListener refs = new RefCountingListener(ActionListener.running(refsComplete::countDown));
+
+            createStreamingIterator().iterateAsync(
+                createShardTarget(),
+                docs.reader,
+                docs.docIds,
+                chunkWriter,
+                1,
+                refs,
+                maxInFlightChunks,
+                sendFailure,
+                cancelled::get,
+                EsExecutors.DIRECT_EXECUTOR_SERVICE,
+                future
+            );
+
+            assertThat(chunkWriter.getSentChunks().size(), equalTo(maxInFlightChunks));
+            assertThat(chunkWriter.getMaxInFlight(), equalTo(maxInFlightChunks));
+            assertFalse(future.isDone());
+
+            assertBusy(() -> {
+                chunkWriter.ackAll();
+                assertTrue(future.isDone());
+            }, 10, TimeUnit.SECONDS);
+
+            IterateResult result = future.get(10, TimeUnit.SECONDS);
+
+            refs.close();
+            assertTrue(refsComplete.await(10, TimeUnit.SECONDS));
+
+            assertThat(chunkWriter.getMaxInFlight(), lessThanOrEqualTo(maxInFlightChunks));
+            assertThat(result.lastChunkBytes, notNullValue());
+
+            int totalHits = chunkWriter.getSentChunks().stream().mapToInt(c -> c.hitCount).sum() + result.lastChunkHitCount;
+            assertThat(totalHits, equalTo(100));
+
+            result.close();
+            assertThat(circuitBreaker.getUsed(), equalTo(0L));
+
+            docs.reader.close();
+            docs.directory.close();
+        }
+    }
+
     public void testIterateAsyncCircuitBreakerTrips() throws Exception {
         LuceneDocs docs = createDocs(100);
         CircuitBreaker circuitBreaker = newLimitedBreaker(ByteSizeValue.ofBytes(100L));
@@ -365,6 +426,7 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
             4,
             sendFailure,
             cancelled::get,
+            EsExecutors.DIRECT_EXECUTOR_SERVICE,
             future
         );
         chunkWriter.ackAll();
@@ -403,6 +465,7 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
             4,
             sendFailure,
             cancelled::get,
+            EsExecutors.DIRECT_EXECUTOR_SERVICE,
             future
         );
 
@@ -447,7 +510,19 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
         CountDownLatch refsComplete = new CountDownLatch(1);
         RefCountingListener refs = new RefCountingListener(ActionListener.running(refsComplete::countDown));
 
-        it.iterateAsync(createShardTarget(), docs.reader, docs.docIds, chunkWriter, 50, refs, 4, sendFailure, cancelled::get, future);
+        it.iterateAsync(
+            createShardTarget(),
+            docs.reader,
+            docs.docIds,
+            chunkWriter,
+            50,
+            refs,
+            4,
+            sendFailure,
+            cancelled::get,
+            EsExecutors.DIRECT_EXECUTOR_SERVICE,
+            future
+        );
 
         Exception e = expectThrows(Exception.class, () -> future.get(10, TimeUnit.SECONDS));
         assertTrue(
@@ -491,7 +566,19 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
         CountDownLatch refsComplete = new CountDownLatch(1);
         RefCountingListener refs = new RefCountingListener(ActionListener.running(refsComplete::countDown));
 
-        it.iterateAsync(createShardTarget(), docs.reader, docs.docIds, chunkWriter, 50, refs, 4, sendFailure, cancelled::get, future);
+        it.iterateAsync(
+            createShardTarget(),
+            docs.reader,
+            docs.docIds,
+            chunkWriter,
+            50,
+            refs,
+            4,
+            sendFailure,
+            cancelled::get,
+            EsExecutors.DIRECT_EXECUTOR_SERVICE,
+            future
+        );
 
         Exception e = expectThrows(Exception.class, () -> future.get(10, TimeUnit.SECONDS));
         assertThat(e.getCause().getMessage(), containsString("Simulated producer failure"));
@@ -526,6 +613,7 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
             4,
             sendFailure,
             cancelled::get,
+            EsExecutors.DIRECT_EXECUTOR_SERVICE,
             future
         );
 
@@ -575,6 +663,7 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
             4,
             sendFailure,
             cancelled::get,
+            EsExecutors.DIRECT_EXECUTOR_SERVICE,
             future
         );
 
@@ -638,7 +727,19 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
         CountDownLatch refsComplete = new CountDownLatch(1);
         RefCountingListener refs = new RefCountingListener(ActionListener.running(refsComplete::countDown));
 
-        it.iterateAsync(createShardTarget(), reader, docIds, chunkWriter, 1024 * 1024, refs, 4, sendFailure, cancelled::get, future);
+        it.iterateAsync(
+            createShardTarget(),
+            reader,
+            docIds,
+            chunkWriter,
+            1024 * 1024,
+            refs,
+            4,
+            sendFailure,
+            cancelled::get,
+            EsExecutors.DIRECT_EXECUTOR_SERVICE,
+            future
+        );
 
         IterateResult result = future.get(10, TimeUnit.SECONDS);
         refs.close();
@@ -840,6 +941,42 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
 
         public List<SentChunkInfo> getSentChunks() {
             return sentChunks;
+        }
+    }
+
+    private static class InFlightTrackingChunkWriter extends TestChunkWriter {
+        private final ConcurrentLinkedQueue<ActionListener<Void>> pendingAcks = new ConcurrentLinkedQueue<>();
+        private final AtomicInteger inFlightChunks = new AtomicInteger();
+        private final AtomicInteger maxInFlightChunks = new AtomicInteger();
+
+        InFlightTrackingChunkWriter(CircuitBreaker circuitBreaker) {
+            super(true, circuitBreaker);
+        }
+
+        @Override
+        public void writeResponseChunk(FetchPhaseResponseChunk chunk, ActionListener<Void> listener) {
+            sentChunks.add(new SentChunkInfo(chunk.hitCount(), chunk.sequenceStart(), chunk.expectedTotalDocs()));
+            int currentInFlight = inFlightChunks.incrementAndGet();
+            maxInFlightChunks.accumulateAndGet(currentInFlight, Math::max);
+            pendingAcks.add(ActionListener.wrap(v -> {
+                inFlightChunks.decrementAndGet();
+                listener.onResponse(v);
+            }, e -> {
+                inFlightChunks.decrementAndGet();
+                listener.onFailure(e);
+            }));
+        }
+
+        @Override
+        public void ackAll() {
+            ActionListener<Void> ack;
+            while ((ack = pendingAcks.poll()) != null) {
+                ack.onResponse(null);
+            }
+        }
+
+        int getMaxInFlight() {
+            return maxInFlightChunks.get();
         }
     }
 }

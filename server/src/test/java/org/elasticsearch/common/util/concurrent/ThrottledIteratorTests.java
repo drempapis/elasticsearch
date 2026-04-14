@@ -21,11 +21,14 @@ import org.elasticsearch.threadpool.TestThreadPool;
 import org.elasticsearch.threadpool.ThreadPool;
 
 import java.util.Iterator;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.stream.IntStream;
@@ -121,6 +124,59 @@ public class ThrottledIteratorTests extends ESTestCase {
             assertEquals(items, completedItems.get());
             assertTrue(itemPermits.tryAcquire(maxConcurrency));
             assertTrue(itemStartLatch.await(0, TimeUnit.SECONDS));
+        } finally {
+            ThreadPool.terminate(threadPool, 30, TimeUnit.SECONDS);
+        }
+    }
+
+    public void testRunContinuesOnContinuationExecutorAfterPermitRelease() throws Exception {
+        final var threadPool = new TestThreadPool(
+            "test",
+            new FixedExecutorBuilder(
+                Settings.EMPTY,
+                CONSTRAINED,
+                1,
+                10,
+                CONSTRAINED,
+                EsExecutors.TaskTrackingConfig.DO_NOT_TRACK)
+        );
+        try {
+            final List<String> processingThreads = new CopyOnWriteArrayList<>();
+            final AtomicReference<Releasable> firstItemReleasable = new AtomicReference<>();
+            final var firstItemSeen = new CountDownLatch(1);
+            final var completionLatch = new CountDownLatch(1);
+            final var completionCalls = new AtomicInteger();
+            final var callerThreadName = Thread.currentThread().getName();
+            final var releaseThreadName = "permit-release-thread";
+
+            ThrottledIterator.run(List.of(0, 1, 2).iterator(), (releasable, item) -> {
+                processingThreads.add(Thread.currentThread().getName());
+                if (item == 0) {
+                    firstItemReleasable.set(releasable);
+                    firstItemSeen.countDown();
+                } else {
+                    releasable.close();
+                }
+            }, 1, () -> {
+                completionCalls.incrementAndGet();
+                completionLatch.countDown();
+            }, threadPool.executor(CONSTRAINED)); // Continuation executor
+
+            assertTrue(firstItemSeen.await(10, TimeUnit.SECONDS));
+            assertEquals(List.of(callerThreadName), processingThreads);
+
+            Thread releaser = new Thread(() -> firstItemReleasable.get().close(), releaseThreadName);
+            releaser.start();
+            releaser.join();
+
+            assertTrue(completionLatch.await(10, TimeUnit.SECONDS));
+            assertEquals(1, completionCalls.get());
+            assertEquals(3, processingThreads.size());
+            assertEquals(callerThreadName, processingThreads.get(0));
+            assertTrue(processingThreads.get(1), processingThreads.get(1).contains("[constrained]"));
+            assertTrue(processingThreads.get(2), processingThreads.get(2).contains("[constrained]"));
+            assertNotEquals(releaseThreadName, processingThreads.get(1));
+            assertNotEquals(releaseThreadName, processingThreads.get(2));
         } finally {
             ThreadPool.terminate(threadPool, 30, TimeUnit.SECONDS);
         }
