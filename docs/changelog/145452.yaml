@@ -1,6 +1,6 @@
 area: Search
 issues: []
 pr: 145452
-summary: Reject regex patterns with pathological quantifier stacking to prevent NFA
-  construction OOM
+summary: Collapse pathological regex quantifier stacking to prevent NFA construction
+  OOM
 type: bug

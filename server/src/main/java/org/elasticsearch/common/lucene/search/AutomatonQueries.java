@@ -210,9 +210,10 @@ public class AutomatonQueries {
 
     /**
      * Collapses consecutive repetition operators ({@code +}, {@code *}, {@code ?}) in a Lucene regex
-     * pattern down to a single operator (the first one in each run). Stacking quantifiers is always
-     * semantically redundant (e.g. {@code x+++} = {@code x+}) and causes exponential NFA state growth
-     * in {@link org.apache.lucene.util.automaton.RegExp#toAutomaton()}, leading to OOM.
+     * pattern down to a single, language-equivalent operator. Stacking quantifiers is always
+     * semantically redundant (e.g. {@code x+++} = {@code x+}, {@code x+?} = {@code x*}) and causes
+     * exponential NFA state growth in {@link org.apache.lucene.util.automaton.RegExp#toAutomaton()},
+     * leading to OOM.
      * <p>
      * The scan respects escape sequences ({@code \+}), character classes ({@code [+*?]}), and
      * Lucene quoted strings ({@code "+++"}) where these characters are literals.
@@ -257,6 +258,9 @@ public class AutomatonQueries {
                 if (prevWasQuantifier == false) {
                     sb.append(c);
                     prevWasQuantifier = true;
+                } else {
+                    int previousQuantifierIndex = sb.length() - 1;
+                    sb.setCharAt(previousQuantifierIndex, collapseConsecutiveQuantifierPair(sb.charAt(previousQuantifierIndex), c));
                 }
             } else {
                 sb.append(c);
@@ -264,6 +268,22 @@ public class AutomatonQueries {
             }
         }
         return sb.toString();
+    }
+
+    private static char collapseConsecutiveQuantifierPair(char existing, char incoming) {
+        assert isRepetitionOperator(existing) && isRepetitionOperator(incoming)
+            : "expected repetition operators but got [" + existing + "] and [" + incoming + "]";
+        if (existing == incoming) {
+            return existing;
+        }
+        if (existing == '*' || incoming == '*') {
+            return '*';
+        }
+        return '*';
+    }
+
+    private static boolean isRepetitionOperator(char c) {
+        return c == '+' || c == '*' || c == '?';
     }
 
     public static Automaton toCaseInsensitiveChar(int codepoint) {

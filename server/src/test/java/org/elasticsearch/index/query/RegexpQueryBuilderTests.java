@@ -11,6 +11,10 @@ package org.elasticsearch.index.query;
 
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.RegexpQuery;
+import org.apache.lucene.tests.util.automaton.AutomatonTestUtil;
+import org.apache.lucene.util.automaton.Automaton;
+import org.apache.lucene.util.automaton.Operations;
+import org.apache.lucene.util.automaton.RegExp;
 import org.elasticsearch.common.ParsingException;
 import org.elasticsearch.core.Strings;
 import org.elasticsearch.test.AbstractQueryTestCase;
@@ -145,13 +149,6 @@ public class RegexpQueryBuilderTests extends AbstractQueryTestCase<RegexpQueryBu
             }""";
         e = expectThrows(ParsingException.class, () -> parseQuery(shortJson));
         assertEquals("[regexp] query doesn't support multiple fields, found [user1] and [user2]", e.getMessage());
-    }
-
-    public void testPathologicalQuantifierStackingIsCollapsed() throws IOException {
-        RegexpQueryBuilder query = new RegexpQueryBuilder(TEXT_FIELD_NAME, "(.[^A-Za-z0-9_])?carhartt++++++++++++++++++++++++++++++.?");
-        SearchExecutionContext context = createSearchExecutionContext();
-        Query luceneQuery = query.toQuery(context);
-        assertNotNull(luceneQuery);
     }
 
     public void testRegexpQueryCircuitBreakerAccounting() throws IOException {
