@@ -23,6 +23,7 @@ import org.elasticsearch.lucene.util.automaton.CircuitBreakingOperations;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Helper functions for creating various forms of {@link AutomatonQuery}
@@ -219,9 +220,11 @@ public class AutomatonQueries {
      * Lucene quoted strings ({@code "+++"}) where these characters are literals.
      *
      * @param pattern the raw regex pattern string
-     * @return the pattern with redundant consecutive quantifiers removed
+     * @return the pattern with redundant consecutive quantifiers collapsed
+     * @throws NullPointerException if {@code pattern} is {@code null}
      */
     public static String collapseConsecutiveQuantifiers(String pattern) {
+        Objects.requireNonNull(pattern, "pattern must not be null");
         final int length = pattern.length();
         StringBuilder sb = new StringBuilder(length);
         boolean inCharClass = false;
@@ -276,9 +279,6 @@ public class AutomatonQueries {
         if (existing == incoming) {
             return existing;
         }
-        if (existing == '*' || incoming == '*') {
-            return '*';
-        }
         return '*';
     }
 
@@ -288,7 +288,6 @@ public class AutomatonQueries {
 
     public static Automaton toCaseInsensitiveChar(int codepoint) {
         Automaton case1 = Automata.makeChar(codepoint);
-        // For now we only work with ASCII characters
         if (codepoint > 128) {
             return case1;
         }
@@ -296,7 +295,6 @@ public class AutomatonQueries {
         Automaton result;
         if (altCase != codepoint) {
             result = Operations.union(case1, Automata.makeChar(altCase));
-            // this automaton should always be deterministic, no need to determinize
             assert result.isDeterministic();
         } else {
             result = case1;
