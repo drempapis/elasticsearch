@@ -56,11 +56,19 @@ public class ThrottledIterator<T> implements Releasable {
 
     /**
      * Like {@link #run(Iterator, BiConsumer, int, Runnable)} but dispatches continuation work to the given executor when an item's
-     * {@link Releasable} is closed on a different thread. The initial burst of up to {@code maxConcurrency} items is always processed
-     * on the calling thread; subsequent items are dispatched to the executor.
+     * {@link Releasable} is closed after the initial call to {@link #run} has returned. Up to {@code maxConcurrency} items may be
+     * processed on the calling thread before {@link #run} returns; once it has returned, further items are processed on threads
+     * that the supplied executor picks. Note that if an {@code itemConsumer} closes its {@link Releasable} synchronously, the
+     * resulting continuation can be dispatched to the executor even while the initial call is still looping.
+     * <p>
+     * When using {@link EsExecutors#DIRECT_EXECUTOR_SERVICE}, exceptions from {@code iterator.hasNext()}/{@code iterator.next()} propagate
+     * directly to the caller of {@link Releasable#close()}, preserving the same behavior as the executor-less overload. With a real
+     * executor, such exceptions cannot propagate across threads; they are logged and the iteration terminates. Callers passing a real
+     * executor should ensure the iterator handles its own exceptions internally (e.g. by catching and recording them) rather than
+     * relying on propagation.
      *
      * @param executor Executor to dispatch {@link #run()} from {@link #onItemRelease()}.
-     *                 Use {@link EsExecutors#DIRECT_EXECUTOR_SERVICE} for inline execution
+     *                 Must not be {@code null}. Use {@link EsExecutors#DIRECT_EXECUTOR_SERVICE} for inline execution
      *                 (same behaviour as the executor-less overload).
      */
     public static <T> void run(
@@ -126,23 +134,38 @@ public class ThrottledIterator<T> implements Releasable {
     private void onItemRelease() {
         try {
             if (permits.getAndIncrement() == 0) {
-                refs.mustIncRef();
-                executor.execute(new AbstractRunnable() {
-                    @Override
-                    protected void doRun() {
-                        ThrottledIterator.this.run();
-                    }
+                if (executor == EsExecutors.DIRECT_EXECUTOR_SERVICE) {
+                    run();
+                } else {
+                    refs.mustIncRef();
+                    try {
+                        executor.execute(new AbstractRunnable() {
+                            @Override
+                            protected void doRun() {
+                                ThrottledIterator.this.run();
+                            }
 
-                    @Override
-                    public void onFailure(Exception e) {
-                        logger.error("failed to dispatch ThrottledIterator continuation to executor", e);
-                    }
+                            @Override
+                            public void onFailure(Exception e) {
+                                logger.error("failed to run ThrottledIterator continuation", e);
+                                assert false : e;
+                            }
 
-                    @Override
-                    public void onAfter() {
+                            @Override
+                            public void onRejection(Exception e) {
+                                logger.warn("executor rejected ThrottledIterator continuation", e);
+                            }
+
+                            @Override
+                            public void onAfter() {
+                                refs.decRef();
+                            }
+                        });
+                    } catch (Exception e) {
                         refs.decRef();
+                        logger.warn("executor rejected ThrottledIterator continuation", e);
                     }
-                });
+                }
             }
         } finally {
             refs.decRef();

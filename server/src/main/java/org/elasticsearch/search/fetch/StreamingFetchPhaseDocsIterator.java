@@ -46,9 +46,11 @@ import java.util.function.Supplier;
  * </ul>
  * <b>Threading:</b> The search thread produces up to {@code maxInFlightChunks} chunks in the
  * initial burst, then returns to the thread pool. Subsequent chunks are produced on whatever
- * thread ACKs a previous send. At each chunk boundary, per-leaf Lucene readers are re-acquired
- * (clone-per-chunk) via {@link #setNextReader} to satisfy thread-affinity assertions -- each
- * call creates fresh reader clones bound to the calling thread.
+ * thread ACKs a previous send. Per-leaf Lucene readers are re-acquired via {@link #setNextReader}
+ * (clone-per-chunk) whenever production crosses a leaf boundary or moves to a different thread,
+ * satisfying Lucene's thread-affinity assertions. If consecutive chunks stay within the same leaf
+ * on the same producer thread, the previous leaf setup is reused to avoid rebuilding stored-field
+ * loaders, doc-values, and sub-phase processor state on every chunk.
  * <p>
  * <b>Memory Management:</b> The circuit breaker tracks recycler page allocations via the
  * {@link RecyclerBytesStreamOutput} passed from the chunk writer. If the breaker trips
@@ -224,11 +226,13 @@ abstract class StreamingFetchPhaseDocsIterator extends FetchPhaseDocsIterator {
      * hit is prefixed with its original score-order position (as a vInt) so the
      * coordinator can reassemble results in the correct order.
      * <p>
-     * <b>Clone-per-chunk:</b> At the start of each {@link #next()} call, per-leaf Lucene
-     * readers are re-acquired via {@link #setNextReaderAndGetLeafEndIndex}. This creates
-     * fresh clones of {@code StoredFields}, {@code DocValues}, etc. bound to the calling
-     * thread, satisfying Lucene's thread-affinity assertions when chunks are produced
-     * across different threads.
+     * <b>Clone-per-chunk:</b> Per-leaf Lucene readers are re-acquired via
+     * {@link #setNextReaderAndGetLeafEndIndex} whenever production crosses a leaf boundary or
+     * moves to a different thread than the one that last set up the current leaf. This creates
+     * fresh clones of {@code StoredFields}, {@code DocValues}, etc. bound to the calling thread,
+     * satisfying Lucene's thread-affinity assertions when chunks are produced across different
+     * threads. When consecutive chunks stay within the same leaf on the same thread the previous
+     * setup is reused, avoiding redundant loader and sub-phase processor rebuilds.
      * <p>
      * <b>Error safety:</b> All exceptions from Lucene I/O are caught and stored in
      * {@code producerError}. This is critical because {@link ThrottledIterator} does not
@@ -246,6 +250,10 @@ abstract class StreamingFetchPhaseDocsIterator extends FetchPhaseDocsIterator {
 
         private int currentIdx;
         private int endReaderIdx;
+        // Thread that last ran setNextReaderAndGetLeafEndIndex; null until the first leaf setup.
+        // Used to skip redundant per-leaf rebuilds when consecutive chunks stay on the same
+        // thread within the same leaf (Lucene's thread-affinity invariant still holds).
+        private Thread leafSetupThread;
 
         ChunkProducingIterator(
             DocIdToIndex[] docs,
@@ -274,8 +282,6 @@ abstract class StreamingFetchPhaseDocsIterator extends FetchPhaseDocsIterator {
         public PendingChunk next() {
             RecyclerBytesStreamOutput chunkBuffer = null;
             try {
-                endReaderIdx = setNextReaderAndGetLeafEndIndex(indexReader, docs, currentIdx);
-
                 chunkBuffer = chunkWriter.newNetworkBytesStream();
                 int chunkStartIndex = currentIdx;
                 int hitsInChunk = 0;
@@ -291,8 +297,9 @@ abstract class StreamingFetchPhaseDocsIterator extends FetchPhaseDocsIterator {
                         }
                     }
 
-                    if (currentIdx >= endReaderIdx) {
+                    if (currentIdx >= endReaderIdx || (hitsInChunk == 0 && Thread.currentThread() != leafSetupThread)) {
                         endReaderIdx = setNextReaderAndGetLeafEndIndex(indexReader, docs, currentIdx);
+                        leafSetupThread = Thread.currentThread();
                     }
 
                     SearchHit hit = nextDoc(docs[currentIdx].docId);

@@ -24,6 +24,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executor;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -174,6 +175,73 @@ public class ThrottledIteratorTests extends ESTestCase {
         } finally {
             ThreadPool.terminate(threadPool, 30, TimeUnit.SECONDS);
         }
+    }
+
+    public void testIteratorExceptionPropagatesWithDirectExecutor() {
+        final var completed = new AtomicBoolean();
+        final var releasableRef = new AtomicReference<Releasable>();
+        final var processedItems = new CopyOnWriteArrayList<Integer>();
+
+        Iterator<Integer> throwingIterator = new Iterator<>() {
+            int index = 0;
+
+            @Override
+            public boolean hasNext() {
+                return index < 3;
+            }
+
+            @Override
+            public Integer next() {
+                int current = index++;
+                if (current == 1) {
+                    throw new RuntimeException("iterator failure on item 1");
+                }
+                return current;
+            }
+        };
+
+        ThrottledIterator.run(throwingIterator, (releasable, item) -> {
+            processedItems.add(item);
+            if (item == 0) {
+                releasableRef.set(releasable);
+            } else {
+                releasable.close();
+            }
+        }, 1, () -> completed.set(true));
+
+        assertEquals(List.of(0), processedItems);
+        assertFalse(completed.get());
+
+        RuntimeException e = expectThrows(RuntimeException.class, () -> releasableRef.get().close());
+        assertEquals("iterator failure on item 1", e.getMessage());
+
+        assertTrue(completed.get());
+        assertEquals(List.of(0), processedItems);
+    }
+
+    public void testExecutorRejectionStillCompletes() {
+        final var completed = new AtomicBoolean();
+        final var releasableRef = new AtomicReference<Releasable>();
+        final var processedItems = new CopyOnWriteArrayList<Integer>();
+
+        Executor rejectingExecutor = command -> { throw new EsRejectedExecutionException("pool shut down"); };
+
+        ThrottledIterator.run(List.of(0, 1, 2).iterator(), (releasable, item) -> {
+            processedItems.add(item);
+            if (item == 0) {
+                releasableRef.set(releasable);
+            } else {
+                releasable.close();
+            }
+        }, 1, () -> completed.set(true), rejectingExecutor);
+
+        assertEquals(List.of(0), processedItems);
+        assertFalse(completed.get());
+
+        releasableRef.get().close();
+
+        assertTrue(completed.get());
+        assertEquals(List.of(0), processedItems);
     }
 
     private static class SerialAccessAssertingIterator<T> implements Iterator<T> {
