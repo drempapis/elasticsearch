@@ -34,6 +34,8 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.stream.IntStream;
 
+import static org.hamcrest.Matchers.instanceOf;
+
 public class ThrottledIteratorTests extends ESTestCase {
     private static final String CONSTRAINED = "constrained";
     private static final String RELAXED = "relaxed";
@@ -155,7 +157,7 @@ public class ThrottledIteratorTests extends ESTestCase {
             }, 1, () -> {
                 completionCalls.incrementAndGet();
                 completionLatch.countDown();
-            }, threadPool.executor(CONSTRAINED)); // Continuation executor
+            }, threadPool.executor(CONSTRAINED), e -> {}); // Continuation executor
 
             assertTrue(firstItemSeen.await(10, TimeUnit.SECONDS));
             assertEquals(List.of(callerThreadName), processingThreads);
@@ -223,6 +225,7 @@ public class ThrottledIteratorTests extends ESTestCase {
         final var completed = new AtomicBoolean();
         final var releasableRef = new AtomicReference<Releasable>();
         final var processedItems = new CopyOnWriteArrayList<Integer>();
+        final var surfacedFailure = new AtomicReference<Exception>();
 
         Executor rejectingExecutor = command -> { throw new EsRejectedExecutionException("pool shut down"); };
 
@@ -233,7 +236,7 @@ public class ThrottledIteratorTests extends ESTestCase {
             } else {
                 releasable.close();
             }
-        }, 1, () -> completed.set(true), rejectingExecutor);
+        }, 1, () -> completed.set(true), rejectingExecutor, e -> surfacedFailure.compareAndSet(null, e));
 
         assertEquals(List.of(0), processedItems);
         assertFalse(completed.get());
@@ -242,6 +245,9 @@ public class ThrottledIteratorTests extends ESTestCase {
 
         assertTrue(completed.get());
         assertEquals(List.of(0), processedItems);
+        assertNotNull("rejection must be surfaced to the hook", surfacedFailure.get());
+        assertThat(surfacedFailure.get(), instanceOf(EsRejectedExecutionException.class));
+        assertEquals("pool shut down", surfacedFailure.get().getMessage());
     }
 
     private static class SerialAccessAssertingIterator<T> implements Iterator<T> {

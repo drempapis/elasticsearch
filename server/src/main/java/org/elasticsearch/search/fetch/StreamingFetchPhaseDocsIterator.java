@@ -133,7 +133,14 @@ abstract class StreamingFetchPhaseDocsIterator extends FetchPhaseDocsIterator {
         );
         Runnable onCompletion = createCompletionHandler(listener, producerError, sendFailure, isCancelled, lastChunkHolder);
 
-        ThrottledIterator.run(chunkIterator, sendConsumer, maxInFlightChunks, onCompletion, continuationExecutor);
+        ThrottledIterator.run(
+            chunkIterator,
+            sendConsumer,
+            maxInFlightChunks,
+            onCompletion,
+            continuationExecutor,
+            e -> producerError.compareAndSet(null, e)
+        );
     }
 
     private static DocIdToIndex[] sortDocsByDocId(int[] docIds) {

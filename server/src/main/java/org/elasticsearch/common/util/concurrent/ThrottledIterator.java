@@ -22,6 +22,7 @@ import java.util.Objects;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 
 public class ThrottledIterator<T> implements Releasable {
 
@@ -51,7 +52,7 @@ public class ThrottledIterator<T> implements Releasable {
      * @param onCompletion   Executed when all items are completed.
      */
     public static <T> void run(Iterator<T> iterator, BiConsumer<Releasable, T> itemConsumer, int maxConcurrency, Runnable onCompletion) {
-        run(iterator, itemConsumer, maxConcurrency, onCompletion, EsExecutors.DIRECT_EXECUTOR_SERVICE);
+        run(iterator, itemConsumer, maxConcurrency, onCompletion, EsExecutors.DIRECT_EXECUTOR_SERVICE, e -> {});
     }
 
     /**
@@ -63,22 +64,33 @@ public class ThrottledIterator<T> implements Releasable {
      * <p>
      * When using {@link EsExecutors#DIRECT_EXECUTOR_SERVICE}, exceptions from {@code iterator.hasNext()}/{@code iterator.next()} propagate
      * directly to the caller of {@link Releasable#close()}, preserving the same behavior as the executor-less overload. With a real
-     * executor, such exceptions cannot propagate across threads; they are logged and the iteration terminates. Callers passing a real
-     * executor should ensure the iterator handles its own exceptions internally (e.g. by catching and recording them) rather than
-     * relying on propagation.
+     * executor, such exceptions cannot propagate across threads; they are surfaced to the caller via {@code onContinuationFailure}
+     * and the iteration terminates.
      *
      * @param executor Executor to dispatch {@link #run()} from {@link #onItemRelease()}.
      *                 Must not be {@code null}. Use {@link EsExecutors#DIRECT_EXECUTOR_SERVICE} for inline execution
      *                 (same behaviour as the executor-less overload).
+     *
+     * @param onContinuationFailure Invoked when a continuation fails or is rejected by {@code executor}.
      */
     public static <T> void run(
         Iterator<T> iterator,
         BiConsumer<Releasable, T> itemConsumer,
         int maxConcurrency,
         Runnable onCompletion,
-        Executor executor
+        Executor executor,
+        Consumer<Exception> onContinuationFailure
     ) {
-        try (var throttledIterator = new ThrottledIterator<>(iterator, itemConsumer, maxConcurrency, onCompletion, executor)) {
+        try (
+            var throttledIterator = new ThrottledIterator<>(
+                iterator,
+                itemConsumer,
+                maxConcurrency,
+                onCompletion,
+                executor,
+                onContinuationFailure
+            )
+        ) {
             throttledIterator.run();
         }
     }
@@ -88,6 +100,7 @@ public class ThrottledIterator<T> implements Releasable {
     private final BiConsumer<Releasable, T> itemConsumer;
     private final AtomicInteger permits;
     private final Executor executor;
+    private final Consumer<Exception> onContinuationFailure;
     private final Releasable itemReleasable = this::onItemRelease;
 
     private ThrottledIterator(
@@ -95,7 +108,8 @@ public class ThrottledIterator<T> implements Releasable {
         BiConsumer<Releasable, T> itemConsumer,
         int maxConcurrency,
         Runnable onCompletion,
-        Executor executor
+        Executor executor,
+        Consumer<Exception> onContinuationFailure
     ) {
         this.iterator = Objects.requireNonNull(iterator);
         this.itemConsumer = Objects.requireNonNull(itemConsumer);
@@ -105,6 +119,7 @@ public class ThrottledIterator<T> implements Releasable {
         this.permits = new AtomicInteger(maxConcurrency);
         this.refs = AbstractRefCounted.of(onCompletion);
         this.executor = Objects.requireNonNull(executor);
+        this.onContinuationFailure = Objects.requireNonNull(onContinuationFailure);
     }
 
     private void run() {
@@ -147,13 +162,12 @@ public class ThrottledIterator<T> implements Releasable {
 
                             @Override
                             public void onFailure(Exception e) {
-                                logger.error("failed to run ThrottledIterator continuation", e);
-                                assert false : e;
+                                onContinuationFailure.accept(e);
                             }
 
                             @Override
                             public void onRejection(Exception e) {
-                                logger.warn("executor rejected ThrottledIterator continuation", e);
+                                onContinuationFailure.accept(e);
                             }
 
                             @Override
@@ -163,7 +177,7 @@ public class ThrottledIterator<T> implements Releasable {
                         });
                     } catch (Exception e) {
                         refs.decRef();
-                        logger.warn("executor rejected ThrottledIterator continuation", e);
+                        onContinuationFailure.accept(e);
                     }
                 }
             }
