@@ -312,7 +312,7 @@ abstract class StreamingFetchPhaseDocsIterator extends FetchPhaseDocsIterator {
                 int hitsInChunk = 0;
 
                 while (currentIdx < docs.length) {
-                    if (hitsInChunk > 0 && currentIdx % 32 == 0) {
+                    if (hitsInChunk > 0) {
                         if (isCancelled.get()) {
                             throw new TaskCancelledException("cancelled");
                         }
