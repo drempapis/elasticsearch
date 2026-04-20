@@ -28,6 +28,7 @@ import org.elasticsearch.tasks.TaskCancelledException;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Iterator;
+import java.util.NoSuchElementException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
@@ -155,10 +156,6 @@ abstract class StreamingFetchPhaseDocsIterator extends FetchPhaseDocsIterator {
     ) {
         return (releasable, chunk) -> {
             try {
-                if (chunk == null) {
-                    releasable.close();
-                    return;
-                }
                 if (chunk.isLast) {
                     lastChunkHolder.set(chunk);
                     releasable.close();
@@ -167,9 +164,7 @@ abstract class StreamingFetchPhaseDocsIterator extends FetchPhaseDocsIterator {
                 sendChunk(chunk, releasable, chunkWriter, shardId, totalDocs, sendFailure, chunkCompletionRefs, isCancelled);
             } catch (Exception e) {
                 sendFailure.compareAndSet(null, e);
-                if (chunk != null) {
-                    chunk.close();
-                }
+                chunk.close();
                 releasable.close();
             }
         };
@@ -238,6 +233,12 @@ abstract class StreamingFetchPhaseDocsIterator extends FetchPhaseDocsIterator {
      * {@code producerError}. This is critical because {@link ThrottledIterator} does not
      * catch exceptions from {@code iterator.next()} -- an uncaught exception in
      * {@code onItemRelease -> run -> next} would propagate unhandled on an ACK thread.
+     * <p>
+     * <b>Iterator contract:</b> Uses a read-ahead pattern: {@link #hasNext} eagerly
+     * produces the next chunk (buffered in {@code pendingNext}) and returns {@code false}
+     * if production fails, is cancelled, or no docs remain. {@link #next} returns the
+     * buffered chunk or throws {@link NoSuchElementException}, honouring the
+     * {@link Iterator} contract (never returns {@code null}).
      */
     private class ChunkProducingIterator implements Iterator<PendingChunk> {
         private final DocIdToIndex[] docs;
@@ -254,6 +255,7 @@ abstract class StreamingFetchPhaseDocsIterator extends FetchPhaseDocsIterator {
         // Used to skip redundant per-leaf rebuilds when consecutive chunks stay on the same
         // thread within the same leaf (Lucene's thread-affinity invariant still holds).
         private Thread leafSetupThread;
+        private PendingChunk pendingNext;
 
         ChunkProducingIterator(
             DocIdToIndex[] docs,
@@ -275,11 +277,27 @@ abstract class StreamingFetchPhaseDocsIterator extends FetchPhaseDocsIterator {
 
         @Override
         public boolean hasNext() {
-            return currentIdx < docs.length && producerError.get() == null && sendFailure.get() == null && isCancelled.get() == false;
+            if (pendingNext != null) {
+                return true;
+            }
+            if (currentIdx >= docs.length || producerError.get() != null || sendFailure.get() != null || isCancelled.get()) {
+                return false;
+            }
+            pendingNext = produceNext();
+            return pendingNext != null;
         }
 
         @Override
         public PendingChunk next() {
+            if (hasNext() == false) {
+                throw new NoSuchElementException();
+            }
+            PendingChunk chunk = pendingNext;
+            pendingNext = null;
+            return chunk;
+        }
+
+        private PendingChunk produceNext() {
             RecyclerBytesStreamOutput chunkBuffer = null;
             try {
                 chunkBuffer = chunkWriter.newNetworkBytesStream();
