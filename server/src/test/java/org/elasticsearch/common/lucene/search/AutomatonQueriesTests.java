@@ -171,7 +171,9 @@ public class AutomatonQueriesTests extends ESTestCase {
         if (a1 == a2) {
             return true;
         }
-        return subsetOf(a2, a1) && subsetOf(a1, a2);
+        Automaton normalizedA1 = Operations.removeDeadStates(a1);
+        Automaton normalizedA2 = Operations.removeDeadStates(a2);
+        return subsetOf(normalizedA2, normalizedA1) && subsetOf(normalizedA1, normalizedA2);
     }
 
     private void assertCollapsedAndInvalidRegexHandled(String pattern, String expectedCollapsed) {
