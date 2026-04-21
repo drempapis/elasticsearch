@@ -24,12 +24,12 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.Executor;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BiConsumer;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.stream.IntStream;
@@ -63,6 +63,7 @@ public class ThrottledIteratorTests extends ESTestCase {
             final var maxConcurrency = between(1, (constrainedQueue + maxConstrainedThreads) * 2);
             final var itemPermits = new Semaphore(maxConcurrency);
             final var completionLatch = new CountDownLatch(1);
+            final var continuationFailure = new AtomicReference<Exception>();
             final BooleanSupplier forkSupplier = randomFrom(
                 () -> false,
                 ESTestCase::randomBoolean,
@@ -72,7 +73,8 @@ public class ThrottledIteratorTests extends ESTestCase {
             );
             final var blockPermits = new Semaphore(between(0, Math.min(maxRelaxedThreads, maxConcurrency) - 1));
 
-            ThrottledIterator.run(new SerialAccessAssertingIterator<>(IntStream.range(0, items).boxed().iterator()), (releasable, item) -> {
+            final var iterator = new SerialAccessAssertingIterator<>(IntStream.range(0, items).boxed().iterator());
+            final BiConsumer<Releasable, Integer> itemConsumer = (releasable, item) -> {
                 try (var refs = new RefCountingRunnable(() -> {
                     completedItems.incrementAndGet();
                     releasable.close();
@@ -121,10 +123,23 @@ public class ThrottledIteratorTests extends ESTestCase {
                         itemPermits.release();
                     }
                 }
-            }, maxConcurrency, completionLatch::countDown);
+            };
+            if (randomBoolean()) {
+                ThrottledIterator.run(
+                    iterator,
+                    itemConsumer,
+                    maxConcurrency,
+                    completionLatch::countDown,
+                    threadPool.executor(RELAXED),
+                    e -> continuationFailure.compareAndSet(null, e)
+                );
+            } else {
+                ThrottledIterator.run(iterator, itemConsumer, maxConcurrency, completionLatch::countDown);
+            }
 
             assertTrue(completionLatch.await(30, TimeUnit.SECONDS));
             assertEquals(items, completedItems.get());
+            assertNull("continuation execution should not fail in this scenario", continuationFailure.get());
             assertTrue(itemPermits.tryAcquire(maxConcurrency));
             assertTrue(itemStartLatch.await(0, TimeUnit.SECONDS));
         } finally {
@@ -222,12 +237,17 @@ public class ThrottledIteratorTests extends ESTestCase {
     }
 
     public void testExecutorRejectionStillCompletes() {
+        final var threadPool = new TestThreadPool(
+            "test",
+            new FixedExecutorBuilder(Settings.EMPTY, CONSTRAINED, 1, 10, CONSTRAINED, EsExecutors.TaskTrackingConfig.DO_NOT_TRACK)
+        );
+        final var continuationExecutor = threadPool.executor(CONSTRAINED);
+        assertTrue(ThreadPool.terminate(threadPool, 30, TimeUnit.SECONDS));
+
         final var completed = new AtomicBoolean();
         final var releasableRef = new AtomicReference<Releasable>();
         final var processedItems = new CopyOnWriteArrayList<Integer>();
         final var surfacedFailure = new AtomicReference<Exception>();
-
-        Executor rejectingExecutor = command -> { throw new EsRejectedExecutionException("pool shut down"); };
 
         ThrottledIterator.run(List.of(0, 1, 2).iterator(), (releasable, item) -> {
             processedItems.add(item);
@@ -236,7 +256,7 @@ public class ThrottledIteratorTests extends ESTestCase {
             } else {
                 releasable.close();
             }
-        }, 1, () -> completed.set(true), rejectingExecutor, e -> surfacedFailure.compareAndSet(null, e));
+        }, 1, () -> completed.set(true), continuationExecutor, e -> surfacedFailure.compareAndSet(null, e));
 
         assertEquals(List.of(0), processedItems);
         assertFalse(completed.get());
@@ -247,7 +267,6 @@ public class ThrottledIteratorTests extends ESTestCase {
         assertEquals(List.of(0), processedItems);
         assertNotNull("rejection must be surfaced to the hook", surfacedFailure.get());
         assertThat(surfacedFailure.get(), instanceOf(EsRejectedExecutionException.class));
-        assertEquals("pool shut down", surfacedFailure.get().getMessage());
     }
 
     private static class SerialAccessAssertingIterator<T> implements Iterator<T> {

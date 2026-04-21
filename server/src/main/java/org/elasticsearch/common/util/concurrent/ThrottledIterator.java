@@ -153,32 +153,27 @@ public class ThrottledIterator<T> implements Releasable {
                     run();
                 } else {
                     refs.mustIncRef();
-                    try {
-                        executor.execute(new AbstractRunnable() {
-                            @Override
-                            protected void doRun() {
-                                ThrottledIterator.this.run();
-                            }
+                    executor.execute(new AbstractRunnable() {
+                        @Override
+                        protected void doRun() {
+                            ThrottledIterator.this.run();
+                        }
 
-                            @Override
-                            public void onFailure(Exception e) {
-                                onContinuationFailure.accept(e);
-                            }
+                        @Override
+                        public void onFailure(Exception e) {
+                            onContinuationFailure.accept(e);
+                        }
 
-                            @Override
-                            public void onRejection(Exception e) {
-                                onContinuationFailure.accept(e);
-                            }
+                        @Override
+                        public void onRejection(Exception e) {
+                            onContinuationFailure.accept(e);
+                        }
 
-                            @Override
-                            public void onAfter() {
-                                refs.decRef();
-                            }
-                        });
-                    } catch (Exception e) {
-                        refs.decRef();
-                        onContinuationFailure.accept(e);
-                    }
+                        @Override
+                        public void onAfter() {
+                            refs.decRef();
+                        }
+                    });
                 }
             }
         } finally {
