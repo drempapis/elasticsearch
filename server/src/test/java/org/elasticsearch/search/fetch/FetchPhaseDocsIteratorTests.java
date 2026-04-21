@@ -9,7 +9,6 @@
 
 package org.elasticsearch.search.fetch;
 
-
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.StringField;
