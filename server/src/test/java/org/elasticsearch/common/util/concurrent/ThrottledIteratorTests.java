@@ -63,7 +63,6 @@ public class ThrottledIteratorTests extends ESTestCase {
             final var maxConcurrency = between(1, (constrainedQueue + maxConstrainedThreads) * 2);
             final var itemPermits = new Semaphore(maxConcurrency);
             final var completionLatch = new CountDownLatch(1);
-            final var continuationFailure = new AtomicReference<Exception>();
             final BooleanSupplier forkSupplier = randomFrom(
                 () -> false,
                 ESTestCase::randomBoolean,
@@ -131,7 +130,7 @@ public class ThrottledIteratorTests extends ESTestCase {
                     maxConcurrency,
                     completionLatch::countDown,
                     threadPool.executor(RELAXED),
-                    e -> continuationFailure.compareAndSet(null, e)
+                    ESTestCase::fail
                 );
             } else {
                 ThrottledIterator.run(iterator, itemConsumer, maxConcurrency, completionLatch::countDown);
@@ -139,7 +138,6 @@ public class ThrottledIteratorTests extends ESTestCase {
 
             assertTrue(completionLatch.await(30, TimeUnit.SECONDS));
             assertEquals(items, completedItems.get());
-            assertNull("continuation execution should not fail in this scenario", continuationFailure.get());
             assertTrue(itemPermits.tryAcquire(maxConcurrency));
             assertTrue(itemStartLatch.await(0, TimeUnit.SECONDS));
         } finally {
