@@ -223,9 +223,6 @@ tests:
 - class: org.elasticsearch.cluster.remote.test.RemoteClustersIT
   method: testHAProxyModeConnectionWorks
   issue: https://github.com/elastic/elasticsearch/issues/139171
-- class: org.elasticsearch.search.fetch.FetchPhaseDocsIteratorTests
-  method: testIterateAsyncVisitsLeavesInDocIdOrder
-  issue: https://github.com/elastic/elasticsearch/issues/146078
 - class: org.elasticsearch.xpack.security.transport.filter.IpFilteringIntegrationTests
   method: testThatIpFilteringIsIntegratedIntoNettyPipelineViaHttp
   issue: https://github.com/elastic/elasticsearch/issues/146102
