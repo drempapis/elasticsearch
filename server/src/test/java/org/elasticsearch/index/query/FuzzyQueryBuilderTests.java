@@ -19,8 +19,8 @@ import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.search.BoostQuery;
 import org.apache.lucene.search.IndexSearcher;
-import org.apache.lucene.search.Query;
 import org.apache.lucene.search.MultiTermQuery;
+import org.apache.lucene.search.Query;
 import org.apache.lucene.store.ByteBuffersDirectory;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.util.AttributeSource;
@@ -353,10 +353,7 @@ public class FuzzyQueryBuilderTests extends AbstractQueryTestCase<FuzzyQueryBuil
                 }
                 try (DirectoryReader reader = DirectoryReader.open(dir)) {
                     IndexSearcher searcher = new IndexSearcher(reader);
-                    expectThrows(
-                        org.elasticsearch.common.breaker.CircuitBreakingException.class,
-                        () -> searcher.rewrite(query)
-                    );
+                    expectThrows(org.elasticsearch.common.breaker.CircuitBreakingException.class, () -> searcher.rewrite(query));
                 }
             }
         } finally {
@@ -393,15 +390,8 @@ public class FuzzyQueryBuilderTests extends AbstractQueryTestCase<FuzzyQueryBuil
             }
         }
         long rewriteCharged = context.getRewriteMemoryUsed();
-        assertTrue(
-            "rewrite pool must be charged for built automata (got=" + rewriteCharged + ")",
-            rewriteCharged > 0
-        );
-        assertEquals(
-            "circuit breaker delta should equal the rewrite pool charge",
-            rewriteCharged,
-            cb.getUsed() - beforeRewrite
-        );
+        assertTrue("rewrite pool must be charged for built automata (got=" + rewriteCharged + ")", rewriteCharged > 0);
+        assertEquals("circuit breaker delta should equal the rewrite pool charge", rewriteCharged, cb.getUsed() - beforeRewrite);
 
         context.releaseRewriteMemory();
         assertEquals("rewrite pool must be drained on release", 0L, context.getRewriteMemoryUsed());
@@ -536,11 +526,7 @@ public class FuzzyQueryBuilderTests extends AbstractQueryTestCase<FuzzyQueryBuil
                 query.ramBytesUsed(),
                 context.getQueryConstructionMemoryUsed()
             );
-            assertEquals(
-                "rewrite pool must remain empty until Lucene rewrite fires the lazy hook",
-                0L,
-                context.getRewriteMemoryUsed()
-            );
+            assertEquals("rewrite pool must remain empty until Lucene rewrite fires the lazy hook", 0L, context.getRewriteMemoryUsed());
             assertEquals("circuit breaker delta must equal the construction-pool charge", query.ramBytesUsed(), cb.getUsed() - cbBefore);
         } finally {
             context.releaseQueryConstructionMemory();
@@ -582,17 +568,13 @@ public class FuzzyQueryBuilderTests extends AbstractQueryTestCase<FuzzyQueryBuil
                 "cumulative charge must be at least numSegments * perAttributeBytes (got=" + totalCharged + ")",
                 totalCharged >= (long) numSegments * perAttributeBytes
             );
-            assertEquals(
-                "each segment must contribute exactly one full charge",
-                (long) numSegments * perAttributeBytes,
-                totalCharged
-            );
+            assertEquals("each segment must contribute exactly one full charge", (long) numSegments * perAttributeBytes, totalCharged);
         } finally {
             context.releaseQueryConstructionMemory();
             context.releaseRewriteMemory();
         }
     }
-    
+
     public void testFieldTypeFuzzyQueryWithUserRewriteDefersAutomataCharge() throws IOException {
         CircuitBreaker cb = createCircuitBreakerService();
         SearchExecutionContext context = new SearchExecutionContext(createSearchExecutionContext(), cb);

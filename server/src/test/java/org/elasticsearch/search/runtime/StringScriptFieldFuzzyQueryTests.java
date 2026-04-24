@@ -71,7 +71,16 @@ public class StringScriptFieldFuzzyQueryTests extends AbstractStringScriptFieldQ
 
     @Override
     public void testMatches() {
-        StringScriptFieldFuzzyQuery query = StringScriptFieldFuzzyQuery.build(randomScript(), leafFactory, "test", "foo", 1, 0, false, null);
+        StringScriptFieldFuzzyQuery query = StringScriptFieldFuzzyQuery.build(
+            randomScript(),
+            leafFactory,
+            "test",
+            "foo",
+            1,
+            0,
+            false,
+            null
+        );
         BytesRefBuilder scratch = new BytesRefBuilder();
         assertTrue(query.matches(List.of("foo"), scratch));
         assertTrue(query.matches(List.of("foa"), scratch));

@@ -37,63 +37,61 @@ import org.apache.lucene.util.automaton.TooComplexToDeterminizeException;
  */
 class EsFuzzyAutomatonBuilder {
 
-  private final String term;
-  private final int maxEdits;
-  private final LevenshteinAutomata levBuilder;
-  private final String prefix;
-  private final int termLength;
+    private final String term;
+    private final int maxEdits;
+    private final LevenshteinAutomata levBuilder;
+    private final String prefix;
+    private final int termLength;
 
-  EsFuzzyAutomatonBuilder(String term, int maxEdits, int prefixLength, boolean transpositions) {
-    if (maxEdits < 0 || maxEdits > LevenshteinAutomata.MAXIMUM_SUPPORTED_DISTANCE) {
-      throw new IllegalArgumentException(
-          "max edits must be 0.."
-              + LevenshteinAutomata.MAXIMUM_SUPPORTED_DISTANCE
-              + ", inclusive; got: "
-              + maxEdits);
+    EsFuzzyAutomatonBuilder(String term, int maxEdits, int prefixLength, boolean transpositions) {
+        if (maxEdits < 0 || maxEdits > LevenshteinAutomata.MAXIMUM_SUPPORTED_DISTANCE) {
+            throw new IllegalArgumentException(
+                "max edits must be 0.." + LevenshteinAutomata.MAXIMUM_SUPPORTED_DISTANCE + ", inclusive; got: " + maxEdits
+            );
+        }
+        if (prefixLength < 0) {
+            throw new IllegalArgumentException("prefixLength cannot be less than 0");
+        }
+        this.term = term;
+        this.maxEdits = maxEdits;
+        int[] codePoints = stringToUTF32(term);
+        this.termLength = codePoints.length;
+        prefixLength = Math.min(prefixLength, codePoints.length);
+        int[] suffix = new int[codePoints.length - prefixLength];
+        System.arraycopy(codePoints, prefixLength, suffix, 0, suffix.length);
+        this.levBuilder = new LevenshteinAutomata(suffix, Character.MAX_CODE_POINT, transpositions);
+        this.prefix = UnicodeUtil.newString(codePoints, 0, prefixLength);
     }
-    if (prefixLength < 0) {
-      throw new IllegalArgumentException("prefixLength cannot be less than 0");
-    }
-    this.term = term;
-    this.maxEdits = maxEdits;
-    int[] codePoints = stringToUTF32(term);
-    this.termLength = codePoints.length;
-    prefixLength = Math.min(prefixLength, codePoints.length);
-    int[] suffix = new int[codePoints.length - prefixLength];
-    System.arraycopy(codePoints, prefixLength, suffix, 0, suffix.length);
-    this.levBuilder = new LevenshteinAutomata(suffix, Character.MAX_CODE_POINT, transpositions);
-    this.prefix = UnicodeUtil.newString(codePoints, 0, prefixLength);
-  }
 
-  CompiledAutomaton[] buildAutomatonSet() {
-    CompiledAutomaton[] compiled = new CompiledAutomaton[maxEdits + 1];
-    for (int i = 0; i <= maxEdits; i++) {
-      try {
-        compiled[i] = new CompiledAutomaton(levBuilder.toAutomaton(i, prefix), true, false);
-      } catch (TooComplexToDeterminizeException e) {
-        throw new EsFuzzyTermsEnum.FuzzyTermsException(term, e);
-      }
+    CompiledAutomaton[] buildAutomatonSet() {
+        CompiledAutomaton[] compiled = new CompiledAutomaton[maxEdits + 1];
+        for (int i = 0; i <= maxEdits; i++) {
+            try {
+                compiled[i] = new CompiledAutomaton(levBuilder.toAutomaton(i, prefix), true, false);
+            } catch (TooComplexToDeterminizeException e) {
+                throw new EsFuzzyTermsEnum.FuzzyTermsException(term, e);
+            }
+        }
+        return compiled;
     }
-    return compiled;
-  }
 
-  CompiledAutomaton buildMaxEditAutomaton() {
-    try {
-      return new CompiledAutomaton(levBuilder.toAutomaton(maxEdits, prefix), true, false);
-    } catch (TooComplexToDeterminizeException e) {
-      throw new EsFuzzyTermsEnum.FuzzyTermsException(term, e);
+    CompiledAutomaton buildMaxEditAutomaton() {
+        try {
+            return new CompiledAutomaton(levBuilder.toAutomaton(maxEdits, prefix), true, false);
+        } catch (TooComplexToDeterminizeException e) {
+            throw new EsFuzzyTermsEnum.FuzzyTermsException(term, e);
+        }
     }
-  }
 
-  int getTermLength() {
-    return this.termLength;
-  }
-
-  private static int[] stringToUTF32(String text) {
-    int[] termText = new int[text.codePointCount(0, text.length())];
-    for (int cp, i = 0, j = 0; i < text.length(); i += Character.charCount(cp)) {
-      termText[j++] = cp = text.codePointAt(i);
+    int getTermLength() {
+        return this.termLength;
     }
-    return termText;
-  }
+
+    private static int[] stringToUTF32(String text) {
+        int[] termText = new int[text.codePointCount(0, text.length())];
+        for (int cp, i = 0, j = 0; i < text.length(); i += Character.charCount(cp)) {
+            termText[j++] = cp = text.codePointAt(i);
+        }
+        return termText;
+    }
 }

@@ -36,13 +36,7 @@ public class StringScriptFieldFuzzyQuery extends AbstractStringScriptFieldAutoma
         // (the outer AbstractStringScriptFieldAutomatonQuery runs the automaton directly). The
         // lazy CB hook on CircuitBreakingEsFuzzyQuery therefore never fires on this instance, so
         // we construct a plain EsFuzzyQuery and charge it explicitly via FuzzyQueries.chargeQuery.
-        EsFuzzyQuery delegate = new EsFuzzyQuery(
-            new Term(fieldName, term),
-            maxEdits,
-            prefixLength,
-            maxExpansions,
-            transpositions
-        );
+        EsFuzzyQuery delegate = new EsFuzzyQuery(new Term(fieldName, term), maxEdits, prefixLength, maxExpansions, transpositions);
         FuzzyQueries.chargeQuery(delegate, context, fieldName);
         ByteRunAutomaton automaton = delegate.getAutomata().runAutomaton;
         return new StringScriptFieldFuzzyQuery(script, leafFactory, fieldName, automaton, delegate);

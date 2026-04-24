@@ -564,7 +564,7 @@ public class SearchExecutionContext extends QueryRewriteContext {
                 query = Queries.newMatchNoDocsQuery("No query left after rewrite.");
             }
             return new ParsedQuery(query, copyNamedQueries());
-        } catch (QueryShardException | ParsingException  | CircuitBreakingException e) {
+        } catch (QueryShardException | ParsingException | CircuitBreakingException e) {
             throw e;
         } catch (Exception e) {
             throw new QueryShardException(this, "failed to create query: {}", e, e.getMessage());

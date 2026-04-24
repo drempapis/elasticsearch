@@ -97,8 +97,8 @@ public class AccountableQueryCircuitBreakerIT extends ESIntegTestCase {
             i -> new FuzzyQueryBuilder(TEXT_FIELD, longTerm + i).fuzziness(Fuzziness.AUTO)
                 .prefixLength(0)
                 .maxExpansions(50)
-                .transpositions(true)
-            , "1mb"
+                .transpositions(true),
+            "1mb"
         );
     }
 
