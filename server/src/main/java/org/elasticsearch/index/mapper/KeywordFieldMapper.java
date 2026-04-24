@@ -28,7 +28,6 @@ import org.apache.lucene.index.Term;
 import org.apache.lucene.index.Terms;
 import org.apache.lucene.index.TermsEnum;
 import org.apache.lucene.search.AutomatonQuery;
-import org.apache.lucene.search.FuzzyQuery;
 import org.apache.lucene.search.MultiTermQuery;
 import org.apache.lucene.search.PrefixQuery;
 import org.apache.lucene.search.Query;
@@ -76,6 +75,7 @@ import org.elasticsearch.index.similarity.SimilarityProvider;
 import org.elasticsearch.lucene.queries.SlowCustomBinaryDocValuesTermInSetQuery;
 import org.elasticsearch.lucene.queries.SlowCustomBinaryDocValuesTermQuery;
 import org.elasticsearch.lucene.queries.SlowCustomBinaryDocValuesWildcardQuery;
+import org.elasticsearch.lucene.search.FuzzyQueries;
 import org.elasticsearch.script.Script;
 import org.elasticsearch.script.ScriptCompiler;
 import org.elasticsearch.script.SortedBinaryDocValuesStringFieldScript;
@@ -768,16 +768,23 @@ public final class KeywordFieldMapper extends FieldMapper {
                     indexedValueForSearch(value).utf8ToString(),
                     fuzziness.asDistance(BytesRefs.toString(value)),
                     prefixLength,
-                    transpositions
+                    transpositions,
+                    context
                 );
             } else {
-                return new FuzzyQuery(
+                // DOC_VALUES_REWRITE uses a fresh AttributeSource per segment, so the lazy charge
+                // on CircuitBreakingEsFuzzyQuery fires once per segment (cumulative across the
+                // shard) rather than once per query. That is a deliberate tradeoff; see
+                // CircuitBreakingEsFuzzyQuery.
+                return FuzzyQueries.create(
                     new Term(name(), indexedValueForSearch(value)),
                     fuzziness.asDistance(BytesRefs.toString(value)),
                     prefixLength,
                     maxExpansions,
                     transpositions,
-                    MultiTermQuery.DOC_VALUES_REWRITE
+                    MultiTermQuery.DOC_VALUES_REWRITE,
+                    context,
+                    name()
                 );
             }
         }

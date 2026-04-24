@@ -18,7 +18,6 @@ import org.apache.lucene.index.Term;
 import org.apache.lucene.index.Terms;
 import org.apache.lucene.index.TermsEnum;
 import org.apache.lucene.search.FieldExistsQuery;
-import org.apache.lucene.search.FuzzyQuery;
 import org.apache.lucene.search.MultiTermQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.RegexpQuery;
@@ -55,6 +54,8 @@ import org.elasticsearch.index.mapper.TextSearchInfo;
 import org.elasticsearch.index.mapper.ValueFetcher;
 import org.elasticsearch.index.mapper.blockloader.docvalues.BytesRefsFromOrdsBlockLoader;
 import org.elasticsearch.index.query.SearchExecutionContext;
+import org.elasticsearch.lucene.search.EsFuzzyQuery;
+import org.elasticsearch.lucene.search.FuzzyQueries;
 import org.elasticsearch.search.DocValueFormat;
 import org.elasticsearch.search.aggregations.support.CoreValuesSourceType;
 import org.elasticsearch.xcontent.XContentParser;
@@ -68,7 +69,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
-import static org.apache.lucene.search.FuzzyQuery.defaultRewriteMethod;
 import static org.apache.lucene.search.MultiTermQuery.CONSTANT_SCORE_REWRITE;
 import static org.apache.lucene.search.RegexpQuery.DEFAULT_PROVIDER;
 import static org.elasticsearch.search.SearchService.ALLOW_EXPENSIVE_QUERIES;
@@ -254,13 +254,22 @@ public class VersionStringFieldMapper extends FieldMapper {
                     "[fuzzy] queries cannot be executed when '" + ALLOW_EXPENSIVE_QUERIES.getKey() + "' is set to false."
                 );
             }
-            return new FuzzyQuery(
+            // We subclass EsFuzzyQuery here rather than calling FuzzyQueries.create(...) because
+            // we need to override getTermsEnum to decode version bytes before matching. The
+            // override builds a FilteredTermsEnum and calls getAutomata() directly (a separate
+            // single max-edit automaton), so it never primes the shared AutomatonAttribute that
+            // the lazy CircuitBreakingEsFuzzyQuery hook relies on. We therefore take the explicit
+            // upfront-charge path to keep CB accounting consistent across all fuzzy callsites.
+            MultiTermQuery.RewriteMethod effectiveRewrite = rewriteMethod != null
+                ? rewriteMethod
+                : EsFuzzyQuery.defaultRewriteMethod(maxExpansions);
+            EsFuzzyQuery query = new EsFuzzyQuery(
                 new Term(name(), (BytesRef) value),
                 fuzziness.asDistance(BytesRefs.toString(value)),
                 prefixLength,
                 maxExpansions,
                 transpositions,
-                rewriteMethod == null ? defaultRewriteMethod(maxExpansions) : rewriteMethod
+                effectiveRewrite
             ) {
                 @Override
                 protected TermsEnum getTermsEnum(Terms terms, AttributeSource atts) throws IOException {
@@ -280,6 +289,8 @@ public class VersionStringFieldMapper extends FieldMapper {
                     };
                 }
             };
+            FuzzyQueries.chargeQuery(query, context, name());
+            return query;
         }
 
         @Override

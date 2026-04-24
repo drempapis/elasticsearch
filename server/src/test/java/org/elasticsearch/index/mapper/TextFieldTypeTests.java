@@ -48,6 +48,7 @@ import org.elasticsearch.index.mapper.blockloader.DelegatingBlockLoader;
 import org.elasticsearch.index.mapper.blockloader.docvalues.BytesRefsFromBinaryMultiSeparateCountBlockLoader;
 import org.elasticsearch.index.mapper.blockloader.docvalues.BytesRefsFromCustomBinaryBlockLoader;
 import org.elasticsearch.index.mapper.blockloader.docvalues.BytesRefsFromOrdsBlockLoader;
+import org.elasticsearch.lucene.search.EsFuzzyQuery;
 import org.elasticsearch.script.ScriptCompiler;
 import org.elasticsearch.search.lookup.SearchLookup;
 
@@ -140,7 +141,7 @@ public class TextFieldTypeTests extends FieldTypeTestCase {
     public void testFuzzyQuery() {
         MappedFieldType ft = createFieldType();
         assertEquals(
-            new FuzzyQuery(new Term("field", "foo"), 2, 1, 50, true),
+            new EsFuzzyQuery(new Term("field", "foo"), 2, 1, 50, true),
             ft.fuzzyQuery("foo", Fuzziness.fromEdits(2), 1, 50, true, MOCK_CONTEXT)
         );
 
@@ -165,7 +166,7 @@ public class TextFieldTypeTests extends FieldTypeTestCase {
         assertEquals("[fuzzy] queries cannot be executed when 'search.allow_expensive_queries' is set to false.", ee.getMessage());
 
         assertEquals(
-            new FuzzyQuery(new Term("field", "foo"), 2, 1, 50, true, MultiTermQuery.CONSTANT_SCORE_BOOLEAN_REWRITE),
+            new EsFuzzyQuery(new Term("field", "foo"), 2, 1, 50, true, MultiTermQuery.CONSTANT_SCORE_BOOLEAN_REWRITE),
             ft.fuzzyQuery("foo", Fuzziness.fromEdits(2), 1, 50, true, MOCK_CONTEXT, MultiTermQuery.CONSTANT_SCORE_BOOLEAN_REWRITE)
         );
 

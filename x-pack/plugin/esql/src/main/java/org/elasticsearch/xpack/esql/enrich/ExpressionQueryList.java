@@ -394,6 +394,7 @@ public class ExpressionQueryList implements LookupEnrichQueryGenerator {
             return builder.build();
         } finally {
             searchExecutionContext.releaseQueryConstructionMemory();
+            searchExecutionContext.releaseRewriteMemory();
         }
     }
 

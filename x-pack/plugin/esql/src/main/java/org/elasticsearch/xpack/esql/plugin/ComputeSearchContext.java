@@ -59,6 +59,7 @@ class ComputeSearchContext implements Releasable {
             }
         };
         searchContext.addReleasable(searchExecutionContext::releaseQueryConstructionMemory);
+        searchContext.addReleasable(searchExecutionContext::releaseRewriteMemory);
         return new DefaultShardContext(index, this, searchExecutionContext, searchContext.request().getAliasFilter());
     }
 

@@ -39,7 +39,6 @@ import org.apache.lucene.search.AutomatonQuery;
 import org.apache.lucene.search.BooleanClause;
 import org.apache.lucene.search.BooleanQuery;
 import org.apache.lucene.search.ConstantScoreQuery;
-import org.apache.lucene.search.FuzzyQuery;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.MultiPhraseQuery;
 import org.apache.lucene.search.MultiTermQuery;
@@ -83,6 +82,8 @@ import org.elasticsearch.index.query.SearchExecutionContext;
 import org.elasticsearch.index.similarity.SimilarityProvider;
 import org.elasticsearch.lucene.queries.SlowCustomBinaryDocValuesTermInSetQuery;
 import org.elasticsearch.lucene.queries.SlowCustomBinaryDocValuesTermQuery;
+import org.elasticsearch.lucene.search.EsFuzzyQuery;
+import org.elasticsearch.lucene.search.FuzzyQueries;
 import org.elasticsearch.script.field.DelegateDocValuesField;
 import org.elasticsearch.script.field.TextDocValuesField;
 import org.elasticsearch.search.aggregations.support.CoreValuesSourceType;
@@ -1062,12 +1063,15 @@ public final class TextFieldMapper extends FieldMapper {
             if (getTextSearchInfo().hasPositions() == false) {
                 throw new IllegalArgumentException("Cannot create intervals over field [" + name() + "] with no positions indexed");
             }
-            FuzzyQuery fq = new FuzzyQuery(
+            EsFuzzyQuery fq = FuzzyQueries.create(
                 new Term(name(), term),
                 maxDistance,
                 prefixLength,
                 IndexSearcher.getMaxClauseCount(),
-                transpositions
+                transpositions,
+                null,
+                context,
+                name()
             );
             return Intervals.multiterm(fq.getAutomata(), IndexSearcher.getMaxClauseCount(), term);
         }

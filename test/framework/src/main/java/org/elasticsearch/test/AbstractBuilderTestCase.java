@@ -485,6 +485,7 @@ public abstract class AbstractBuilderTestCase extends ESTestCase {
             assertThat(exception.getMessage(), containsString("Data too large"));
         } finally {
             context.releaseQueryConstructionMemory();
+            context.releaseRewriteMemory();
         }
     }
 
@@ -509,6 +510,7 @@ public abstract class AbstractBuilderTestCase extends ESTestCase {
             }
         } finally {
             context.releaseQueryConstructionMemory();
+            context.releaseRewriteMemory();
         }
     }
 

@@ -24,6 +24,7 @@ import org.elasticsearch.action.ActionListener;
 import org.elasticsearch.client.internal.Client;
 import org.elasticsearch.common.ParsingException;
 import org.elasticsearch.common.breaker.CircuitBreaker;
+import org.elasticsearch.common.breaker.CircuitBreakingException;
 import org.elasticsearch.common.io.stream.NamedWriteableRegistry;
 import org.elasticsearch.common.lucene.search.Queries;
 import org.elasticsearch.core.Nullable;
@@ -123,6 +124,7 @@ public class SearchExecutionContext extends QueryRewriteContext {
     @Nullable
     private final CircuitBreaker circuitBreaker;
     private final AtomicLong queryConstructionMemoryUsed = new AtomicLong(0);
+    private final AtomicLong rewriteMemoryUsed = new AtomicLong(0);
 
     public SearchExecutionContext(
         int shardId,
@@ -562,7 +564,7 @@ public class SearchExecutionContext extends QueryRewriteContext {
                 query = Queries.newMatchNoDocsQuery("No query left after rewrite.");
             }
             return new ParsedQuery(query, copyNamedQueries());
-        } catch (QueryShardException | ParsingException e) {
+        } catch (QueryShardException | ParsingException  | CircuitBreakingException e) {
             throw e;
         } catch (Exception e) {
             throw new QueryShardException(this, "failed to create query: {}", e, e.getMessage());
@@ -782,6 +784,43 @@ public class SearchExecutionContext extends QueryRewriteContext {
      */
     public void releaseQueryConstructionMemory() {
         long memoryToRelease = queryConstructionMemoryUsed.getAndSet(0);
+        if (memoryToRelease > 0 && circuitBreaker != null) {
+            circuitBreaker.addWithoutBreaking(-memoryToRelease);
+        }
+    }
+
+    /**
+     * Adds memory usage to the circuit breaker for query rewrite-scoped allocations (e.g. Lucene
+     * compiled automata that are materialised lazily during {@link org.apache.lucene.search.MultiTermQuery}
+     * rewrite and live for the duration of the search request).
+     * <p>
+     * Charges are accumulated in a pool released by {@link #releaseRewriteMemory()}, which is
+     * registered as a request-scoped {@code Releasable} on the owning {@code SearchContext} so
+     * the pool is drained on both success and failure paths.
+     *
+     * @param bytes the number of bytes to add to the circuit breaker
+     * @param label a descriptive label for the memory allocation, used in circuit breaker error messages
+     */
+    public void addRewriteCircuitBreakerMemory(long bytes, String label) {
+        if (circuitBreaker != null && bytes > 0) {
+            circuitBreaker.addEstimateBytesAndMaybeBreak(bytes, label);
+            rewriteMemoryUsed.addAndGet(bytes);
+        }
+    }
+
+    /**
+     * Get total query rewrite memory currently charged against the circuit breaker.
+     */
+    public long getRewriteMemoryUsed() {
+        return rewriteMemoryUsed.get();
+    }
+
+    /**
+     * Release all accumulated query rewrite memory back to the circuit breaker. Safe to call
+     * multiple times; subsequent calls after the pool is drained are no-ops.
+     */
+    public void releaseRewriteMemory() {
+        long memoryToRelease = rewriteMemoryUsed.getAndSet(0);
         if (memoryToRelease > 0 && circuitBreaker != null) {
             circuitBreaker.addWithoutBreaking(-memoryToRelease);
         }

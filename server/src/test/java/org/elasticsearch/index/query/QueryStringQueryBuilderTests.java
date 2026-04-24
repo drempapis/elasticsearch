@@ -23,7 +23,6 @@ import org.apache.lucene.search.BoostQuery;
 import org.apache.lucene.search.ConstantScoreQuery;
 import org.apache.lucene.search.DisjunctionMaxQuery;
 import org.apache.lucene.search.FieldExistsQuery;
-import org.apache.lucene.search.FuzzyQuery;
 import org.apache.lucene.search.IndexOrDocValuesQuery;
 import org.apache.lucene.search.MatchAllDocsQuery;
 import org.apache.lucene.search.MatchNoDocsQuery;
@@ -51,6 +50,7 @@ import org.elasticsearch.common.unit.Fuzziness;
 import org.elasticsearch.index.mapper.MapperService;
 import org.elasticsearch.index.search.QueryStringQueryParser;
 import org.elasticsearch.lucene.queries.BlendedTermQuery;
+import org.elasticsearch.lucene.search.EsFuzzyQuery;
 import org.elasticsearch.test.AbstractQueryTestCase;
 import org.elasticsearch.xcontent.XContentBuilder;
 import org.elasticsearch.xcontent.json.JsonXContent;
@@ -807,8 +807,8 @@ public class QueryStringQueryBuilderTests extends AbstractQueryTestCase<QueryStr
                 Query query = queryStringQuery(queryString + (j == 0 ? "~" : "~auto")).defaultField(TEXT_FIELD_NAME)
                     .fuzziness(Fuzziness.AUTO)
                     .toQuery(createSearchExecutionContext());
-                assertThat(query, instanceOf(FuzzyQuery.class));
-                FuzzyQuery fuzzyQuery = (FuzzyQuery) query;
+                assertThat(query, instanceOf(EsFuzzyQuery.class));
+                EsFuzzyQuery fuzzyQuery = (EsFuzzyQuery) query;
                 assertEquals(expectedEdits, fuzzyQuery.getMaxEdits());
             }
         }
@@ -1140,10 +1140,10 @@ public class QueryStringQueryBuilderTests extends AbstractQueryTestCase<QueryStr
 
         // Fuzzy
         query = new QueryStringQueryBuilder("aBc~1").field(TEXT_FIELD_NAME).analyzer("whitespace").toQuery(createSearchExecutionContext());
-        FuzzyQuery fuzzyQuery = (FuzzyQuery) query;
+        EsFuzzyQuery fuzzyQuery = (EsFuzzyQuery) query;
         assertEquals(new Term(TEXT_FIELD_NAME, "aBc"), fuzzyQuery.getTerm());
         query = new QueryStringQueryBuilder("aBc~1").field(TEXT_FIELD_NAME).analyzer("standard").toQuery(createSearchExecutionContext());
-        fuzzyQuery = (FuzzyQuery) query;
+        fuzzyQuery = (EsFuzzyQuery) query;
         assertEquals(new Term(TEXT_FIELD_NAME, "abc"), fuzzyQuery.getTerm());
 
         // Range
@@ -1266,7 +1266,7 @@ public class QueryStringQueryBuilderTests extends AbstractQueryTestCase<QueryStr
             .fuzzyMaxExpansions(5)
             .fuzzyTranspositions(false)
             .toQuery(createSearchExecutionContext());
-        FuzzyQuery expected = new FuzzyQuery(new Term(TEXT_FIELD_NAME, "text"), 2, 2, 5, false);
+        EsFuzzyQuery expected = new EsFuzzyQuery(new Term(TEXT_FIELD_NAME, "text"), 2, 2, 5, false);
         assertEquals(expected, query);
     }
 

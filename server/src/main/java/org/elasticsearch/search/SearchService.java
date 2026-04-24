@@ -1630,6 +1630,8 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
 
         // Release the memory used for query construction once the search context is closed.
         context.addReleasable(context.getSearchExecutionContext()::releaseQueryConstructionMemory);
+        // Release the memory charged during query rewrite (e.g. compiled fuzzy automata) on request end.
+        context.addReleasable(context.getSearchExecutionContext()::releaseRewriteMemory);
 
         try {
             if (request.scroll() != null) {
@@ -1665,6 +1667,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
             DefaultSearchContext searchContext = createSearchContext(readerContext, request, timeout, ResultsType.QUERY);
             searchContext.addReleasable(readerContext.markAsUsed(0L));
             searchContext.addReleasable(searchContext.getSearchExecutionContext()::releaseQueryConstructionMemory);
+            searchContext.addReleasable(searchContext.getSearchExecutionContext()::releaseRewriteMemory);
             return searchContext;
         }
     }

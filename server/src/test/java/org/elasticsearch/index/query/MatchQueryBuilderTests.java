@@ -17,7 +17,6 @@ import org.apache.lucene.queries.spans.SpanQuery;
 import org.apache.lucene.queries.spans.SpanTermQuery;
 import org.apache.lucene.search.BooleanClause;
 import org.apache.lucene.search.BooleanQuery;
-import org.apache.lucene.search.FuzzyQuery;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.MatchAllDocsQuery;
 import org.apache.lucene.search.MatchNoDocsQuery;
@@ -41,6 +40,7 @@ import org.elasticsearch.index.mapper.MappedFieldType;
 import org.elasticsearch.index.mapper.MapperService;
 import org.elasticsearch.index.search.MatchQueryParser;
 import org.elasticsearch.index.search.MatchQueryParser.Type;
+import org.elasticsearch.lucene.search.EsFuzzyQuery;
 import org.elasticsearch.search.internal.MaxClauseCountQueryVisitor;
 import org.elasticsearch.test.AbstractQueryTestCase;
 import org.hamcrest.Matcher;
@@ -178,7 +178,7 @@ public class MatchQueryBuilderTests extends AbstractQueryTestCase<MatchQueryBuil
             }
         }
 
-        if (query instanceof FuzzyQuery fuzzyQuery) {
+        if (query instanceof EsFuzzyQuery fuzzyQuery) {
             assertTrue(queryBuilder.fuzziness() != null);
             // depending on analyzer being set or not we can have term lowercased along the way, so to simplify test we just
             // compare lowercased terms here
@@ -673,5 +673,17 @@ public class MatchQueryBuilderTests extends AbstractQueryTestCase<MatchQueryBuil
             QueryBuilder rewritten = query.rewrite(context);
             assertThat(rewritten, instanceOf(MatchAllQueryBuilder.class));
         }
+    }
+
+    public void testMatchFuzzyCircuitBreakerTripsOnManyTokens() {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < 2000; i++) {
+            sb.append("token").append(i).append(' ');
+        }
+        String longText = sb.toString();
+        assertCircuitBreakerTripsOnQueryConstruction(
+            "1kb",
+            () -> new MatchQueryBuilder(TEXT_FIELD_NAME, longText).fuzziness(Fuzziness.AUTO)
+        );
     }
 }

@@ -12,7 +12,6 @@ package org.elasticsearch.index.query;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.search.BooleanClause;
 import org.apache.lucene.search.BooleanQuery;
-import org.apache.lucene.search.FuzzyQuery;
 import org.apache.lucene.search.PrefixQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.QueryVisitor;
@@ -22,6 +21,7 @@ import org.apache.lucene.tests.analysis.MockSynonymAnalyzer;
 import org.elasticsearch.common.ParsingException;
 import org.elasticsearch.common.lucene.search.Queries;
 import org.elasticsearch.index.search.MatchQueryParser;
+import org.elasticsearch.lucene.search.EsFuzzyQuery;
 import org.elasticsearch.test.AbstractQueryTestCase;
 
 import java.io.IOException;
@@ -108,15 +108,15 @@ public class MatchBoolPrefixQueryBuilderTests extends AbstractQueryTestCase<Matc
                 anyOf(
                     everyItem(instanceOf(TermQuery.class)),
                     everyItem(instanceOf(SynonymQuery.class)),
-                    everyItem(instanceOf(FuzzyQuery.class))
+                    everyItem(instanceOf(EsFuzzyQuery.class))
                 )
             );
 
-            if (allQueriesExceptLast.stream().anyMatch(subQuery -> subQuery instanceof FuzzyQuery)) {
+            if (allQueriesExceptLast.stream().anyMatch(subQuery -> subQuery instanceof EsFuzzyQuery)) {
                 assertThat(queryBuilder.fuzziness(), notNullValue());
             }
-            allQueriesExceptLast.stream().filter(subQuery -> subQuery instanceof FuzzyQuery).forEach(subQuery -> {
-                final FuzzyQuery fuzzyQuery = (FuzzyQuery) subQuery;
+            allQueriesExceptLast.stream().filter(subQuery -> subQuery instanceof EsFuzzyQuery).forEach(subQuery -> {
+                final EsFuzzyQuery fuzzyQuery = (EsFuzzyQuery) subQuery;
                 assertThat(fuzzyQuery.getPrefixLength(), equalTo(queryBuilder.prefixLength()));
                 assertThat(fuzzyQuery.getTranspositions(), equalTo(queryBuilder.fuzzyTranspositions()));
             });
