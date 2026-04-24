@@ -176,12 +176,12 @@ public class EsFuzzyQuery extends MultiTermQuery implements Accountable {
 
     /**
      * Returns the {@link CompiledAutomaton} internally used by {@link EsFuzzyQuery} to match terms.
-   * This is a very low-level method and may no longer exist in case the implementation of
-   * fuzzy-matching changes in the future.
-   *
-   * <p>NOTE: lucene.internal
-   *
-   * @param term the term to search for
+    * This is a very low-level method and may no longer exist in case the implementation of
+    * fuzzy-matching changes in the future.
+    *
+    * <p>NOTE: lucene.internal
+    *
+    * @param term the term to search for
      * @param maxEdits must be {@code >= 0} and {@code <=} {@link
      *     LevenshteinAutomata#MAXIMUM_SUPPORTED_DISTANCE}.
      * @param prefixLength length of common (non-fuzzy) prefix
