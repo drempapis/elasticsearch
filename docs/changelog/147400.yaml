@@ -1,0 +1,5 @@
+area: Search
+issues: []
+pr: 147400
+summary: '`FuzzyQuery` memory cb-accounting'
+type: bug
