@@ -12,7 +12,10 @@ package org.elasticsearch.search.fetch;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.StringField;
+import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexReader;
+import org.apache.lucene.index.IndexWriter;
+import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.NoMergePolicy;
 import org.apache.lucene.store.Directory;
@@ -689,11 +692,11 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
     public void testIterateAsyncVisitsLeavesInDocIdOrder() throws Exception {
         int docCount = 200;
         Directory directory = newDirectory();
-        RandomIndexWriter writer = new RandomIndexWriter(
-            random(),
-            directory,
-            newIndexWriterConfig().setMergePolicy(NoMergePolicy.INSTANCE)
-        );
+        // Use plain IndexWriter (not RandomIndexWriter) so that segments are produced exactly at our
+        // explicit commit() points. RandomIndexWriter performs random extra flushes that, combined
+        // with NoMergePolicy, can produce many tiny single-doc segments and cause the assertion
+        // "at least one leaf should have multiple docs" to flake.
+        IndexWriter writer = new IndexWriter(directory, new IndexWriterConfig().setMergePolicy(NoMergePolicy.INSTANCE));
         for (int i = 0; i < docCount; i++) {
             Document doc = new Document();
             doc.add(new StringField("field", "value" + i, Field.Store.NO));
@@ -703,7 +706,7 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
             }
         }
         writer.commit();
-        IndexReader reader = writer.getReader();
+        IndexReader reader = DirectoryReader.open(writer);
         writer.close();
 
         assertTrue("Need multiple leaves to test leaf ordering", reader.leaves().size() > 1);
@@ -1112,26 +1115,32 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
 
     private LuceneDocs createDocs(int numDocs, boolean singleLeaf) throws IOException {
         Directory directory = newDirectory();
-        RandomIndexWriter writer = singleLeaf
-            ? new RandomIndexWriter(random(), directory)
-            : new RandomIndexWriter(random(), directory, newIndexWriterConfig().setMergePolicy(NoMergePolicy.INSTANCE));
-        for (int i = 0; i < numDocs; i++) {
-            Document doc = new Document();
-            doc.add(new StringField("field", "value" + i, Field.Store.NO));
-            writer.addDocument(doc);
-
-            if (singleLeaf == false && i % 30 == 0) {
-                writer.commit();
-            }
-        }
-
+        IndexReader reader;
         if (singleLeaf) {
+            RandomIndexWriter writer = new RandomIndexWriter(random(), directory);
+            for (int i = 0; i < numDocs; i++) {
+                Document doc = new Document();
+                doc.add(new StringField("field", "value" + i, Field.Store.NO));
+                writer.addDocument(doc);
+            }
             writer.forceMerge(1);
+            writer.commit();
+            reader = writer.getReader();
+            writer.close();
+        } else {
+            IndexWriter writer = new IndexWriter(directory, new IndexWriterConfig().setMergePolicy(NoMergePolicy.INSTANCE));
+            for (int i = 0; i < numDocs; i++) {
+                Document doc = new Document();
+                doc.add(new StringField("field", "value" + i, Field.Store.NO));
+                writer.addDocument(doc);
+                if (i % 30 == 0) {
+                    writer.commit();
+                }
+            }
+            writer.commit();
+            reader = DirectoryReader.open(writer);
+            writer.close();
         }
-
-        writer.commit();
-        IndexReader reader = writer.getReader();
-        writer.close();
 
         int[] docIds = new int[numDocs];
         for (int i = 0; i < numDocs; i++) {
