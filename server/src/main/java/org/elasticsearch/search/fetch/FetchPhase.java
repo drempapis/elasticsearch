@@ -137,8 +137,9 @@ public final class FetchPhase {
      * @param writer optional chunk writer for streaming mode, may be {@code null}
      * @param continuationExecutor executor for dispatching chunk production after ACK-driven continuation in streaming mode.
      *                             When a chunk ACK arrives on a network thread, this executor ensures the next chunk is produced
-     *                             on a search thread rather than inline on the network thread. May be {@code null} for inline execution.
-     *                             Ignored in non-streaming mode.
+     *                             on a search thread rather than inline on the network thread. Required when {@code writer} is
+     *                             non-{@code null} (streaming mode); ignored otherwise. May be {@code null} only in non-streaming
+     *                             mode.
      * @param buildListener optional listener invoked when all {@link SearchHit} objects have been constructed
      *                      (and, in streaming mode, serialized into chunks and dispatched to the writer).
      *                      In non-streaming mode this fires immediately after the hits are built, just like {@code listener}.
@@ -210,6 +211,7 @@ public final class FetchPhase {
         if (writer == null) {
             buildSearchHits(context, docIdsToLoad, docsIterator, resolvedBuildListener, hitsListener);
         } else {
+            assert continuationExecutor != null : "continuationExecutor is required in streaming mode";
             int resolvedMaxInFlightChunks = maxInFlightChunks != null
                 ? maxInFlightChunks
                 : SearchService.FETCH_PHASE_MAX_IN_FLIGHT_CHUNKS.get(context.getSearchExecutionContext().getIndexSettings().getSettings());

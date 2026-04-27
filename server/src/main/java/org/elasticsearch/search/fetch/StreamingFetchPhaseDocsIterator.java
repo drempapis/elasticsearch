@@ -16,6 +16,7 @@ import org.elasticsearch.action.ActionListener;
 import org.elasticsearch.action.support.RefCountingListener;
 import org.elasticsearch.common.bytes.ReleasableBytesReference;
 import org.elasticsearch.common.io.stream.RecyclerBytesStreamOutput;
+import org.elasticsearch.common.util.concurrent.AbstractRunnable;
 import org.elasticsearch.common.util.concurrent.ThrottledIterator;
 import org.elasticsearch.core.Releasable;
 import org.elasticsearch.core.Releasables;
@@ -131,7 +132,26 @@ abstract class StreamingFetchPhaseDocsIterator extends FetchPhaseDocsIterator {
             isCancelled,
             lastChunkHolder
         );
-        Runnable onCompletion = createCompletionHandler(listener, producerError, sendFailure, isCancelled, lastChunkHolder);
+
+        // Dispatch rawCompletion off the ACK / producer thread; it fires the listener itself and never throws.
+        Runnable rawCompletion = createCompletionHandler(listener, producerError, sendFailure, isCancelled, lastChunkHolder);
+        Runnable onCompletion = () -> continuationExecutor.execute(new AbstractRunnable() {
+            @Override
+            protected void doRun() {
+                rawCompletion.run();
+            }
+
+            @Override
+            public void onRejection(Exception e) {
+                rawCompletion.run();
+            }
+
+            @Override
+            public void onFailure(Exception e) {
+                // rawCompletion never throws.
+                assert false : e;
+            }
+        });
 
         ThrottledIterator.run(
             chunkIterator,
@@ -215,7 +235,6 @@ abstract class StreamingFetchPhaseDocsIterator extends FetchPhaseDocsIterator {
                 listener.onResponse(new IterateResult(lastChunk.bytes, lastChunk.hitCount, lastChunk.sequenceStart));
             } catch (Exception e) {
                 lastChunk.close();
-                throw e;
             }
         };
     }
@@ -441,7 +460,7 @@ abstract class StreamingFetchPhaseDocsIterator extends FetchPhaseDocsIterator {
      * the page-level circuit breaker release callback from {@link RecyclerBytesStreamOutput#moveToBytesReference()}.
      */
     static class PendingChunk implements AutoCloseable {
-        final ReleasableBytesReference bytes;
+        ReleasableBytesReference bytes;
         final int hitCount;
         final int sequenceStart;
         final boolean isLast;
@@ -455,8 +474,10 @@ abstract class StreamingFetchPhaseDocsIterator extends FetchPhaseDocsIterator {
 
         @Override
         public void close() {
-            if (bytes != null) {
-                Releasables.closeWhileHandlingException(bytes);
+            ReleasableBytesReference toClose = bytes;
+            bytes = null;
+            if (toClose != null) {
+                Releasables.closeWhileHandlingException(toClose);
             }
         }
     }

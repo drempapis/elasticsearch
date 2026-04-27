@@ -1112,7 +1112,9 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
 
     private LuceneDocs createDocs(int numDocs, boolean singleLeaf) throws IOException {
         Directory directory = newDirectory();
-        RandomIndexWriter writer = new RandomIndexWriter(random(), directory);
+        RandomIndexWriter writer = singleLeaf
+            ? new RandomIndexWriter(random(), directory)
+            : new RandomIndexWriter(random(), directory, newIndexWriterConfig().setMergePolicy(NoMergePolicy.INSTANCE));
         for (int i = 0; i < numDocs; i++) {
             Document doc = new Document();
             doc.add(new StringField("field", "value" + i, Field.Store.NO));
