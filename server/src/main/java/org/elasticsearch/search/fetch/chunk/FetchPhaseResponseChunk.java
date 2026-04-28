@@ -141,7 +141,6 @@ public class FetchPhaseResponseChunk implements Writeable, Releasable {
         return serializedHits == null ? 0 : serializedHits.length();
     }
 
-
     /**
      * Iterates the hits in this chunk, invoking {@code consumer} with each hit and its position.
      * */
