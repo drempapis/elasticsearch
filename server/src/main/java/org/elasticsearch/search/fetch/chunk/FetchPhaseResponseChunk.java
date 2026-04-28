@@ -141,22 +141,50 @@ public class FetchPhaseResponseChunk implements Writeable, Releasable {
         return serializedHits == null ? 0 : serializedHits.length();
     }
 
-    public SearchHit[] getHits() throws IOException {
-        if (deserializedHits == null && serializedHits != null && hitCount > 0) {
-            deserializedHits = new SearchHit[hitCount];
-            hitPositions = new int[hitCount];
-            try (StreamInput in = createStreamInput()) {
-                for (int i = 0; i < hitCount; i++) {
-                    hitPositions[i] = in.readVInt();
-                    deserializedHits[i] = SearchHit.readFrom(in);
-                }
+
+    /**
+     * Iterates the hits in this chunk, invoking {@code consumer} with each hit and its position.
+     * */
+    public void consumeHits(HitConsumer consumer) throws IOException {
+        ensureDeserialized();
+        if (deserializedHits == null) {
+            return;
+        }
+        for (int i = 0; i < deserializedHits.length; i++) {
+            SearchHit hit = deserializedHits[i];
+            if (hit != null) {
+                consumer.accept(hitPositions[i], hit);
+                deserializedHits[i] = null;
             }
         }
+    }
+
+    /* Visibility for tests */
+    SearchHit[] getHits() throws IOException {
+        ensureDeserialized();
         return deserializedHits != null ? deserializedHits : new SearchHit[0];
     }
 
-    public int[] getHitPositions() {
+    /* Visibility for tests */
+    int[] getHitPositions() {
         return hitPositions;
+    }
+
+    /**
+     * Deserializes the chunk's hits on first use.
+     * */
+    private void ensureDeserialized() throws IOException {
+        if (deserializedHits != null || serializedHits == null || hitCount == 0) {
+            return;
+        }
+        deserializedHits = new SearchHit[hitCount];
+        hitPositions = new int[hitCount];
+        try (StreamInput in = createStreamInput()) {
+            for (int i = 0; i < hitCount; i++) {
+                hitPositions[i] = in.readVInt();
+                deserializedHits[i] = SearchHit.readFrom(in);
+            }
+        }
     }
 
     private StreamInput createStreamInput() throws IOException {
@@ -208,6 +236,14 @@ public class FetchPhaseResponseChunk implements Writeable, Releasable {
             }
             deserializedHits = null;
         }
+    }
+
+    /**
+     * Callback invoked for each hit in a chunk together with its position.
+     * */
+    @FunctionalInterface
+    public interface HitConsumer {
+        void accept(int position, SearchHit hit);
     }
 
     /**
