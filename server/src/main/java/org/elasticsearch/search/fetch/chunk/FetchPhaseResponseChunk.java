@@ -26,6 +26,7 @@ import org.elasticsearch.index.shard.ShardId;
 import org.elasticsearch.search.SearchHit;
 
 import java.io.IOException;
+import java.util.function.ObjIntConsumer;
 
 /**
  * A single chunk of fetch results streamed from a data node to the coordinator.
@@ -42,6 +43,11 @@ import java.io.IOException;
  * {@code serializedHits} when it is {@link Releasable}, then {@link SearchHit#decRef()}s any
  * cached deserialized hits so pooled sources are released in a refcount-safe way (hits retain
  * their own refs until {@code decRef}).
+ *
+ * <p>Thread-safety: instances are single-owner. A chunk is constructed, drained via
+ * {@link #consumeHits} or {@link #toReleasableBytesReference}, and closed all on one thread;
+ * it is never shared between threads concurrently. Cross-thread publication of the produced
+ * {@link SearchHit}s happens downstream through {@link FetchPhaseResponseStream}'s queue.
  */
 public class FetchPhaseResponseChunk implements Writeable, Releasable {
 
@@ -146,13 +152,22 @@ public class FetchPhaseResponseChunk implements Writeable, Releasable {
      * */
     public void consumeHits(HitConsumer consumer) throws IOException {
         ensureDeserialized();
+        drainDeserializedHits((hit, i) -> consumer.accept(hitPositions[i], hit));
+    }
+
+    /**
+     * Walks {@code deserializedHits}, invoking {@code visitor} for each non-null slot and clearing
+     * the slot afterwards so the same hit is never handed out twice. Shared by {@link #consumeHits}
+     * and {@link #close}.
+     */
+    private void drainDeserializedHits(ObjIntConsumer<SearchHit> visitor) {
         if (deserializedHits == null) {
             return;
         }
         for (int i = 0; i < deserializedHits.length; i++) {
             SearchHit hit = deserializedHits[i];
             if (hit != null) {
-                consumer.accept(hitPositions[i], hit);
+                visitor.accept(hit, i);
                 deserializedHits[i] = null;
             }
         }
@@ -165,7 +180,8 @@ public class FetchPhaseResponseChunk implements Writeable, Releasable {
     }
 
     /* Visibility for tests */
-    int[] getHitPositions() {
+    int[] getHitPositions() throws IOException {
+        ensureDeserialized();
         return hitPositions;
     }
 
@@ -227,14 +243,8 @@ public class FetchPhaseResponseChunk implements Writeable, Releasable {
         }
         serializedHits = null;
 
-        if (deserializedHits != null) {
-            for (SearchHit hit : deserializedHits) {
-                if (hit != null) {
-                    hit.decRef();
-                }
-            }
-            deserializedHits = null;
-        }
+        drainDeserializedHits((hit, i) -> hit.decRef());
+        deserializedHits = null;
     }
 
     /**
