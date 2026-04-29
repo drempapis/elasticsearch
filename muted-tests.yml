@@ -499,6 +499,3 @@ tests:
 - class: org.elasticsearch.xpack.stateless.engine.SoftDeletesRetentionIT
   method: testRetentionLeasesIgnoredForSoftDeletesPolicy
   issue: https://github.com/elastic/elasticsearch/issues/147859
-- class: org.elasticsearch.search.fetch.chunk.TransportFetchPhaseCoordinationActionTests
-  method: testDoExecuteReleasesRegistrationWhenDataNodeFailsAfterChunkStreaming
-  issue: https://github.com/elastic/elasticsearch/issues/147870
