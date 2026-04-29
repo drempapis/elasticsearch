@@ -475,11 +475,7 @@ public class TransportFetchPhaseCoordinationActionTests extends ESTestCase {
 
         assertBusy(() -> {
             expectThrows(ResourceNotFoundException.class, () -> activeFetchPhaseTasks.acquireResponseStream(taskId, TEST_SHARD_ID));
-            assertThat(
-                "closeInternal must run and release the breaker bytes accounting the queued hit",
-                breaker.getUsed(),
-                equalTo(0L)
-            );
+            assertThat("closeInternal must run and release the breaker bytes accounting the queued hit", breaker.getUsed(), equalTo(0L));
         });
     }
 
