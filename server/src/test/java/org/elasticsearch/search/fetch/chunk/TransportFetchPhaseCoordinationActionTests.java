@@ -18,16 +18,18 @@ import org.elasticsearch.action.support.ActionFilters;
 import org.elasticsearch.action.support.IndicesOptions;
 import org.elasticsearch.action.support.PlainActionFuture;
 import org.elasticsearch.cluster.node.VersionInformation;
+import org.elasticsearch.common.breaker.CircuitBreaker;
 import org.elasticsearch.common.bytes.BytesArray;
 import org.elasticsearch.common.bytes.BytesReference;
 import org.elasticsearch.common.bytes.ReleasableBytesReference;
 import org.elasticsearch.common.io.stream.BytesStreamOutput;
 import org.elasticsearch.common.io.stream.NamedWriteableRegistry;
 import org.elasticsearch.common.settings.Settings;
+import org.elasticsearch.common.unit.ByteSizeValue;
 import org.elasticsearch.common.util.concurrent.ThreadContext;
 import org.elasticsearch.index.Index;
 import org.elasticsearch.index.shard.ShardId;
-import org.elasticsearch.indices.breaker.NoneCircuitBreakerService;
+import org.elasticsearch.indices.breaker.CircuitBreakerService;
 import org.elasticsearch.search.RescoreDocIds;
 import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.SearchHits;
@@ -74,6 +76,7 @@ public class TransportFetchPhaseCoordinationActionTests extends ESTestCase {
     private ActiveFetchPhaseTasks activeFetchPhaseTasks;
     private NamedWriteableRegistry namedWriteableRegistry;
     private TransportFetchPhaseCoordinationAction action;
+    private CircuitBreaker breaker;
 
     @Before
     public void setUp() throws Exception {
@@ -91,11 +94,13 @@ public class TransportFetchPhaseCoordinationActionTests extends ESTestCase {
         activeFetchPhaseTasks = new ActiveFetchPhaseTasks();
         namedWriteableRegistry = new NamedWriteableRegistry(Collections.emptyList());
 
+        CircuitBreakerService breakerService = newLimitedBreakerService(ByteSizeValue.ofMb(64));
+        breaker = breakerService.getBreaker(CircuitBreaker.REQUEST);
         action = new TransportFetchPhaseCoordinationAction(
             transportService,
             new ActionFilters(Set.of()),
             activeFetchPhaseTasks,
-            new NoneCircuitBreakerService(),
+            breakerService,
             namedWriteableRegistry
         );
         new TransportFetchPhaseResponseChunkAction(transportService, activeFetchPhaseTasks, namedWriteableRegistry);
@@ -470,6 +475,11 @@ public class TransportFetchPhaseCoordinationActionTests extends ESTestCase {
 
         assertBusy(() -> {
             expectThrows(ResourceNotFoundException.class, () -> activeFetchPhaseTasks.acquireResponseStream(taskId, TEST_SHARD_ID));
+            assertThat(
+                "closeInternal must run and release the breaker bytes accounting the queued hit",
+                breaker.getUsed(),
+                equalTo(0L)
+            );
         });
     }
 
