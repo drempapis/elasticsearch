@@ -182,7 +182,7 @@ class FetchPhaseResponseStream extends AbstractRefCounted {
             );
         }
 
-        // Release any hits still queued (i.e. not transferred to a final result by buildFinalResult).
+        // Release any hits still queued
         for (SequencedHit pending : drainQueue()) {
             pending.hit.decRef();
         }
@@ -203,8 +203,7 @@ class FetchPhaseResponseStream extends AbstractRefCounted {
     }
 
     /**
-     * Polls and returns every hit currently in the queue. Used both to hand hits off to a final result
-     * (success path) and to release hits that nothing else owns (failure path via {@link #closeInternal}).
+     * Polls and returns every hit currently in the queue.
      */
     private List<SequencedHit> drainQueue() {
         List<SequencedHit> drained = new ArrayList<>();
