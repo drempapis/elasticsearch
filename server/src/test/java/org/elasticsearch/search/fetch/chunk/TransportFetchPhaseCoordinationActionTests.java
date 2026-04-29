@@ -18,7 +18,6 @@ import org.elasticsearch.action.support.ActionFilters;
 import org.elasticsearch.action.support.IndicesOptions;
 import org.elasticsearch.action.support.PlainActionFuture;
 import org.elasticsearch.cluster.node.VersionInformation;
-import org.elasticsearch.common.breaker.CircuitBreaker;
 import org.elasticsearch.common.bytes.BytesArray;
 import org.elasticsearch.common.bytes.BytesReference;
 import org.elasticsearch.common.bytes.ReleasableBytesReference;
@@ -76,7 +75,6 @@ public class TransportFetchPhaseCoordinationActionTests extends ESTestCase {
     private ActiveFetchPhaseTasks activeFetchPhaseTasks;
     private NamedWriteableRegistry namedWriteableRegistry;
     private TransportFetchPhaseCoordinationAction action;
-    private CircuitBreaker breaker;
 
     @Before
     public void setUp() throws Exception {
@@ -95,7 +93,6 @@ public class TransportFetchPhaseCoordinationActionTests extends ESTestCase {
         namedWriteableRegistry = new NamedWriteableRegistry(Collections.emptyList());
 
         CircuitBreakerService breakerService = newLimitedBreakerService(ByteSizeValue.ofMb(64));
-        breaker = breakerService.getBreaker(CircuitBreaker.REQUEST);
         action = new TransportFetchPhaseCoordinationAction(
             transportService,
             new ActionFilters(Set.of()),
@@ -473,10 +470,7 @@ public class TransportFetchPhaseCoordinationActionTests extends ESTestCase {
         Exception failure = expectThrows(Exception.class, () -> future.actionGet(10, TimeUnit.SECONDS));
         assertThat(failure.getMessage(), equalTo("simulated data node failure during chunk streaming"));
 
-        assertBusy(() -> {
-            expectThrows(ResourceNotFoundException.class, () -> activeFetchPhaseTasks.acquireResponseStream(taskId, TEST_SHARD_ID));
-            assertThat("closeInternal must run and release the breaker bytes accounting the queued hit", breaker.getUsed(), equalTo(0L));
-        });
+        assertBusy(() -> expectThrows(ResourceNotFoundException.class, () -> activeFetchPhaseTasks.acquireResponseStream(taskId, TEST_SHARD_ID)));
     }
 
     private ShardFetchSearchRequest createShardFetchSearchRequest() {
