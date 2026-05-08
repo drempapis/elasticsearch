@@ -74,7 +74,7 @@ abstract class StreamingFetchPhaseDocsIterator extends FetchPhaseDocsIterator {
      * Default target chunk size in bytes (256KB).
      * Chunks may slightly exceed this as we complete the current hit before checking.
      */
-    static final int DEFAULT_TARGET_CHUNK_BYTES = 256 * 1024;
+    static final int DEFAULT_TARGET_CHUNK_BYTES = 1 * 1024 * 1024;
 
     /**
      * Asynchronous iteration using {@link ThrottledIterator} for streaming mode.
