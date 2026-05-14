@@ -485,7 +485,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
 
         enableQueryPhaseParallelCollection = QUERY_PHASE_PARALLEL_COLLECTION_ENABLED.get(settings);
         batchQueryPhase = BATCHED_QUERY_PHASE.get(settings);
-        enableFetchPhaseChunked = FETCH_PHASE_CHUNKED_ENABLED.get(settings);
+        enableFetchPhaseChunked = false; //FETCH_PHASE_CHUNKED_ENABLED.get(settings);
         fetchPhaseMaxInFlightChunks = FETCH_PHASE_MAX_IN_FLIGHT_CHUNKS.get(settings);
         fetchPhaseTargetChunkBytes = Math.toIntExact(FETCH_PHASE_CHUNKED_TARGET_CHUNK_BYTES.get(settings).getBytes());
         clusterService.getClusterSettings()
