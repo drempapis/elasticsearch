@@ -9,6 +9,7 @@
 
 package org.elasticsearch.common.document;
 
+import org.apache.lucene.util.RamUsageEstimator;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.io.stream.Writeable;
@@ -20,6 +21,7 @@ import org.elasticsearch.xcontent.XContentParser;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
@@ -36,6 +38,16 @@ import static org.elasticsearch.common.xcontent.XContentParserUtils.parseFieldsV
  * @see GetResult
  */
 public class DocumentField implements Writeable, Iterable<Object> {
+
+    private static final long SHALLOW_SIZE = RamUsageEstimator.shallowSizeOfInstance(DocumentField.class);
+
+    /**
+     * Hard cap on the recursion depth used by {@link #ramBytesUsedEstimate()}. We need more than
+     * the {@code MAX_DEPTH=1} that {@link RamUsageEstimator#sizeOfObject(Object)} uses internally
+     * because script-produced {@link Map} and {@link List} payloads frequently nest. The depth limit
+     * exists purely as a safety valve against pathological / cyclic inputs.
+     */
+    private static final int MAX_ESTIMATE_DEPTH = 20;
 
     private final String name;
     private final List<Object> values;
@@ -122,6 +134,62 @@ public class DocumentField implements Writeable, Iterable<Object> {
 
     public List<LookupField> getLookupFields() {
         return lookupFields;
+    }
+
+    /**
+     * Best-effort estimate of the retained heap of this {@link DocumentField}, including the
+     * recursive contents of {@link #values} and {@link #ignoredValues}.
+     * <p>
+     * Used by the fetch-phase circuit breaker to size scripted-field payloads (which typically
+     * dominate {@link SearchHit} memory) before they accumulate enough to OOM the JVM. The number
+     * is deliberately a coarse upper bound: it walks nested {@link Collection}s, {@link Map}s, and
+     * arrays via {@link RamUsageEstimator#sizeOfObject(Object)} for leaf values, but caps the
+     * traversal at {@link #MAX_ESTIMATE_DEPTH} to bound work on pathological inputs.
+     * <p>
+     * {@link LookupField}s are not included because they are immutable, small, and never produced
+     * by user scripts; the breaker accounting we drive from this estimate targets the script-field
+     * code path.
+     */
+    public long ramBytesUsedEstimate() {
+        return SHALLOW_SIZE + RamUsageEstimator.sizeOf(name) + estimateContainer(values) + estimateContainer(ignoredValues);
+    }
+
+    private static long estimateContainer(Collection<?> collection) {
+        if (collection == null || collection.isEmpty()) {
+            return 0L;
+        }
+        long size = RamUsageEstimator.shallowSizeOf(collection);
+        for (Object value : collection) {
+            size += estimateValue(value, 0);
+        }
+        return size;
+    }
+
+    private static long estimateValue(Object value, int depth) {
+        if (value == null) {
+            return 0L;
+        }
+        if (depth >= MAX_ESTIMATE_DEPTH) {
+            // bail out to the shallow estimator to avoid runaway recursion on cyclic / huge graphs.
+            return RamUsageEstimator.shallowSizeOf(value);
+        }
+        if (value instanceof Map<?, ?> map) {
+            long size = RamUsageEstimator.shallowSizeOf(map);
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                size += estimateValue(entry.getKey(), depth + 1);
+                size += estimateValue(entry.getValue(), depth + 1);
+            }
+            return size;
+        }
+        if (value instanceof Collection<?> collection) {
+            long size = RamUsageEstimator.shallowSizeOf(collection);
+            for (Object o : collection) {
+                size += estimateValue(o, depth + 1);
+            }
+            return size;
+        }
+        // Leaf values (String, Number, primitive arrays, etc.) are handled fully by Lucene's helper.
+        return RamUsageEstimator.sizeOfObject(value);
     }
 
     public ToXContentFragment getValidValuesWriter() {

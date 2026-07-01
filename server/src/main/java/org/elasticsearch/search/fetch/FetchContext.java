@@ -31,6 +31,7 @@ import org.elasticsearch.search.rescore.RescoreContext;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.function.IntConsumer;
 
 /**
  * Encapsulates state required to execute fetch phases
@@ -41,6 +42,7 @@ public class FetchContext {
     private final SourceLoader sourceLoader;
     private final FetchSourceContext fetchSourceContext;
     private final StoredFieldsContext storedFieldsContext;
+    private IntConsumer scriptFieldsByteChecker = bytes -> {};
 
     /**
      * Create a FetchContext based on a SearchContext
@@ -283,5 +285,21 @@ public class FetchContext {
         } else {
             return hitContext.source();
         }
+    }
+    
+    public void setScriptFieldsByteChecker(IntConsumer scriptFieldsByteChecker) {
+        this.scriptFieldsByteChecker = scriptFieldsByteChecker;
+    }
+
+    /**
+     * Charges {@code bytes} for a scripted {@link org.elasticsearch.common.document.DocumentField}
+     * against the configured checker. Values are clamped to {@link Integer#MAX_VALUE} to match the
+     * downstream {@link IntConsumer} contract.
+     */
+    public void chargeScriptFieldsBytes(long bytes) {
+        if (bytes <= 0L) {
+            return;
+        }
+        scriptFieldsByteChecker.accept(bytes > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) bytes);
     }
 }
