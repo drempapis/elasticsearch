@@ -286,7 +286,7 @@ public class FetchContext {
             return hitContext.source();
         }
     }
-    
+
     public void setScriptFieldsByteChecker(IntConsumer scriptFieldsByteChecker) {
         this.scriptFieldsByteChecker = scriptFieldsByteChecker;
     }
