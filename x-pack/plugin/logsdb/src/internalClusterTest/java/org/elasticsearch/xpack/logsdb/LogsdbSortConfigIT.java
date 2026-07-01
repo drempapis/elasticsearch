@@ -33,10 +33,12 @@ import org.elasticsearch.features.FeatureService;
 import org.elasticsearch.index.Index;
 import org.elasticsearch.index.IndexMode;
 import org.elasticsearch.index.IndexService;
+import org.elasticsearch.index.IndexSettings;
 import org.elasticsearch.index.IndexSortConfig;
 import org.elasticsearch.index.engine.Engine;
 import org.elasticsearch.index.fielddata.FieldDataContext;
 import org.elasticsearch.index.fielddata.IndexFieldDataCache;
+import org.elasticsearch.index.fielddata.SortedBinaryDocValues;
 import org.elasticsearch.index.fielddata.fieldcomparator.LongValuesComparatorSource;
 import org.elasticsearch.index.mapper.MappedFieldType;
 import org.elasticsearch.index.query.TermQueryBuilder;
@@ -75,6 +77,7 @@ public class LogsdbSortConfigIT extends ESSingleNodeTestCase {
         return Settings.builder()
             .put(super.nodeSettings())
             .put("cluster.logsdb.enabled", "true")
+            .put("cluster.logsdb_columnar.enabled", IndexMode.COLUMNAR_FEATURE_FLAG.isEnabled() && randomBoolean())
             .put(LicenseSettings.SELF_GENERATED_LICENSE_TYPE.getKey(), "trial")
             .build();
     }
@@ -92,6 +95,8 @@ public class LogsdbSortConfigIT extends ESSingleNodeTestCase {
     }
 
     public void testHostnameMessageTimestampSortConfig() throws IOException {
+        assumeTrue("test uses cardinality option", IndexMode.COLUMNAR_FEATURE_FLAG.isEnabled());
+
         final String dataStreamName = "test-logsdb-sort-hostname-message-timestamp";
 
         final String mapping = """
@@ -108,8 +113,7 @@ public class LogsdbSortConfigIT extends ESSingleNodeTestCase {
                     "type": "pattern_text"
                   },
                   "test_id": {
-                    "type": "text",
-                    "store": true
+                    "type": "keyword"
                   }
                 }
               }
@@ -175,6 +179,8 @@ public class LogsdbSortConfigIT extends ESSingleNodeTestCase {
     }
 
     public void testHostnameTimestampSortConfig() throws Exception {
+        assumeTrue("test uses cardinality option", IndexMode.COLUMNAR_FEATURE_FLAG.isEnabled());
+
         final String dataStreamName = "test-logsdb-sort-hostname-timestamp";
 
         final String MAPPING = """
@@ -188,8 +194,7 @@ public class LogsdbSortConfigIT extends ESSingleNodeTestCase {
                     "type": "keyword"
                   },
                   "test_id": {
-                    "type": "text",
-                    "store": true
+                    "type": "keyword"
                   }
                 }
               }
@@ -233,6 +238,8 @@ public class LogsdbSortConfigIT extends ESSingleNodeTestCase {
     }
 
     public void testTimestampOnlySortConfig() throws IOException {
+        assumeTrue("test uses cardinality option", IndexMode.COLUMNAR_FEATURE_FLAG.isEnabled());
+
         final String dataStreamName = "test-logsdb-sort-timestamp-only";
 
         final String MAPPING = """
@@ -246,8 +253,7 @@ public class LogsdbSortConfigIT extends ESSingleNodeTestCase {
                     "type": "keyword"
                   },
                   "test_id": {
-                    "type": "text",
-                    "store": true
+                    "type": "keyword"
                   }
                 }
               }
@@ -274,10 +280,22 @@ public class LogsdbSortConfigIT extends ESSingleNodeTestCase {
         var featureService = getInstanceFromNode(FeatureService.class);
         if (featureService.getNodeFeatures().containsKey("mapper.provide_index_sort_setting_defaults")) {
             assertSettings(backingIndex, settings -> {
-                assertThat(IndexSortConfig.INDEX_SORT_FIELD_SETTING.get(settings), equalTo(List.of("@timestamp")));
-                assertThat(IndexSortConfig.INDEX_SORT_ORDER_SETTING.get(settings), equalTo(List.of(SortOrder.DESC)));
-                assertThat(IndexSortConfig.INDEX_SORT_MODE_SETTING.get(settings), equalTo(List.of(MultiValueMode.MAX)));
-                assertThat(IndexSortConfig.INDEX_SORT_MISSING_SETTING.get(settings), equalTo(List.of("_last")));
+                if (IndexSettings.MODE.get(settings) == IndexMode.LOGSDB_COLUMNAR) {
+                    // logsdb_columnar defaults to [subobjects:false], allowing [host.name] injection when [host] is a mapped field
+                    assertThat(IndexSortConfig.INDEX_SORT_FIELD_SETTING.get(settings), equalTo(List.of("host.name", "@timestamp")));
+                    assertThat(IndexSortConfig.INDEX_SORT_ORDER_SETTING.get(settings), equalTo(List.of(SortOrder.ASC, SortOrder.DESC)));
+                    assertThat(
+                        IndexSortConfig.INDEX_SORT_MODE_SETTING.get(settings),
+                        equalTo(List.of(MultiValueMode.MIN, MultiValueMode.MAX))
+                    );
+                    assertThat(IndexSortConfig.INDEX_SORT_MISSING_SETTING.get(settings), equalTo(List.of("_last", "_last")));
+                } else {
+                    // logsdb defaults to [subobjects:true], so [host.name] can't be injected when [host] is a mapped field
+                    assertThat(IndexSortConfig.INDEX_SORT_FIELD_SETTING.get(settings), equalTo(List.of("@timestamp")));
+                    assertThat(IndexSortConfig.INDEX_SORT_ORDER_SETTING.get(settings), equalTo(List.of(SortOrder.DESC)));
+                    assertThat(IndexSortConfig.INDEX_SORT_MODE_SETTING.get(settings), equalTo(List.of(MultiValueMode.MAX)));
+                    assertThat(IndexSortConfig.INDEX_SORT_MISSING_SETTING.get(settings), equalTo(List.of("_last")));
+                }
             });
         }
 
@@ -514,13 +532,22 @@ public class LogsdbSortConfigIT extends ESSingleNodeTestCase {
 
             var segment = segments.getFirst();
             var reader = segment.reader();
-            var storedFields = reader.storedFields();
+
+            // Read [test_id] through fielddata so the order check is independent of the keyword doc-values format: low-cardinality uses
+            // sorted-set doc values while high-cardinality (columnar default) uses binary doc values, and fielddata abstracts over both.
+            MappedFieldType testIdField = shard.mapperService().fieldType("test_id");
+            SortedBinaryDocValues dvs = testIdField.fielddataBuilder(FieldDataContext.noRuntimeFields("test", "test"))
+                .build(new IndexFieldDataCache.None(), new NoneCircuitBreakerService())
+                .load(segment)
+                .getBytesValues();
 
             int expectedDocIdx = 0;
 
             for (int docId = 0; docId < reader.maxDoc(); docId++) {
                 String expectedId = orderedDocs[expectedDocIdx++].id;
-                String actualId = storedFields.document(docId).get("test_id");
+                assertTrue(dvs.advanceExact(docId));
+                assertThat(dvs.docValueCount(), equalTo(1));
+                String actualId = dvs.nextValue().utf8ToString();
                 assertEquals(expectedId, actualId);
             }
         }

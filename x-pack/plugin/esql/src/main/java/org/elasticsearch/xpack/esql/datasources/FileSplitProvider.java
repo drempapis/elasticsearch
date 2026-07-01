@@ -27,14 +27,19 @@ import org.elasticsearch.xpack.esql.datasources.spi.FrameIndex;
 import org.elasticsearch.xpack.esql.datasources.spi.IndexedDecompressionCodec;
 import org.elasticsearch.xpack.esql.datasources.spi.RangeAwareFormatReader;
 import org.elasticsearch.xpack.esql.datasources.spi.RangeAwareFormatReader.SplitRange;
+import org.elasticsearch.xpack.esql.datasources.spi.RecordSplitter;
 import org.elasticsearch.xpack.esql.datasources.spi.SegmentableFormatReader;
 import org.elasticsearch.xpack.esql.datasources.spi.SplitDiscoveryContext;
+import org.elasticsearch.xpack.esql.datasources.spi.SplitDiscoveryResult;
 import org.elasticsearch.xpack.esql.datasources.spi.SplitProvider;
 import org.elasticsearch.xpack.esql.datasources.spi.SplittableDecompressionCodec;
 import org.elasticsearch.xpack.esql.datasources.spi.StorageObject;
 import org.elasticsearch.xpack.esql.datasources.spi.StoragePath;
 import org.elasticsearch.xpack.esql.datasources.spi.StorageProvider;
 import org.elasticsearch.xpack.esql.datasources.utils.BoundedParallelGather;
+import org.elasticsearch.xpack.esql.expression.predicate.logical.And;
+import org.elasticsearch.xpack.esql.expression.predicate.logical.Not;
+import org.elasticsearch.xpack.esql.expression.predicate.logical.Or;
 import org.elasticsearch.xpack.esql.expression.predicate.nulls.IsNotNull;
 import org.elasticsearch.xpack.esql.expression.predicate.nulls.IsNull;
 import org.elasticsearch.xpack.esql.expression.predicate.operator.comparison.Equals;
@@ -45,6 +50,7 @@ import org.elasticsearch.xpack.esql.expression.predicate.operator.comparison.Les
 import org.elasticsearch.xpack.esql.expression.predicate.operator.comparison.LessThanOrEqual;
 import org.elasticsearch.xpack.esql.expression.predicate.operator.comparison.NotEquals;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -73,7 +79,7 @@ import java.util.function.BiFunction;
  *
  * <ul>
  *   <li><b>Record-aligned macro splits</b> — for uncompressed line-oriented formats
- *       (NDJSON/JSONL/JSON, CSV/TSV). {@link SegmentableFormatReader#findNextRecordBoundary}
+ *       (NDJSON/JSONL/JSON, CSV/TSV). {@link RecordSplitter#findNextRecordBoundary}
  *       probes near {@code target_split_size} strides so each {@link FileSplit} starts on a
  *       record boundary. Splits are tagged with {@link #RECORD_ALIGNED_MACRO_SPLIT_KEY} and
  *       readers receive {@code recordAligned=true}, so they must <em>not</em> drop any leading
@@ -100,7 +106,7 @@ public class FileSplitProvider implements SplitProvider {
 
     static final String RANGE_SPLIT_KEY = "_range_split";
     static final String FILE_LENGTH_KEY = "_file_length";
-    static final String CONFIG_TARGET_SPLIT_SIZE = "target_split_size";
+    public static final String CONFIG_TARGET_SPLIT_SIZE = "target_split_size";
 
     /**
      * Configuration keys this splitter consumes from a query-time configuration map. Aggregated by
@@ -117,6 +123,15 @@ public class FileSplitProvider implements SplitProvider {
      * so single-threaded fallback paths do not skip or trim aligned ranges.
      */
     static final String RECORD_ALIGNED_MACRO_SPLIT_KEY = "_record_aligned_macro_split";
+    /**
+     * Marks splits whose {@code offset()} is a COMPRESSED byte position (bzip2 block-aligned /
+     * zstd-indexed frame groups). Text readers anchor {@code _rowPosition} as
+     * {@code splitStartByte + decompressed-bytes-consumed}; a compressed anchor plus a
+     * decompressed delta is a value on no axis — not split-invariant and collision-prone across
+     * splits — so the dispatcher must not compose {@code _id} from these splits (it null-splices
+     * the {@code _rowPosition} slot instead).
+     */
+    static final String COMPRESSED_OFFSET_SPLIT_KEY = "_compressed_offset_split";
 
     /** Maximum parallel per-file I/O tasks during split discovery (Parquet footer reads, etc.). */
     static final int MAX_PARALLEL_SPLIT_DISCOVERY = 16;
@@ -173,16 +188,19 @@ public class FileSplitProvider implements SplitProvider {
     }
 
     @Override
-    public List<ExternalSplit> discoverSplits(SplitDiscoveryContext context) {
+    public SplitDiscoveryResult discoverSplits(SplitDiscoveryContext context) {
         FileList fileList = context.fileList();
         if (fileList == null || fileList.isResolved() == false) {
-            return List.of();
+            return SplitDiscoveryResult.EMPTY;
         }
 
         PartitionMetadata partitionInfo = context.partitionInfo();
         Map<String, Object> config = context.config();
         List<Expression> filterHints = context.filterHints();
-        Set<String> projectedDataColumns = fileBackedProjectedColumns(context.projectedDataColumns(), partitionInfo);
+        // Strip partition columns from the Query schema before per-file work: their values come
+        // from the storage path, not from file bytes, so they don't participate in the file-read
+        // narrowing or in the no-overlap skip check.
+        ExternalSchema fileBackedQuerySchema = stripPartitionColumns(context.querySchema(), partitionInfo);
         Map<StoragePath, SchemaReconciliation.FileSchemaInfo> schemaInfo = context.schemaMap();
 
         // Side effect: validates optional {@link #CONFIG_TARGET_SPLIT_SIZE} when users pass WITH options.
@@ -202,7 +220,12 @@ public class FileSplitProvider implements SplitProvider {
         }
 
         // Dedup cache for ColumnMapping: concurrent-safe when split discovery is parallel.
-        Map<SchemaReconciliation.ColumnMapping, SchemaReconciliation.ColumnMapping> mappingCache = new ConcurrentHashMap<>();
+        Map<ColumnMapping, ColumnMapping> mappingCache = new ConcurrentHashMap<>();
+
+        // Unified schema for the prune-to-per-file-query transformation. When null (legacy
+        // callers, data-node paths) the per-file mapping stays at Unified width — the data node
+        // still works, the on-wire cost is just slightly higher.
+        ExternalSchema unifiedSchema = context.unifiedSchema();
 
         // Phase 1: sequential filtering — cheap, in-memory predicates applied per file to
         // build the list of FileTask items that need I/O (footer reads, boundary scans).
@@ -210,13 +233,14 @@ public class FileSplitProvider implements SplitProvider {
         for (int i = 0; i < fileList.fileCount(); i++) {
             StoragePath filePath = fileList.path(i);
 
-            Map<String, Object> partitionValues = Map.of();
+            Map<String, Object> partitionValues = new HashMap<>();
             if (partitionInfo != null && partitionInfo.isEmpty() == false) {
                 Map<String, Object> filePartitions = partitionInfo.filePartitionValues().get(filePath);
                 if (filePartitions != null) {
-                    partitionValues = filePartitions;
+                    partitionValues.putAll(filePartitions);
                 }
             }
+            partitionValues.putAll(FileMetadataColumns.extractValues(fileList, i));
 
             if (partitionValues.isEmpty() == false && filterHints.isEmpty() == false) {
                 if (matchesPartitionFilters(partitionValues, filterHints) == false) {
@@ -226,17 +250,14 @@ public class FileSplitProvider implements SplitProvider {
 
             SchemaReconciliation.FileSchemaInfo fileSchemaInfo = schemaInfo != null ? schemaInfo.get(filePath) : null;
 
-            if (projectedDataColumns.isEmpty() == false && fileSchemaInfo != null) {
-                if (skipIfNoColumnOverlap(fileSchemaInfo.fileSchema(), projectedDataColumns)) {
+            if (fileBackedQuerySchema.isEmpty() == false && fileSchemaInfo != null) {
+                if (skipIfNoColumnOverlap(fileSchemaInfo.fileSchema(), fileBackedQuerySchema)) {
                     continue;
                 }
             }
 
             if (filterHints.isEmpty() == false && fileSchemaInfo != null) {
-                Set<String> fileColumnNames = new LinkedHashSet<>();
-                for (Attribute attr : fileSchemaInfo.fileSchema()) {
-                    fileColumnNames.add(attr.name());
-                }
+                Set<String> fileColumnNames = new LinkedHashSet<>(fileSchemaInfo.fileSchema().names());
                 // Partition columns are always available (values come from paths, not file data)
                 fileColumnNames.addAll(partitionValues.keySet());
                 if (skipIfFilterOnMissingColumns(filterHints, fileColumnNames)) {
@@ -255,25 +276,38 @@ public class FileSplitProvider implements SplitProvider {
 
             long fileLength = fileList.size(i);
 
-            SchemaReconciliation.ColumnMapping columnMapping = null;
+            ColumnMapping columnMapping = null;
             List<Attribute> readSchema = null;
             if (schemaInfo != null) {
                 SchemaReconciliation.FileSchemaInfo info = schemaInfo.get(filePath);
                 if (info != null) {
-                    if (info.mapping() != null && info.mapping().isIdentity() == false) {
-                        columnMapping = mappingCache.computeIfAbsent(info.mapping(), k -> k);
+                    ColumnMapping mapping = info.mapping();
+                    if (mapping != null && unifiedSchema != null && fileBackedQuerySchema.isEmpty() == false) {
+                        // Fused narrowing: output dimension goes from Unified to Query, read
+                        // dimension goes from File to per-file Query projection. See the
+                        // four-schema doc on SchemaReconciliation. For Hive-partitioned sources
+                        // context.unifiedSchema() is the post-shadow data-only schema (partition
+                        // columns are appended only to the coordinator-facing schema, never here), so
+                        // its width matches each per-file mapping built by shadowPartitionCollisions and
+                        // satisfies pruneToPerFileQuery's unifiedSchema.size() == index.length assertion.
+                        mapping = mapping.pruneToPerFileQuery(unifiedSchema, info.fileSchema(), fileBackedQuerySchema);
+                    }
+                    if (mapping != null && mapping.isIdentity() == false) {
+                        columnMapping = mappingCache.computeIfAbsent(mapping, k -> k);
                     }
                     // Pin the reader to the coordinator's per-file inference so it doesn't re-infer
                     // at runtime and disagree with the planner's view of this file.
-                    readSchema = info.fileSchema();
+                    readSchema = info.fileSchema().attributes();
                 }
             }
 
-            tasks.add(new FileTask(filePath, fileLength, format, config, partitionValues, columnMapping, readSchema));
+            tasks.add(
+                new FileTask(filePath, fileLength, format, config, partitionValues, columnMapping, readSchema, context.maxRecordBytes())
+            );
         }
 
         if (tasks.isEmpty()) {
-            return List.of();
+            return SplitDiscoveryResult.EMPTY;
         }
 
         // Phase 2: I/O-bound split discovery — parallelize when executor is available.
@@ -306,7 +340,9 @@ public class FileSplitProvider implements SplitProvider {
         for (List<ExternalSplit> fileSplits : perFileSplits) {
             splits.addAll(fileSplits);
         }
-        return List.copyOf(splits);
+        // Each surviving task produces at least one split, so the task count is the number of
+        // distinct files that are actually scanned after coordinator-side pruning.
+        return new SplitDiscoveryResult(splits, tasks.size());
     }
 
     /**
@@ -319,8 +355,9 @@ public class FileSplitProvider implements SplitProvider {
         @Nullable String format,
         Map<String, Object> config,
         Map<String, Object> partitionValues,
-        @Nullable SchemaReconciliation.ColumnMapping columnMapping,
-        @Nullable List<Attribute> readSchema
+        @Nullable ColumnMapping columnMapping,
+        @Nullable List<Attribute> readSchema,
+        int maxRecordBytes
     ) {}
 
     /**
@@ -367,7 +404,7 @@ public class FileSplitProvider implements SplitProvider {
         long fileLength = task.fileLength();
         String format = task.format();
         Map<String, Object> partitionValues = task.partitionValues();
-        SchemaReconciliation.ColumnMapping columnMapping = task.columnMapping();
+        ColumnMapping columnMapping = task.columnMapping();
         List<Attribute> readSchema = task.readSchema();
         long effectiveTargetSplitBytes = resolveTargetSplitSize(config);
 
@@ -380,6 +417,7 @@ public class FileSplitProvider implements SplitProvider {
             columnMapping,
             readSchema,
             effectiveTargetSplitBytes,
+            task.maxRecordBytes(),
             fileSplits,
             hoistedProvider
         )) {
@@ -430,7 +468,7 @@ public class FileSplitProvider implements SplitProvider {
         String format,
         Map<String, Object> config,
         Map<String, Object> partitionValues,
-        @Nullable SchemaReconciliation.ColumnMapping columnMapping,
+        @Nullable ColumnMapping columnMapping,
         @Nullable List<Attribute> readSchema,
         List<ExternalSplit> splits,
         @Nullable StorageProvider hoistedProvider
@@ -510,6 +548,7 @@ public class FileSplitProvider implements SplitProvider {
                 }
 
                 Map<String, Object> splitConfig = new HashMap<>(config);
+                splitConfig.put(COMPRESSED_OFFSET_SPLIT_KEY, "true");
                 if (m == 0) {
                     splitConfig.put(FIRST_SPLIT_KEY, "true");
                 }
@@ -548,7 +587,7 @@ public class FileSplitProvider implements SplitProvider {
         String format,
         Map<String, Object> config,
         Map<String, Object> partitionValues,
-        @Nullable SchemaReconciliation.ColumnMapping columnMapping,
+        @Nullable ColumnMapping columnMapping,
         @Nullable List<Attribute> readSchema,
         List<ExternalSplit> splits,
         @Nullable StorageProvider hoistedProvider
@@ -616,9 +655,10 @@ public class FileSplitProvider implements SplitProvider {
         @Nullable String format,
         Map<String, Object> config,
         Map<String, Object> partitionValues,
-        @Nullable SchemaReconciliation.ColumnMapping columnMapping,
+        @Nullable ColumnMapping columnMapping,
         @Nullable List<Attribute> readSchema,
         long targetStrideBytes,
+        int maxRecordBytes,
         List<ExternalSplit> splits,
         @Nullable StorageProvider hoistedProvider
     ) throws IOException {
@@ -648,7 +688,7 @@ public class FileSplitProvider implements SplitProvider {
         SegmentableFormatReader segmentableReader = (SegmentableFormatReader) reader;
         StorageProvider provider = resolveProvider(filePath, config, hoistedProvider);
         StorageObject object = provider.newObject(filePath, fileLength);
-        List<Long> starts = computeRecordAlignedMacroSplitStarts(segmentableReader, object, fileLength, targetStrideBytes);
+        List<Long> starts = computeRecordAlignedMacroSplitStarts(segmentableReader, object, fileLength, targetStrideBytes, maxRecordBytes);
         if (starts.size() <= 1) {
             return false;
         }
@@ -692,19 +732,27 @@ public class FileSplitProvider implements SplitProvider {
         SegmentableFormatReader reader,
         StorageObject storageObject,
         long fileLength,
-        long targetStrideBytes
+        long targetStrideBytes,
+        int maxRecordBytes
     ) throws IOException {
         List<Long> boundaries = new ArrayList<>();
         boundaries.add(0L);
         long minSegment = reader.minimumSegmentSize();
+        RecordSplitter splitter = reader.recordSplitter(maxRecordBytes);
         long pos = targetStrideBytes;
         while (pos < fileLength) {
             long remaining = fileLength - pos;
             if (remaining < minSegment) {
                 break;
             }
-            try (InputStream stream = storageObject.newStream(pos, remaining)) {
-                long skipped = reader.findNextRecordBoundary(stream);
+            InputStream stream = storageObject.newStream(pos, remaining);
+            // Abort rather than close: findNextRecordBoundary reads only a prefix of the range
+            // (fileLength - pos bytes), but close() on providers like S3 drains the remainder.
+            try (Closeable abortOnExit = () -> storageObject.abortStream(stream)) {
+                long skipped = splitter.findNextRecordBoundary(stream);
+                if (skipped == RecordSplitter.RECORD_TOO_LARGE) {
+                    break;
+                }
                 if (skipped < 0) {
                     break;
                 }
@@ -729,7 +777,7 @@ public class FileSplitProvider implements SplitProvider {
         String format,
         Map<String, Object> config,
         Map<String, Object> partitionValues,
-        @Nullable SchemaReconciliation.ColumnMapping columnMapping,
+        @Nullable ColumnMapping columnMapping,
         @Nullable List<Attribute> readSchema,
         List<ExternalSplit> splits,
         @Nullable StorageProvider hoistedProvider
@@ -764,6 +812,7 @@ public class FileSplitProvider implements SplitProvider {
                 if (accumulated >= DEFAULT_MACRO_SPLIT_TARGET || isLast) {
                     long groupEnd = frame.compressedOffset() + frame.compressedSize();
                     Map<String, Object> splitConfig = new HashMap<>(config);
+                    splitConfig.put(COMPRESSED_OFFSET_SPLIT_KEY, "true");
                     if (splitCount == 0) {
                         splitConfig.put(FIRST_SPLIT_KEY, "true");
                     }
@@ -863,31 +912,56 @@ public class FileSplitProvider implements SplitProvider {
         if (s.isEmpty()) {
             return targetSplitSizeBytes;
         }
-        long result = ByteSizeValue.parseBytesSizeValue(s, CONFIG_TARGET_SPLIT_SIZE).getBytes();
+        return validateTargetSplitSize(s);
+    }
+
+    /**
+     * Parses and validates an already-trimmed {@code target_split_size} value, returning the size in
+     * bytes. Shared by the query path ({@link #resolveTargetSplitSize}) and the dataset CRUD validator
+     * so both accept exactly the same inputs. The caller owns trimming and the null/empty fallback to a
+     * default; this method always parses.
+     *
+     * @throws org.elasticsearch.ElasticsearchParseException if the unit suffix is missing or malformed
+     * @throws IllegalArgumentException                      if the resulting size is not positive
+     */
+    public static long validateTargetSplitSize(String value) {
+        long result = ByteSizeValue.parseBytesSizeValue(value, CONFIG_TARGET_SPLIT_SIZE).getBytes();
         Check.isTrue(result > 0, "Invalid value for [{}]: [{}]; must be positive", CONFIG_TARGET_SPLIT_SIZE, value);
         return result;
     }
 
     /**
-     * Returns the subset of projected data columns that must come from file bytes,
-     * excluding partition columns whose values come from paths, not file data.
+     * Returns the Query schema with partition columns removed — those columns' values come from
+     * paths, not file bytes, so they don't participate in file-read narrowing.
      */
-    static Set<String> fileBackedProjectedColumns(Set<String> projectedDataColumns, PartitionMetadata partitionInfo) {
-        if (projectedDataColumns.isEmpty() || partitionInfo == null || partitionInfo.isEmpty()) {
-            return projectedDataColumns;
+    static ExternalSchema stripPartitionColumns(ExternalSchema querySchema, @Nullable PartitionMetadata partitionInfo) {
+        if (querySchema.isEmpty() || partitionInfo == null || partitionInfo.isEmpty()) {
+            return querySchema;
         }
-        Set<String> result = new LinkedHashSet<>(projectedDataColumns);
-        result.removeAll(partitionInfo.partitionColumns().keySet());
-        return result;
+        Set<String> partitionColumns = partitionInfo.partitionColumns().keySet();
+        if (partitionColumns.isEmpty()) {
+            return querySchema;
+        }
+        List<Attribute> filtered = new ArrayList<>(querySchema.size());
+        for (Attribute attr : querySchema) {
+            if (partitionColumns.contains(attr.name()) == false) {
+                filtered.add(attr);
+            }
+        }
+        if (filtered.size() == querySchema.size()) {
+            return querySchema;
+        }
+        return new ExternalSchema(filtered);
     }
 
     /**
-     * Returns {@code true} when the file's data columns have zero overlap with the projected set,
+     * Returns {@code true} when the file's data columns have zero overlap with the query schema,
      * meaning this file would produce only NULL rows for all needed columns.
      */
-    static boolean skipIfNoColumnOverlap(List<Attribute> fileSchema, Set<String> projectedDataColumns) {
+    static boolean skipIfNoColumnOverlap(ExternalSchema fileSchema, ExternalSchema querySchema) {
+        Set<String> queryNames = querySchema.names();
         for (Attribute attr : fileSchema) {
-            if (projectedDataColumns.contains(attr.name())) {
+            if (queryNames.contains(attr.name())) {
                 return false;
             }
         }
@@ -985,6 +1059,9 @@ public class FileSplitProvider implements SplitProvider {
                     yield null;
                 }
                 Object partitionValue = partitionValues.get(columnName);
+                if (partitionValue == null) {
+                    yield null;
+                }
                 Boolean found = false;
                 for (Expression listItem : in.list()) {
                     if (listItem instanceof Literal lit) {
@@ -998,8 +1075,49 @@ public class FileSplitProvider implements SplitProvider {
                 }
                 yield found;
             }
+            case IsNull isNull -> {
+                String columnName = extractColumnName(isNull.field());
+                if (columnName == null || partitionValues.containsKey(columnName) == false) {
+                    yield null;
+                }
+                yield partitionValues.get(columnName) == null;
+            }
+            case IsNotNull isNotNull -> {
+                String columnName = extractColumnName(isNotNull.field());
+                if (columnName == null || partitionValues.containsKey(columnName) == false) {
+                    yield null;
+                }
+                yield partitionValues.get(columnName) != null;
+            }
+            case And and -> nullableAnd(evaluateFilter(and.left(), partitionValues), evaluateFilter(and.right(), partitionValues));
+            case Or or -> nullableOr(evaluateFilter(or.left(), partitionValues), evaluateFilter(or.right(), partitionValues));
+            case Not not -> nullableNot(evaluateFilter(not.field(), partitionValues));
             default -> null;
         };
+    }
+
+    private static Boolean nullableAnd(Boolean a, Boolean b) {
+        if (Boolean.FALSE.equals(a) || Boolean.FALSE.equals(b)) {
+            return false;
+        }
+        if (a == null || b == null) {
+            return null;
+        }
+        return a && b;
+    }
+
+    private static Boolean nullableOr(Boolean a, Boolean b) {
+        if (Boolean.TRUE.equals(a) || Boolean.TRUE.equals(b)) {
+            return true;
+        }
+        if (a == null || b == null) {
+            return null;
+        }
+        return false;
+    }
+
+    private static Boolean nullableNot(Boolean a) {
+        return a == null ? null : a == false;
     }
 
     private static Boolean evaluateComparison(

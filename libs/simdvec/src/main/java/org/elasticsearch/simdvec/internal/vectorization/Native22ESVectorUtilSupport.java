@@ -19,7 +19,7 @@ import org.elasticsearch.simdvec.internal.Similarities;
 
 import java.lang.foreign.MemorySegment;
 
-public final class Native22ESVectorUtilSupport extends Panama22ESVectorUtilSupport {
+public final class Native22ESVectorUtilSupport extends PanamaESVectorUtilSupport {
 
     /*
      * This is technically separate to the Panama22 implementation, but there's
@@ -33,8 +33,26 @@ public final class Native22ESVectorUtilSupport extends Panama22ESVectorUtilSuppo
     }
 
     @Override
+    public float dotProduct(float[] a, float[] b, int offset, int length) {
+        return Similarities.dotProductF32(
+            MemorySegment.ofArray(a).asSlice((long) offset * Float.BYTES, (long) length * Float.BYTES),
+            MemorySegment.ofArray(b).asSlice((long) offset * Float.BYTES, (long) length * Float.BYTES),
+            length
+        );
+    }
+
+    @Override
     public float squareDistance(float[] a, float[] b) {
         return Similarities.squareDistanceF32(MemorySegment.ofArray(a), MemorySegment.ofArray(b), a.length);
+    }
+
+    @Override
+    public float squareDistance(float[] a, float[] b, int offset, int length) {
+        return Similarities.squareDistanceF32(
+            MemorySegment.ofArray(a).asSlice((long) offset * Float.BYTES, (long) length * Float.BYTES),
+            MemorySegment.ofArray(b).asSlice((long) offset * Float.BYTES, (long) length * Float.BYTES),
+            length
+        );
     }
 
     @Override
@@ -48,8 +66,26 @@ public final class Native22ESVectorUtilSupport extends Panama22ESVectorUtilSuppo
     }
 
     @Override
+    public float dotProduct(byte[] a, byte[] b, int offset, int length) {
+        return Similarities.dotProductI8(
+            MemorySegment.ofArray(a).asSlice(offset, length),
+            MemorySegment.ofArray(b).asSlice(offset, length),
+            length
+        );
+    }
+
+    @Override
     public float squareDistance(byte[] a, byte[] b) {
         return Similarities.squareDistanceI8(MemorySegment.ofArray(a), MemorySegment.ofArray(b), a.length);
+    }
+
+    @Override
+    public float squareDistance(byte[] a, byte[] b, int offset, int length) {
+        return Similarities.squareDistanceI8(
+            MemorySegment.ofArray(a).asSlice(offset, length),
+            MemorySegment.ofArray(b).asSlice(offset, length),
+            length
+        );
     }
 
     @Override

@@ -33,7 +33,6 @@ import org.elasticsearch.xpack.esql.index.EsIndex;
 import org.elasticsearch.xpack.esql.index.EsIndexGenerator;
 import org.elasticsearch.xpack.esql.index.IndexResolution;
 import org.elasticsearch.xpack.esql.plan.IndexPattern;
-import org.elasticsearch.xpack.esql.type.EsFieldTests;
 import org.hamcrest.Matcher;
 
 import java.util.ArrayList;
@@ -51,6 +50,7 @@ import static org.elasticsearch.xpack.esql.action.EsqlExecutionInfoTests.createE
 import static org.elasticsearch.xpack.esql.action.EsqlExecutionInfoTests.createEsqlExecutionInfoCluster;
 import static org.elasticsearch.xpack.esql.core.tree.Source.EMPTY;
 import static org.elasticsearch.xpack.esql.session.EsqlCCSUtils.initCrossClusterState;
+import static org.elasticsearch.xpack.esql.type.EsFieldTestUtils.randomSerializableEsField;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
@@ -66,81 +66,51 @@ public class EsqlCCSUtilsTests extends ESTestCase {
     public void testCreateQualifiedLookupIndexExpressionFromAvailableClusters() {
 
         // no clusters marked as skipped
-        {
-            EsqlExecutionInfo executionInfo = createEsqlExecutionInfo(true);
-            executionInfo.swapCluster(
-                LOCAL_CLUSTER_ALIAS,
-                (k, v) -> createEsqlExecutionInfoCluster(LOCAL_CLUSTER_ALIAS, "", false, EsqlExecutionInfo.Cluster.Status.RUNNING)
-            );
-            executionInfo.swapCluster(
-                REMOTE1_ALIAS,
-                (k, v) -> createEsqlExecutionInfoCluster(REMOTE1_ALIAS, "", true, EsqlExecutionInfo.Cluster.Status.RUNNING)
-            );
-            executionInfo.swapCluster(
-                REMOTE2_ALIAS,
-                (k, v) -> createEsqlExecutionInfoCluster(REMOTE2_ALIAS, "", true, EsqlExecutionInfo.Cluster.Status.RUNNING)
-            );
-            assertIndexPattern(
-                EsqlCCSUtils.createQualifiedLookupIndexExpressionFromAvailableClusters(executionInfo, "lookup"),
-                containsInAnyOrder("lookup", REMOTE1_ALIAS + ":lookup", REMOTE2_ALIAS + ":lookup")
-            );
-        }
+        assertIndexPattern(
+            EsqlCCSUtils.createQualifiedLookupIndexExpressionFromAvailableClusters(
+                Set.of(LOCAL_CLUSTER_ALIAS, REMOTE1_ALIAS, REMOTE2_ALIAS),
+                "lookup"
+            ),
+            containsInAnyOrder("lookup", REMOTE1_ALIAS + ":lookup", REMOTE2_ALIAS + ":lookup")
+        );
         // one cluster marked as skipped
-        {
-            EsqlExecutionInfo executionInfo = createEsqlExecutionInfo(true);
-            executionInfo.swapCluster(
-                LOCAL_CLUSTER_ALIAS,
-                (k, v) -> createEsqlExecutionInfoCluster(LOCAL_CLUSTER_ALIAS, "", false, EsqlExecutionInfo.Cluster.Status.RUNNING)
-            );
-            executionInfo.swapCluster(
-                REMOTE1_ALIAS,
-                (k, v) -> createEsqlExecutionInfoCluster(REMOTE1_ALIAS, "", true, EsqlExecutionInfo.Cluster.Status.RUNNING)
-            );
-            executionInfo.swapCluster(
-                REMOTE2_ALIAS,
-                (k, v) -> createEsqlExecutionInfoCluster(REMOTE2_ALIAS, "", true, EsqlExecutionInfo.Cluster.Status.SKIPPED)
-            );
-            assertIndexPattern(
-                EsqlCCSUtils.createQualifiedLookupIndexExpressionFromAvailableClusters(executionInfo, "lookup"),
-                containsInAnyOrder("lookup", REMOTE1_ALIAS + ":lookup")
-            );
-        }
+        assertIndexPattern(
+            EsqlCCSUtils.createQualifiedLookupIndexExpressionFromAvailableClusters(Set.of(LOCAL_CLUSTER_ALIAS, REMOTE1_ALIAS), "lookup"),
+            containsInAnyOrder("lookup", REMOTE1_ALIAS + ":lookup")
+        );
         // all remotes marked as skipped
-        {
-            EsqlExecutionInfo executionInfo = createEsqlExecutionInfo(true);
-            executionInfo.swapCluster(
-                LOCAL_CLUSTER_ALIAS,
-                (k, v) -> createEsqlExecutionInfoCluster(LOCAL_CLUSTER_ALIAS, "", false, EsqlExecutionInfo.Cluster.Status.RUNNING)
-            );
-            executionInfo.swapCluster(
-                REMOTE1_ALIAS,
-                (k, v) -> createEsqlExecutionInfoCluster(REMOTE1_ALIAS, "", true, EsqlExecutionInfo.Cluster.Status.SKIPPED)
-            );
-            executionInfo.swapCluster(
-                REMOTE2_ALIAS,
-                (k, v) -> createEsqlExecutionInfoCluster(REMOTE2_ALIAS, "", true, EsqlExecutionInfo.Cluster.Status.SKIPPED)
-            );
-            assertIndexPattern(
-                EsqlCCSUtils.createQualifiedLookupIndexExpressionFromAvailableClusters(executionInfo, "lookup"),
-                containsInAnyOrder("lookup")
-            );
-        }
+        assertIndexPattern(
+            EsqlCCSUtils.createQualifiedLookupIndexExpressionFromAvailableClusters(Set.of(LOCAL_CLUSTER_ALIAS), "lookup"),
+            containsInAnyOrder("lookup")
+        );
         // all remotes are skipped and no local
-        {
-            EsqlExecutionInfo executionInfo = createEsqlExecutionInfo(true);
-            executionInfo.swapCluster(
-                REMOTE1_ALIAS,
-                (k, v) -> createEsqlExecutionInfoCluster(REMOTE1_ALIAS, "", true, EsqlExecutionInfo.Cluster.Status.SKIPPED)
-            );
-            executionInfo.swapCluster(
-                REMOTE2_ALIAS,
-                (k, v) -> createEsqlExecutionInfoCluster(REMOTE2_ALIAS, "", true, EsqlExecutionInfo.Cluster.Status.SKIPPED)
-            );
-            assertIndexPattern(
-                EsqlCCSUtils.createQualifiedLookupIndexExpressionFromAvailableClusters(executionInfo, "lookup"),
-                containsInAnyOrder()
-            );
-        }
+        assertIndexPattern(
+            EsqlCCSUtils.createQualifiedLookupIndexExpressionFromAvailableClusters(Set.of(), "lookup"),
+            containsInAnyOrder()
+        );
+    }
+
+    public void testOnlyRunning() {
+        EsqlExecutionInfo executionInfo = createEsqlExecutionInfo(true);
+        executionInfo.swapCluster(
+            LOCAL_CLUSTER_ALIAS,
+            (k, v) -> createEsqlExecutionInfoCluster(LOCAL_CLUSTER_ALIAS, "", false, EsqlExecutionInfo.Cluster.Status.RUNNING)
+        );
+        executionInfo.swapCluster(
+            REMOTE1_ALIAS,
+            (k, v) -> createEsqlExecutionInfoCluster(REMOTE1_ALIAS, "", true, EsqlExecutionInfo.Cluster.Status.RUNNING)
+        );
+        executionInfo.swapCluster(
+            REMOTE2_ALIAS,
+            (k, v) -> createEsqlExecutionInfoCluster(REMOTE2_ALIAS, "", true, EsqlExecutionInfo.Cluster.Status.SKIPPED)
+        );
+        assertThat(EsqlCCSUtils.onlyRunning(executionInfo, Set.of(LOCAL_CLUSTER_ALIAS)), equalTo(Set.of(LOCAL_CLUSTER_ALIAS)));
+        assertThat(EsqlCCSUtils.onlyRunning(executionInfo, Set.of(REMOTE1_ALIAS)), equalTo(Set.of(REMOTE1_ALIAS)));
+        assertThat(EsqlCCSUtils.onlyRunning(executionInfo, Set.of(REMOTE2_ALIAS)), equalTo(Set.of()));
+        assertThat(
+            EsqlCCSUtils.onlyRunning(executionInfo, Set.of(LOCAL_CLUSTER_ALIAS, REMOTE1_ALIAS, REMOTE2_ALIAS)),
+            equalTo(Set.of(LOCAL_CLUSTER_ALIAS, REMOTE1_ALIAS))
+        );
     }
 
     private static void assertIndexPattern(String indexPattern, Matcher<Iterable<? extends String>> matcher) {
@@ -724,7 +694,7 @@ public class EsqlCCSUtilsTests extends ESTestCase {
         int size = between(0, 10);
         Map<String, EsField> result = new HashMap<>(size);
         while (result.size() < size) {
-            result.put(randomAlphaOfLength(5), EsFieldTests.randomAnyEsField(1));
+            result.put(randomAlphaOfLength(5), randomSerializableEsField(1));
         }
         return result;
     }
