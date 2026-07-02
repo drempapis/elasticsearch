@@ -4652,11 +4652,18 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
      */
     public final void ensureShardSearchActive(Executor responseExecutor, Consumer<Boolean> listener) {
         Objects.requireNonNull(responseExecutor);
-        SubscribableListener.<Boolean>newForked(l -> ensureShardSearchActive(l::onResponse))
-            .addListener(ActionListener.wrap(listener::accept, e -> {
-                logger.warn(() -> format("ensureShardSearchActive could not dispatch to [%s], running inline", responseExecutor), e);
-                listener.accept(true);
-            }), responseExecutor, null);
+        ensureShardSearchActive(wasRegistered -> {
+            if (wasRegistered) {
+                try {
+                    responseExecutor.execute(() -> listener.accept(true));
+                } catch (Exception e) {
+                    logger.warn(() -> format("ensureShardSearchActive could not dispatch to [%s], running inline", responseExecutor), e);
+                    listener.accept(true);
+                }
+            } else {
+                listener.accept(false);
+            }
+        });
     }
 
     /**
