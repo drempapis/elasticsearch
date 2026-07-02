@@ -61,6 +61,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.IntConsumer;
+import java.util.function.LongConsumer;
 import java.util.function.Supplier;
 
 import static org.elasticsearch.index.get.ShardGetService.maybeExcludeVectorFields;
@@ -302,12 +303,14 @@ public final class FetchPhase {
         FetchContext fetchContext = new FetchContext(context, sourceLoader);
 
         final long[] scriptFieldsBreakerBytes = new long[1];
-        IntConsumer scriptFieldsByteChecker = memoryChecker != null ? memoryChecker : bytes -> {
-            if (bytes > 0) {
-                context.circuitBreaker().addEstimateBytesAndMaybeBreak(bytes, "script_field");
-                scriptFieldsBreakerBytes[0] += bytes;
-            }
-        };
+        LongConsumer scriptFieldsByteChecker = memoryChecker != null
+            ? bytes -> memoryChecker.accept(bytes > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) bytes)
+            : bytes -> {
+                if (bytes > 0) {
+                    context.circuitBreaker().addEstimateBytesAndMaybeBreak(bytes, "script_field");
+                    scriptFieldsBreakerBytes[0] += bytes;
+                }
+            };
         fetchContext.setScriptFieldsByteChecker(scriptFieldsByteChecker);
 
         PreloadedSourceProvider sourceProvider = new PreloadedSourceProvider();

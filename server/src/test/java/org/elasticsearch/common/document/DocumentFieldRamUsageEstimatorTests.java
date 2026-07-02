@@ -7,10 +7,9 @@
  * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
-package org.elasticsearch.lucene.search.cost;
+package org.elasticsearch.common.document;
 
 import org.apache.lucene.tests.util.RamUsageTester;
-import org.elasticsearch.common.document.DocumentField;
 import org.elasticsearch.test.ESTestCase;
 
 import java.util.ArrayDeque;

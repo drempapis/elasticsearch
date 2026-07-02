@@ -7,10 +7,9 @@
  * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
-package org.elasticsearch.lucene.search.cost;
+package org.elasticsearch.common.document;
 
 import org.apache.lucene.util.RamUsageEstimator;
-import org.elasticsearch.common.document.DocumentField;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -146,6 +145,7 @@ public final class DocumentFieldRamUsageEstimator {
         if (collection instanceof LinkedList<?>) {
             size += n * LINKED_LIST_NODE_BYTES;
         } else if (collection instanceof ArrayList<?>) {
+            // Over-approximate ArrayList backing array: JDK grows by ~50% so ceil(n * 1.5) is always >= actual
             long capacity = Math.max(10L, (long) Math.ceil(n * 1.5));
             size += ARRAY_HEADER_BYTES + capacity * REF_BYTES;
         } else if (collection instanceof ArrayDeque<?>) {

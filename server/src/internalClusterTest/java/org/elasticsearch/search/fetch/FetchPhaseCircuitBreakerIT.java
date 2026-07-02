@@ -40,6 +40,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 
 import static org.elasticsearch.index.query.QueryBuilders.matchAllQuery;
@@ -63,16 +64,14 @@ public class FetchPhaseCircuitBreakerIT extends ESIntegTestCase {
     private static final String LARGE_LIST_SCRIPT = "build_large_list";
     private static final int LARGE_LIST_ENTRIES = 5_000;
 
+    private static final String FAIL_AFTER_FIRST_CALL_SCRIPT = "fail_after_first_call";
+    private static final AtomicInteger FAIL_AFTER_FIRST_CALL_COUNT = new AtomicInteger(0);
+
     @Override
     protected Collection<Class<? extends Plugin>> nodePlugins() {
         return Collections.singletonList(ScriptFieldsTestPlugin.class);
     }
 
-    /**
-     * Test-only script plugin exposing a deterministic script that builds a sizable {@link List}
-     * per hit so we can exercise the scripted-field branch of fetch-phase memory accounting
-     * without depending on Painless.
-     */
     public static class ScriptFieldsTestPlugin extends MockScriptPlugin {
         @Override
         protected Map<String, Function<Map<String, Object>, Object>> pluginScripts() {
@@ -81,6 +80,19 @@ public class FetchPhaseCircuitBreakerIT extends ESIntegTestCase {
                 List<Object> values = new ArrayList<>(LARGE_LIST_ENTRIES);
                 for (int i = 0; i < LARGE_LIST_ENTRIES; i++) {
                     // strings dominate the retained heap; the exact contents are irrelevant
+                    values.add("entry-" + i);
+                }
+                return values;
+            });
+            // Succeeds on the first invocation (returns a large list, charging CB bytes) then throws
+            // on every subsequent invocation. Used to verify that CB bytes charged before an exception
+            // are properly released. Reset FAIL_AFTER_FIRST_CALL_COUNT to 0 before each use.
+            scripts.put(FAIL_AFTER_FIRST_CALL_SCRIPT, vars -> {
+                if (FAIL_AFTER_FIRST_CALL_COUNT.incrementAndGet() > 1) {
+                    throw new RuntimeException("script_field fetch failure");
+                }
+                List<Object> values = new ArrayList<>(LARGE_LIST_ENTRIES);
+                for (int i = 0; i < LARGE_LIST_ENTRIES; i++) {
                     values.add("entry-" + i);
                 }
                 return values;
@@ -275,6 +287,8 @@ public class FetchPhaseCircuitBreakerIT extends ESIntegTestCase {
     }
 
     public void testCircuitBreakerReleasedOnException() throws Exception {
+        FAIL_AFTER_FIRST_CALL_COUNT.set(0);
+
         String dataNode = startDataNode("100mb");
         String coordinatorNode = internalCluster().startCoordinatingOnlyNode(Settings.EMPTY);
         assertThat(internalCluster().size(), equalTo(2));
@@ -283,26 +297,30 @@ public class FetchPhaseCircuitBreakerIT extends ESIntegTestCase {
             INDEX,
             Settings.builder().put(IndexMetadata.SETTING_NUMBER_OF_SHARDS, 1).put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, 0).build()
         );
-        populateIndex(INDEX, 50, 10_000);
+        populateIndex(INDEX, 10, 100);
         ensureSearchable(INDEX);
 
         long breakerBeforeSearch = getRequestBreakerUsed(dataNode);
+
+        Script failAfterFirstScript = new Script(
+            ScriptType.INLINE,
+            MockScriptPlugin.NAME,
+            FAIL_AFTER_FIRST_CALL_SCRIPT,
+            Collections.emptyMap()
+        );
 
         expectThrows(
             Exception.class,
             () -> client(coordinatorNode).prepareSearch(INDEX)
                 .setQuery(matchAllQuery())
-                .addScriptField(
-                    "failing_script",
-                    new Script(ScriptType.INLINE, "painless", "throw new RuntimeException('fetch failure')", Collections.emptyMap())
-                )
-                .setSize(10)
+                .addScriptField("failing_script", failAfterFirstScript)
+                .setSize(2)
                 .get()
         );
 
         assertBusy(() -> {
             assertThat(
-                "Circuit breaker should be released even after exception",
+                "Circuit breaker should be released even after exception, including bytes charged before the failure",
                 getRequestBreakerUsed(dataNode),
                 lessThanOrEqualTo(breakerBeforeSearch)
             );

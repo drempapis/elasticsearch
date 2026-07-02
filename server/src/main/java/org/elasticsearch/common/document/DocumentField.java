@@ -13,7 +13,6 @@ import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.io.stream.Writeable;
 import org.elasticsearch.index.get.GetResult;
-import org.elasticsearch.lucene.search.cost.DocumentFieldRamUsageEstimator;
 import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.fetch.subphase.LookupField;
 import org.elasticsearch.xcontent.ToXContentFragment;

@@ -9,9 +9,8 @@
 
 package org.elasticsearch.benchmark.lucene.search.cost;
 
-// import org.apache.lucene.tests.util.RamUsageTester;
 import org.elasticsearch.common.document.DocumentField;
-import org.elasticsearch.lucene.search.cost.DocumentFieldRamUsageEstimator;
+import org.elasticsearch.common.document.DocumentFieldRamUsageEstimator;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Fork;
@@ -80,7 +79,7 @@ public class DocumentFieldRamUsageEstimatorBenchmark {
         field = new DocumentField(payload, buildValues(payload));
 
         long estimate = DocumentFieldRamUsageEstimator.estimate(field);
-        long actual = 0; //RamUsageTester.ramUsed(field);
+        long actual = 0; // RamUsageTester.ramUsed(field);
         double ratio = actual == 0L ? Double.NaN : estimate / (double) actual;
 
         System.out.printf(
@@ -106,7 +105,7 @@ public class DocumentFieldRamUsageEstimatorBenchmark {
     @Benchmark
     public void groundTruth(Blackhole bh) {
         // This requires org.apache.lucene:lucene-test-framework in gradle.
-       //bh.consume(RamUsageTester.ramUsed(field));
+        // bh.consume(RamUsageTester.ramUsed(field));
     }
 
     private static List<Object> buildValues(String shape) {

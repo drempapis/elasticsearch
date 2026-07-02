@@ -12,6 +12,7 @@ package org.elasticsearch.index.get;
 import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.bytes.BytesReference;
 import org.elasticsearch.common.document.DocumentField;
+import org.elasticsearch.common.document.DocumentFieldRamUsageEstimator;
 import org.elasticsearch.core.Tuple;
 import org.elasticsearch.index.mapper.IgnoredFieldMapper;
 import org.elasticsearch.index.mapper.IgnoredSourceFieldMapper;
@@ -34,8 +35,6 @@ import java.util.function.Supplier;
 import static org.elasticsearch.common.xcontent.XContentHelper.toXContent;
 import static org.elasticsearch.test.EqualsHashCodeTestUtils.checkEqualsAndHashCode;
 import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertToXContentEquivalent;
-import static org.hamcrest.Matchers.greaterThan;
-import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 
 public class DocumentFieldTests extends ESTestCase {
 
@@ -65,49 +64,9 @@ public class DocumentFieldTests extends ESTestCase {
         );
     }
 
-    public void testRamBytesUsedEstimateIsNonZeroForEmptyField() {
-        DocumentField field = new DocumentField("name", Collections.emptyList());
-        assertThat(field.ramBytesUsedEstimate(), greaterThan(0L));
-    }
-
-    public void testRamBytesUsedEstimateGrowsWithStringValueSize() {
-        DocumentField small = new DocumentField("f", List.of("hi"));
-        String largeValue = randomAlphaOfLength(4096);
-        DocumentField large = new DocumentField("f", List.of(largeValue));
-
-        long smallEstimate = small.ramBytesUsedEstimate();
-        long largeEstimate = large.ramBytesUsedEstimate();
-        long expectedCharPayload = (long) largeValue.length() * Character.BYTES;
-        assertThat(largeEstimate - smallEstimate, greaterThanOrEqualTo(expectedCharPayload - 16L));
-    }
-
-    public void testRamBytesUsedEstimateGrowsWithCollectionSize() {
-        List<Object> manyValues = new ArrayList<>();
-        for (int i = 0; i < 1000; i++) {
-            manyValues.add("entry-" + i);
-        }
-        DocumentField large = new DocumentField("f", manyValues);
-        DocumentField small = new DocumentField("f", List.of("one"));
-        assertThat(large.ramBytesUsedEstimate(), greaterThan(small.ramBytesUsedEstimate()));
-    }
-
-    public void testRamBytesUsedEstimateAccountsForNestedMapValues() {
-        List<Object> values = new ArrayList<>();
-        for (int i = 0; i < 32; i++) {
-            Map<String, Object> entry = new HashMap<>();
-            entry.put("text", randomAlphaOfLength(64));
-            entry.put("number", i);
-            values.add(entry);
-        }
-        DocumentField nested = new DocumentField("f", values);
-        DocumentField shallow = new DocumentField("f", List.of("just a small string"));
-        assertThat(nested.ramBytesUsedEstimate(), greaterThan(shallow.ramBytesUsedEstimate()));
-    }
-
-    public void testRamBytesUsedEstimateIncludesIgnoredValues() {
-        DocumentField withoutIgnored = new DocumentField("f", List.of("v"), Collections.emptyList());
-        DocumentField withIgnored = new DocumentField("f", List.of("v"), List.of(randomAlphaOfLength(2048)));
-        assertThat(withIgnored.ramBytesUsedEstimate(), greaterThan(withoutIgnored.ramBytesUsedEstimate()));
+    public void testRamBytesUsedEstimateDelegates() {
+        DocumentField field = new DocumentField("f", List.of("value", randomAlphaOfLength(64)));
+        assertEquals(DocumentFieldRamUsageEstimator.estimate(field), field.ramBytesUsedEstimate());
     }
 
     public void testToAndFromXContent() throws Exception {
