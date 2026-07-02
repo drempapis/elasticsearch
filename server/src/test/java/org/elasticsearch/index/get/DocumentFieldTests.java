@@ -12,7 +12,6 @@ package org.elasticsearch.index.get;
 import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.bytes.BytesReference;
 import org.elasticsearch.common.document.DocumentField;
-import org.elasticsearch.common.document.DocumentFieldRamUsageEstimator;
 import org.elasticsearch.core.Tuple;
 import org.elasticsearch.index.mapper.IgnoredFieldMapper;
 import org.elasticsearch.index.mapper.IgnoredSourceFieldMapper;
@@ -62,11 +61,6 @@ public class DocumentFieldTests extends ESTestCase {
             DocumentFieldTests::copyDocumentField,
             DocumentFieldTests::mutateDocumentField
         );
-    }
-
-    public void testRamBytesUsedEstimateDelegates() {
-        DocumentField field = new DocumentField("f", List.of("value", randomAlphaOfLength(64)));
-        assertEquals(DocumentFieldRamUsageEstimator.estimate(field), field.ramBytesUsedEstimate());
     }
 
     public void testToAndFromXContent() throws Exception {
