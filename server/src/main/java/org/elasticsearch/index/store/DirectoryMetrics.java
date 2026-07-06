@@ -138,9 +138,8 @@ public class DirectoryMetrics implements ToXContentFragment, Writeable {
     }
 
     public DirectoryMetrics withMetric(String type, PluggableMetrics<?> metric) {
-        Map<String, PluggableMetrics<?>> copy = new HashMap<>(data);
-        copy.put(type, metric);
-        return new DirectoryMetrics(Map.copyOf(copy));
+        // TODO: remove once every pluggable metric is counted per-fetch (today only store_bytes_read is).
+        return new DirectoryMetrics(Maps.copyMapWithAddedOrReplacedEntry(data, type, metric));
     }
 
     public Supplier<DirectoryMetrics> delta() {

@@ -98,7 +98,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.atomic.LongAdder;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 import java.util.function.ToLongFunction;
@@ -119,7 +118,7 @@ final class DefaultSearchContext extends SearchContext {
     private StoreMetricsAwareExecutor metricsAwareExecutor;
     @Nullable
     private final Supplier<StoreMetrics> currentThreadStoreMetrics;
-    private final LongAdder fetchThreadsBytesRead = new LongAdder();
+    private long fetchThreadsBytesRead;
     private final long memoryAccountingBufferSize;
     private DfsSearchResult dfsResult;
     private QuerySearchResult queryResult;
@@ -281,12 +280,12 @@ final class DefaultSearchContext extends SearchContext {
 
     @Override
     public long getFetchThreadsBytesRead() {
-        return fetchThreadsBytesRead.sum();
+        return fetchThreadsBytesRead;
     }
 
     @Override
     public void addFetchThreadsBytesRead(long bytesRead) {
-        fetchThreadsBytesRead.add(bytesRead);
+        fetchThreadsBytesRead += bytesRead;
     }
 
     static long getFieldCardinality(String field, IndexService indexService, DirectoryReader directoryReader) {

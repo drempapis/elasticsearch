@@ -325,7 +325,7 @@ public final class FetchPhase {
         final int[] locallyAccumulatedBytes = new int[1];
         NestedDocuments nestedDocuments = context.getSearchExecutionContext().getNestedDocuments();
 
-        StreamingFetchPhaseDocsIterator docsIterator = new StreamingFetchPhaseDocsIterator() {
+        StreamingFetchPhaseDocsIterator docsIterator = new StreamingFetchPhaseDocsIterator(context.currentThreadStoreMetrics()) {
 
             LeafReaderContext ctx;
             LeafNestedDocuments leafNestedDocuments;
@@ -402,7 +402,6 @@ public final class FetchPhase {
                 }
             }
         };
-        docsIterator.setStoreMetricsSupplier(context.currentThreadStoreMetrics());
         return docsIterator;
     }
 

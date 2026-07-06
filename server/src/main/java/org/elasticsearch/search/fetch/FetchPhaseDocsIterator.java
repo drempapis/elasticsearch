@@ -46,9 +46,13 @@ abstract class FetchPhaseDocsIterator {
      */
     private long requestBreakerBytes;
 
-    private Supplier<StoreMetrics> storeMetricsSupplier;
+    private final Supplier<StoreMetrics> storeMetricsSupplier;
 
     private final LongAdder storeBytesRead = new LongAdder();
+
+    protected FetchPhaseDocsIterator(Supplier<StoreMetrics> storeMetricsSupplier) {
+        this.storeMetricsSupplier = storeMetricsSupplier;
+    }
 
     public void addRequestBreakerBytes(long delta) {
         requestBreakerBytes += delta;
@@ -58,21 +62,18 @@ abstract class FetchPhaseDocsIterator {
         return requestBreakerBytes;
     }
 
-    final void setStoreMetricsSupplier(Supplier<StoreMetrics> storeMetricsSupplier) {
-        this.storeMetricsSupplier = storeMetricsSupplier;
-    }
-
     final long getStoreBytesRead() {
         return storeBytesRead.sum();
     }
 
-    protected final long storeBytesBaseline() {
-        return storeMetricsSupplier == null ? -1L : storeMetricsSupplier.get().getBytesRead();
-    }
-
-    protected final void recordStoreBytesSince(long baseline) {
-        if (baseline >= 0L && storeMetricsSupplier != null) {
-            storeBytesRead.add(storeMetricsSupplier.get().getBytesRead() - baseline);
+    protected final <T> T measure(Supplier<T> readOperation) {
+        final long baseline = storeMetricsSupplier == null ? -1L : storeMetricsSupplier.get().getBytesRead();
+        try {
+            return readOperation.get();
+        } finally {
+            if (baseline >= 0L) {
+                storeBytesRead.add(storeMetricsSupplier.get().getBytesRead() - baseline);
+            }
         }
     }
 
@@ -114,12 +115,7 @@ abstract class FetchPhaseDocsIterator {
         boolean allowPartialResults,
         QuerySearchResult querySearchResult
     ) {
-        final long storeBaseline = storeBytesBaseline();
-        try {
-            return doIterate(shardTarget, indexReader, docIds, allowPartialResults, querySearchResult);
-        } finally {
-            recordStoreBytesSince(storeBaseline);
-        }
+        return measure(() -> doIterate(shardTarget, indexReader, docIds, allowPartialResults, querySearchResult));
     }
 
     private IterateResult doIterate(
