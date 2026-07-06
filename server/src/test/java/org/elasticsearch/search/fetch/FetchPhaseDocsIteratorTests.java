@@ -1190,6 +1190,10 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
     private static class RecordingStreamingIterator extends StreamingFetchPhaseDocsIterator {
         private final List<SetupEvent> setups = new CopyOnWriteArrayList<>();
 
+        RecordingStreamingIterator() {
+            super(null);
+        }
+
         @Override
         protected void setNextReader(LeafReaderContext ctx, int[] docsInLeaf) {
             setups.add(new SetupEvent(Thread.currentThread().getName(), ctx.ord, docsInLeaf.clone()));
