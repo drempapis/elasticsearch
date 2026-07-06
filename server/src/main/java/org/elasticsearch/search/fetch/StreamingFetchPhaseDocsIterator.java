@@ -318,6 +318,15 @@ abstract class StreamingFetchPhaseDocsIterator extends FetchPhaseDocsIterator {
         }
 
         private PendingChunk produceNext() {
+            final long storeBaseline = storeBytesBaseline();
+            try {
+                return doProduceNext();
+            } finally {
+                recordStoreBytesSince(storeBaseline);
+            }
+        }
+
+        private PendingChunk doProduceNext() {
             RecyclerBytesStreamOutput chunkBuffer = null;
             try {
                 chunkBuffer = chunkWriter.newNetworkBytesStream();

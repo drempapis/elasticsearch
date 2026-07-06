@@ -137,6 +137,12 @@ public class DirectoryMetrics implements ToXContentFragment, Writeable {
         return new DirectoryMetrics(Map.copyOf(merged));
     }
 
+    public DirectoryMetrics withMetric(String type, PluggableMetrics<?> metric) {
+        Map<String, PluggableMetrics<?>> copy = new HashMap<>(data);
+        copy.put(type, metric);
+        return new DirectoryMetrics(Map.copyOf(copy));
+    }
+
     public Supplier<DirectoryMetrics> delta() {
         Map<String, Supplier<? extends PluggableMetrics<?>>> delta = data.entrySet()
             .stream()
