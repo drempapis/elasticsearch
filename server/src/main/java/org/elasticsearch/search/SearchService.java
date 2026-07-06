@@ -1748,7 +1748,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
         final IndexShard shard = indexService.getShard(shardId.id());
         final SearchOperationListener searchOperationListener = shard.getSearchOperationListener();
         final long creatorTaskId = creatorTaskIdOf(task);
-        shard.ensureShardSearchActive(ignored -> {
+        shard.ensureShardSearchActive(threadPool.executor(Names.SEARCH), ignored -> {
             Engine.SearcherSupplier searcherSupplier = null;
             ReaderContext readerContext = null;
             try {
@@ -2723,7 +2723,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
                 // If the shard is already search-ready, skip the gate and the task-cancellation listener
                 // wiring entirely.
                 if (shard.isReadAllowed()) {
-                    shard.ensureShardSearchActive(b -> delegate.onResponse(request));
+                    shard.ensureShardSearchActive(threadPool.executor(Names.SEARCH), b -> delegate.onResponse(request));
                     return;
                 }
                 // notifyOnce guards against double-completion: both the task cancellation listener
@@ -2734,7 +2734,9 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
                 var l = ActionListener.notifyOnce(delegate);
                 @SuppressWarnings("resource")
                 Releasable slot = shard.waitForSearchReady(
-                    l.delegateFailureAndWrap((l2, v) -> shard.ensureShardSearchActive(b -> l2.onResponse(request)))
+                    l.delegateFailureAndWrap(
+                        (l2, v) -> shard.ensureShardSearchActive(threadPool.executor(Names.SEARCH), b -> l2.onResponse(request))
+                    )
                 );
                 searchTask.addListener(() -> {
                     slot.close();
