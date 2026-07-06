@@ -4454,6 +4454,53 @@ public class IndexShardTests extends IndexShardTestCase {
         closeShards(primary);
     }
 
+    public void testEnsureShardSearchActiveRunsInlineWhenDispatchRejected() throws Exception {
+        IndexMetadata metadata = newTestIndexMetadata();
+        IndexShard primary = newShard(new ShardId(metadata.getIndex(), 0), true, "n1", metadata, null);
+        recoverShardFromStore(primary);
+        indexDoc(primary, "_doc", "0", "{\"foo\" : \"bar\"}");
+        PlainActionFuture<Boolean> refreshed = new PlainActionFuture<>();
+        primary.scheduledRefresh(refreshed);
+        assertTrue(refreshed.actionGet());
+
+        Settings searchIdleSettings = Settings.builder()
+            .put(primary.indexSettings().getSettings())
+            .put(IndexSettings.INDEX_SEARCH_IDLE_AFTER.getKey(), TimeValue.ZERO)
+            .build();
+        primary.indexSettings().getScopedSettings().applySettings(searchIdleSettings);
+        indexDoc(primary, "_doc", "1", "{\"foo\" : \"bar\"}");
+        PlainActionFuture<Boolean> deferred = new PlainActionFuture<>();
+        primary.scheduledRefresh(deferred);
+        assertFalse(deferred.actionGet());
+        assertTrue("a refresh should be pending while the shard is search idle", primary.hasRefreshPending());
+
+        final Executor rejectingExecutor = command -> { throw new EsRejectedExecutionException("rejected for test"); };
+        try (var mockLog = MockLog.capture(IndexShard.class)) {
+            mockLog.addExpectation(
+                new MockLog.SeenEventExpectation(
+                    "dispatch failure warning",
+                    IndexShard.class.getCanonicalName(),
+                    Level.WARN,
+                    "ensureShardSearchActive could not dispatch to [*], running inline"
+                )
+            );
+
+            final AtomicInteger invocations = new AtomicInteger();
+            final AtomicBoolean registered = new AtomicBoolean();
+            final CountDownLatch latch = new CountDownLatch(1);
+            primary.ensureShardSearchActive(rejectingExecutor, wasRegistered -> {
+                registered.set(wasRegistered);
+                invocations.incrementAndGet();
+                latch.countDown();
+            });
+            safeAwait(latch);
+            assertTrue("a refresh was pending so the listener must have been registered as a refresh listener", registered.get());
+            assertEquals("listener must be invoked exactly once when dispatch is rejected", 1, invocations.get());
+            mockLog.assertAllExpectationsMatched();
+        }
+        closeShards(primary);
+    }
+
     public void testRefreshIsNeededWithRefreshListeners() throws IOException, InterruptedException {
         IndexMetadata metadata = newTestIndexMetadata();
         IndexShard primary = newShard(new ShardId(metadata.getIndex(), 0), true, "n1", metadata, null);
