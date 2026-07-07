@@ -163,41 +163,6 @@ public class QueryPhase {
         try {
             queryResult.from(searchContext.from());
             queryResult.size(searchContext.size());
-            Query query = searchContext.rewrittenQuery();
-            assert query == searcher.rewrite(query); // already rewritten
-
-            final ScrollContext scrollContext = searchContext.scrollContext();
-            if (scrollContext != null) {
-                if (scrollContext.totalHits == null) {
-                    // first round
-                    assert scrollContext.lastEmittedDoc == null;
-                    // there is not much that we can optimize here since we want to collect all
-                    // documents in order to get the total number of hits
-
-                } else {
-                    final ScoreDoc after = scrollContext.lastEmittedDoc;
-                    if (canEarlyTerminate(reader, searchContext.sort())) {
-                        // now this gets interesting: since the search sort is a prefix of the index sort, we can directly
-                        // skip to the desired doc
-                        if (after != null) {
-                            query = new BooleanQuery.Builder().add(query, BooleanClause.Occur.MUST)
-                                .add(new SearchAfterSortedDocQuery(searchContext.sort().sort, (FieldDoc) after), BooleanClause.Occur.FILTER)
-                                .build();
-                        }
-                    }
-                }
-            }
-
-            final boolean hasFilterCollector = searchContext.parsedPostFilter() != null || searchContext.minimumScore() != null;
-
-            Weight postFilterWeight = null;
-            if (searchContext.parsedPostFilter() != null) {
-                postFilterWeight = searcher.createWeight(
-                    searcher.rewrite(searchContext.parsedPostFilter().query()),
-                    ScoreMode.COMPLETE_NO_SCORES,
-                    1f
-                );
-            }
 
             final Runnable timeoutRunnable = getTimeoutCheck(searchContext);
             if (timeoutRunnable != null) {
@@ -205,6 +170,45 @@ public class QueryPhase {
             }
 
             try {
+                Query query = searchContext.rewrittenQuery();
+                assert query == searcher.rewrite(query); // already rewritten
+
+                final ScrollContext scrollContext = searchContext.scrollContext();
+                if (scrollContext != null) {
+                    if (scrollContext.totalHits == null) {
+                        // first round
+                        assert scrollContext.lastEmittedDoc == null;
+                        // there is not much that we can optimize here since we want to collect all
+                        // documents in order to get the total number of hits
+
+                    } else {
+                        final ScoreDoc after = scrollContext.lastEmittedDoc;
+                        if (canEarlyTerminate(reader, searchContext.sort())) {
+                            // now this gets interesting: since the search sort is a prefix of the index sort, we can directly
+                            // skip to the desired doc
+                            if (after != null) {
+                                query = new BooleanQuery.Builder().add(query, BooleanClause.Occur.MUST)
+                                    .add(
+                                        new SearchAfterSortedDocQuery(searchContext.sort().sort, (FieldDoc) after),
+                                        BooleanClause.Occur.FILTER
+                                    )
+                                    .build();
+                            }
+                        }
+                    }
+                }
+
+                final boolean hasFilterCollector = searchContext.parsedPostFilter() != null || searchContext.minimumScore() != null;
+
+                Weight postFilterWeight = null;
+                if (searchContext.parsedPostFilter() != null) {
+                    postFilterWeight = searcher.createWeight(
+                        searcher.rewrite(searchContext.parsedPostFilter().query()),
+                        ScoreMode.COMPLETE_NO_SCORES,
+                        1f
+                    );
+                }
+
                 CollectorManager<Collector, QueryPhaseResult> collectorManager = QueryPhaseCollectorManager
                     .createQueryPhaseCollectorManager(
                         postFilterWeight,
@@ -240,6 +244,7 @@ public class QueryPhase {
                     queryResult.serviceTimeEWMA((long) rExecutor.getTaskExecutionEWMA());
                 }
             } catch (ContextIndexSearcher.TimeExceededException tee) {
+                searcher.markTimeExceeded();
                 finalizeAsTimedOutResult(searchContext);
             }
         } catch (Exception e) {
@@ -249,9 +254,9 @@ public class QueryPhase {
 
     /**
      * Marks the current search as timed out and finalizes the {@link QuerySearchResult}
-     * with a well-formed empty response. This ensures that even when a timeout occurs
-     * (e.g., during collector setup or search execution), the shard still returns a
-     * valid result object with empty top docs and aggregations instead of throwing.
+     * with a well-formed empty response. This ensures that even when a timeout occurs,
+     * the shard returns a valid result object with empty top docs and aggregations rather
+     * than propagating a raw exception.
      */
     private static void finalizeAsTimedOutResult(SearchContext searchContext) {
         QuerySearchResult queryResult = searchContext.queryResult();
