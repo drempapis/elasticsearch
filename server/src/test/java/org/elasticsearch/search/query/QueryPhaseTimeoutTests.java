@@ -519,8 +519,7 @@ public class QueryPhaseTimeoutTests extends IndexShardTestCase {
 
             @Override
             public Weight createWeight(IndexSearcher searcher, ScoreMode scoreMode, float boost) {
-                return new MatchAllWeight(this, boost, scoreMode) {
-                };
+                return new MatchAllWeight(this, boost, scoreMode) {};
             }
         };
     }
