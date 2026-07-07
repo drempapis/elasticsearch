@@ -48,10 +48,13 @@ abstract class FetchPhaseDocsIterator {
 
     private final Supplier<StoreMetrics> storeMetricsSupplier;
 
+    private final boolean storeMetricsEnabled;
+
     private final LongAdder storeBytesRead = new LongAdder();
 
     protected FetchPhaseDocsIterator(Supplier<StoreMetrics> storeMetricsSupplier) {
         this.storeMetricsSupplier = storeMetricsSupplier;
+        this.storeMetricsEnabled = storeMetricsSupplier != null;
     }
 
     public void addRequestBreakerBytes(long delta) {
@@ -67,13 +70,14 @@ abstract class FetchPhaseDocsIterator {
     }
 
     protected final <T> T measure(Supplier<T> readOperation) {
-        final long baseline = storeMetricsSupplier == null ? -1L : storeMetricsSupplier.get().getBytesRead();
+        if (storeMetricsEnabled == false) {
+            return readOperation.get();
+        }
+        final long baseline = storeMetricsSupplier.get().getBytesRead();
         try {
             return readOperation.get();
         } finally {
-            if (baseline >= 0L) {
-                storeBytesRead.add(storeMetricsSupplier.get().getBytesRead() - baseline);
-            }
+            storeBytesRead.add(storeMetricsSupplier.get().getBytesRead() - baseline);
         }
     }
 
