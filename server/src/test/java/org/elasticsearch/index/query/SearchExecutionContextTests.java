@@ -584,8 +584,6 @@ public class SearchExecutionContextTests extends ESTestCase {
     }
 
     public void testDefaultFieldsColumnarModeReturnsOnlyIndexedFields() {
-        assumeTrue("columnar index mode requires snapshot build", IndexMode.COLUMNAR_FEATURE_FLAG.isEnabled());
-
         MappedFieldType indexedField = new MockFieldMapper.FakeFieldType("indexed");
         MappedFieldType nonIndexedField = new MappedFieldType("non_indexed", IndexType.NONE, false, Collections.emptyMap()) {
             @Override
@@ -641,8 +639,6 @@ public class SearchExecutionContextTests extends ESTestCase {
     }
 
     public void testDefaultFieldsColumnarModeWithExplicitDefaultField() {
-        assumeTrue("columnar index mode requires snapshot build", IndexMode.COLUMNAR_FEATURE_FLAG.isEnabled());
-
         Settings settings = indexSettings(IndexVersion.current(), 1, 1).put(IndexSettings.MODE.getKey(), IndexMode.COLUMNAR.getName())
             .put(IndexSettings.DEFAULT_FIELD_SETTING.getKey(), "explicit_field")
             .build();
