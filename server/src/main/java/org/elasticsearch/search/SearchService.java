@@ -1117,7 +1117,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
     }
 
     private static void setFetchDirectoryMetrics(SearchPhaseResult result, Supplier<DirectoryMetrics> metricsDelta, SearchContext context) {
-        if (Store.DIRECTORY_METRICS_FEATURE_FLAG.isEnabled() == false || context.currentThreadStoreMetrics() == null) {
+        if (context.currentThreadStoreMetrics() == null) {
             setDirectoryMetrics(result, metricsDelta, context);
             return;
         }
