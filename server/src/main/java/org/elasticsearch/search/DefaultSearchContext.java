@@ -98,7 +98,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.LongSupplier;
 import java.util.function.ToLongFunction;
 
@@ -118,7 +117,7 @@ final class DefaultSearchContext extends SearchContext {
     private DirectoryMetricsAwareExecutor metricsAwareExecutor;
     @Nullable
     private final DirectoryMetrics.Capture currentThreadDirectoryMetricsCapture;
-    private final AtomicReference<DirectoryMetrics> fetchThreadsMetrics = new AtomicReference<>(DirectoryMetrics.EMPTY);
+    private DirectoryMetrics fetchThreadsMetrics = DirectoryMetrics.EMPTY;
     private final long memoryAccountingBufferSize;
     private DfsSearchResult dfsResult;
     private QuerySearchResult queryResult;
@@ -280,12 +279,14 @@ final class DefaultSearchContext extends SearchContext {
 
     @Override
     public DirectoryMetrics getFetchThreadsMetrics() {
-        return fetchThreadsMetrics.get();
+        return fetchThreadsMetrics;
     }
 
     @Override
     public void addFetchThreadsMetrics(DirectoryMetrics metrics) {
-        DirectoryMetrics.accumulate(fetchThreadsMetrics, metrics);
+        if (metrics != null && metrics.isEmpty() == false) {
+            fetchThreadsMetrics = fetchThreadsMetrics.isEmpty() ? metrics : fetchThreadsMetrics.merge(metrics);
+        }
     }
 
     static long getFieldCardinality(String field, IndexService indexService, DirectoryReader directoryReader) {

@@ -148,11 +148,7 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
         writer.close();
 
         ThreadLocal<DirectoryMetricsTests.Counter> threadCounter = ThreadLocal.withInitial(DirectoryMetricsTests.Counter::new);
-        DirectoryMetrics.Capture capture = () -> {
-            DirectoryMetrics.Builder builder = new DirectoryMetrics.Builder();
-            builder.add(DirectoryMetricsTests.Counter.NAME, threadCounter.get());
-            return builder.build().delta();
-        };
+        DirectoryMetrics.Capture capture = DirectoryMetricsTests.metricsCapture(DirectoryMetricsTests.Counter.NAME, threadCounter::get);
 
         int[] docs = randomDocIds(docCount - 1);
         FetchPhaseDocsIterator it = new FetchPhaseDocsIterator(capture) {
