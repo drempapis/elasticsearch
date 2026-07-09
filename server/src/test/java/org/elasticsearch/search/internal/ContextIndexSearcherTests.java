@@ -80,13 +80,14 @@ import org.elasticsearch.index.IndexSettings;
 import org.elasticsearch.index.cache.bitset.BitsetFilterCache;
 import org.elasticsearch.index.shard.ShardId;
 import org.elasticsearch.index.store.ByteSizeDirectory;
+import org.elasticsearch.index.store.DirectoryMetrics;
 import org.elasticsearch.index.store.Store;
 import org.elasticsearch.index.store.StoreMetrics;
 import org.elasticsearch.index.store.StoreMetricsDirectory;
 import org.elasticsearch.index.store.ThreadLocalDirectoryMetricHolder;
 import org.elasticsearch.lucene.util.CombinedBits;
 import org.elasticsearch.lucene.util.MatchAllBitSet;
-import org.elasticsearch.search.StoreMetricsAwareExecutor;
+import org.elasticsearch.search.DirectoryMetricsAwareExecutor;
 import org.elasticsearch.search.aggregations.BucketCollector;
 import org.elasticsearch.search.aggregations.LeafBucketCollector;
 import org.elasticsearch.search.dfs.AggregatedDfs;
@@ -755,7 +756,7 @@ public class ContextIndexSearcherTests extends ESTestCase {
         assumeTrue("directory metrics must be enabled", Store.DIRECTORY_METRICS_FEATURE_FLAG.isEnabled());
         ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(randomIntBetween(2, 5));
         ThreadLocalDirectoryMetricHolder<StoreMetrics> holder = new ThreadLocalDirectoryMetricHolder<>(StoreMetrics::new);
-        StoreMetricsAwareExecutor wrapped = new StoreMetricsAwareExecutor(executor, holder::instance);
+        DirectoryMetricsAwareExecutor wrapped = new DirectoryMetricsAwareExecutor(executor, storeMetricsCapture(holder));
         boolean wrapWithExitableDirectoryReader = randomBoolean();
 
         try (Directory directory = newRecordingDirectory(holder)) {
@@ -792,11 +793,11 @@ public class ContextIndexSearcherTests extends ESTestCase {
 
                 StoreMetrics caller = holder.instance();
                 long callerBytesBefore = caller.getBytesRead();
-                assertThat(wrapped.workerBytesRead(), equalTo(0L));
+                assertThat(storeBytesRead(wrapped), equalTo(0L));
                 vectorQuery.rewrite(searcher);
 
                 assertBusy(() -> {
-                    long parallelBytes = (caller.getBytesRead() - callerBytesBefore) + wrapped.workerBytesRead();
+                    long parallelBytes = (caller.getBytesRead() - callerBytesBefore) + storeBytesRead(wrapped);
                     assertThat(parallelBytes, greaterThan(0L));
                     assertEquals(parallelBytes, totalBytesSequential);
                 });
@@ -834,7 +835,7 @@ public class ContextIndexSearcherTests extends ESTestCase {
             assertThat("sequential search must read bytes", sequentialBytes, greaterThan(0L));
 
             try (DirectoryReader directoryReader = DirectoryReader.open(directory)) {
-                var storeMetricsAwareExecutor = new StoreMetricsAwareExecutor(executor, holder::instance);
+                var storeMetricsAwareExecutor = new DirectoryMetricsAwareExecutor(executor, storeMetricsCapture(holder));
                 ContextIndexSearcher searcher = new ContextIndexSearcher(
                     directoryReader,
                     IndexSearcher.getDefaultSimilarity(),
@@ -851,7 +852,7 @@ public class ContextIndexSearcherTests extends ESTestCase {
                 searcher.search(termQuery, new TotalHitCountCollectorManager(searcher.getSlices()));
 
                 assertBusy(() -> {
-                    long parallelBytes = (caller.getBytesRead() - before) + storeMetricsAwareExecutor.workerBytesRead();
+                    long parallelBytes = (caller.getBytesRead() - before) + storeBytesRead(storeMetricsAwareExecutor);
                     assertThat(parallelBytes, greaterThan(0L));
                     assertEquals(parallelBytes, sequentialBytes);
                 });
@@ -863,6 +864,19 @@ public class ContextIndexSearcherTests extends ESTestCase {
 
     private Directory newRecordingDirectory(ThreadLocalDirectoryMetricHolder<StoreMetrics> holder) {
         return new StoreMetricsDirectory(new TestByteSizeDirectory(newDirectory()), holder);
+    }
+
+    private static DirectoryMetrics.Capture storeMetricsCapture(ThreadLocalDirectoryMetricHolder<StoreMetrics> holder) {
+        return () -> {
+            DirectoryMetrics.Builder builder = new DirectoryMetrics.Builder();
+            builder.add(StoreMetrics.NAME, holder.instance());
+            return builder.build().delta();
+        };
+    }
+
+    private static long storeBytesRead(DirectoryMetricsAwareExecutor executor) {
+        var metric = executor.workerMetrics().metrics(StoreMetrics.NAME);
+        return metric == null ? 0L : metric.cast(StoreMetrics.class).getBytesRead();
     }
 
     private static final class TestByteSizeDirectory extends ByteSizeDirectory {

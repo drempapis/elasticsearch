@@ -33,6 +33,8 @@ import org.elasticsearch.common.util.concurrent.EsExecutors;
 import org.elasticsearch.index.Index;
 import org.elasticsearch.index.cache.query.TrivialQueryCachingPolicy;
 import org.elasticsearch.index.shard.ShardId;
+import org.elasticsearch.index.store.DirectoryMetrics;
+import org.elasticsearch.index.store.DirectoryMetricsTests;
 import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.SearchService;
 import org.elasticsearch.search.SearchShardTarget;
@@ -57,6 +59,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -125,6 +129,59 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
             assertThat(hits[i].docId(), equalTo(docs[i]));
             hits[i].decRef();
         }
+
+        reader.close();
+        directory.close();
+    }
+
+    public void testMeasureAccumulatesNonStorePluggableMetricAcrossThreads() throws Exception {
+        int docCount = randomIntBetween(20, 100);
+        Directory directory = newDirectory();
+        RandomIndexWriter writer = new RandomIndexWriter(random(), directory);
+        for (int i = 0; i < docCount; i++) {
+            Document doc = new Document();
+            doc.add(new StringField("field", "foo", Field.Store.NO));
+            writer.addDocument(doc);
+        }
+        writer.commit();
+        IndexReader reader = writer.getReader();
+        writer.close();
+
+        ThreadLocal<DirectoryMetricsTests.Counter> threadCounter = ThreadLocal.withInitial(DirectoryMetricsTests.Counter::new);
+        DirectoryMetrics.Capture capture = () -> {
+            DirectoryMetrics.Builder builder = new DirectoryMetrics.Builder();
+            builder.add(DirectoryMetricsTests.Counter.NAME, threadCounter.get());
+            return builder.build().delta();
+        };
+
+        int[] docs = randomDocIds(docCount - 1);
+        FetchPhaseDocsIterator it = new FetchPhaseDocsIterator(capture) {
+            @Override
+            protected void setNextReader(LeafReaderContext ctx, int[] docsInLeaf) {}
+
+            @Override
+            protected SearchHit nextDoc(int doc) {
+                threadCounter.get().increment();
+                return new SearchHit(doc);
+            }
+        };
+
+        ExecutorService fetchExecutor = Executors.newSingleThreadExecutor();
+        try {
+            SearchHit[] hits = fetchExecutor.submit(() -> it.iterate(null, reader, docs, randomBoolean(), new QuerySearchResult()).hits)
+                .get();
+            for (SearchHit hit : hits) {
+                hit.decRef();
+            }
+        } finally {
+            fetchExecutor.shutdown();
+            assertTrue(fetchExecutor.awaitTermination(30, TimeUnit.SECONDS));
+        }
+
+        DirectoryMetrics delta = it.getFetchMetricsDelta();
+        var counter = delta.metrics(DirectoryMetricsTests.Counter.NAME);
+        assertThat(counter, notNullValue());
+        assertThat(counter.cast(DirectoryMetricsTests.Counter.class).getCount(), equalTo((long) docs.length));
 
         reader.close();
         directory.close();

@@ -73,6 +73,11 @@ public class DirectoryMetrics implements ToXContentFragment, Writeable {
         }
     }
 
+    @FunctionalInterface
+    public interface Capture {
+        Supplier<DirectoryMetrics> start();
+    }
+
     private final Map<String, PluggableMetrics<?>> data;
 
     private DirectoryMetrics(Map<String, PluggableMetrics<?>> data) {
@@ -135,11 +140,6 @@ public class DirectoryMetrics implements ToXContentFragment, Writeable {
             merged.merge(entry.getKey(), entry.getValue(), (a, b) -> ((PluggableMetrics) a).merge(b));
         }
         return new DirectoryMetrics(Map.copyOf(merged));
-    }
-
-    public DirectoryMetrics withMetric(String type, PluggableMetrics<?> metric) {
-        // TODO: remove once every pluggable metric is counted per-fetch (today only store_bytes_read is).
-        return new DirectoryMetrics(Maps.copyMapWithAddedOrReplacedEntry(data, type, metric));
     }
 
     public Supplier<DirectoryMetrics> delta() {
