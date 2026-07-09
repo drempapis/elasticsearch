@@ -447,7 +447,6 @@ public class QueryPhaseTimeoutTests extends IndexShardTestCase {
             context.parsedPostFilter(new ParsedQuery(newThrowOnCreateWeightQuery()));
             QueryPhase.executeQuery(context);
             assertTrue(context.queryResult().searchTimedOut());
-            assertTrue("searcher.timeExceeded() must be consistent with searchTimedOut", context.searcher().timeExceeded());
             assertEquals(0, context.queryResult().topDocs().topDocs.totalHits.value());
             assertEquals(0, context.queryResult().topDocs().topDocs.scoreDocs.length);
         }

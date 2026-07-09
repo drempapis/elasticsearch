@@ -518,13 +518,6 @@ public class ContextIndexSearcher extends IndexSearcher implements Releasable {
         return timeExceeded;
     }
 
-    /**
-     * Marks this searcher as having exceeded its timeout
-     */
-    public void markTimeExceeded() {
-        timeExceeded = true;
-    }
-
     public void throwTimeExceededException() {
         if (timeoutOverwrites.get() == false) {
             throw new TimeExceededException();

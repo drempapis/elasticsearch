@@ -169,37 +169,34 @@ public class QueryPhase {
                 searcher.addQueryCancellation(timeoutRunnable);
             }
 
-            try {
-                Query query = searchContext.rewrittenQuery();
-                assert query == searcher.rewrite(query); // already rewritten
+            Query query = searchContext.rewrittenQuery();
+            assert query == searcher.rewrite(query); // already rewritten
 
-                final ScrollContext scrollContext = searchContext.scrollContext();
-                if (scrollContext != null) {
-                    if (scrollContext.totalHits == null) {
-                        // first round
-                        assert scrollContext.lastEmittedDoc == null;
-                        // there is not much that we can optimize here since we want to collect all
-                        // documents in order to get the total number of hits
+            final ScrollContext scrollContext = searchContext.scrollContext();
+            if (scrollContext != null) {
+                if (scrollContext.totalHits == null) {
+                    // first round
+                    assert scrollContext.lastEmittedDoc == null;
+                    // there is not much that we can optimize here since we want to collect all
+                    // documents in order to get the total number of hits
 
-                    } else {
-                        final ScoreDoc after = scrollContext.lastEmittedDoc;
-                        if (canEarlyTerminate(reader, searchContext.sort())) {
-                            // now this gets interesting: since the search sort is a prefix of the index sort, we can directly
-                            // skip to the desired doc
-                            if (after != null) {
-                                query = new BooleanQuery.Builder().add(query, BooleanClause.Occur.MUST)
-                                    .add(
-                                        new SearchAfterSortedDocQuery(searchContext.sort().sort, (FieldDoc) after),
-                                        BooleanClause.Occur.FILTER
-                                    )
-                                    .build();
-                            }
+                } else {
+                    final ScoreDoc after = scrollContext.lastEmittedDoc;
+                    if (canEarlyTerminate(reader, searchContext.sort())) {
+                        // now this gets interesting: since the search sort is a prefix of the index sort, we can directly
+                        // skip to the desired doc
+                        if (after != null) {
+                            query = new BooleanQuery.Builder().add(query, BooleanClause.Occur.MUST)
+                                .add(new SearchAfterSortedDocQuery(searchContext.sort().sort, (FieldDoc) after), BooleanClause.Occur.FILTER)
+                                .build();
                         }
                     }
                 }
+            }
 
-                final boolean hasFilterCollector = searchContext.parsedPostFilter() != null || searchContext.minimumScore() != null;
+            final boolean hasFilterCollector = searchContext.parsedPostFilter() != null || searchContext.minimumScore() != null;
 
+            try {
                 Weight postFilterWeight = null;
                 if (searchContext.parsedPostFilter() != null) {
                     postFilterWeight = searcher.createWeight(
@@ -244,7 +241,6 @@ public class QueryPhase {
                     queryResult.serviceTimeEWMA((long) rExecutor.getTaskExecutionEWMA());
                 }
             } catch (ContextIndexSearcher.TimeExceededException tee) {
-                searcher.markTimeExceeded();
                 finalizeAsTimedOutResult(searchContext);
             }
         } catch (Exception e) {
