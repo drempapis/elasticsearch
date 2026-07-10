@@ -41,6 +41,7 @@ import org.elasticsearch.tasks.TaskCancelledException;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -59,10 +60,11 @@ public class DfsPhase {
 
     public static void execute(SearchContext context) {
         try {
-            collectStatistics(context);
+            final Runnable timeoutRunnable = QueryPhase.getTimeoutCheck(context);
+            collectStatistics(context, timeoutRunnable);
 
             if (context.dfsResult().searchTimedOut() == false) {
-                executeKnnVectorQuery(context);
+                executeKnnVectorQuery(context, timeoutRunnable);
             }
 
             if (context.getProfilers() != null) {
@@ -75,7 +77,7 @@ public class DfsPhase {
         }
     }
 
-    private static void collectStatistics(SearchContext context) throws IOException {
+    private static void collectStatistics(SearchContext context, Runnable timeoutRunnable) throws IOException {
         final DfsProfiler profiler = context.getProfilers() == null ? null : context.getProfilers().getDfsProfiler();
 
         Map<String, CollectionStatistics> fieldStatistics = new HashMap<>();
@@ -125,7 +127,6 @@ public class DfsPhase {
             profiler.start();
         }
 
-        final Runnable timeoutRunnable = QueryPhase.getTimeoutCheck(context);
         if (timeoutRunnable != null) {
             context.searcher().addQueryCancellation(timeoutRunnable);
         }
@@ -160,8 +161,13 @@ public class DfsPhase {
                     }
                 }
             }
+
+            if (context.searcher().timeExceeded()) {
+                finalizeStatisticsAsTimedOut(context);
+                return;
+            }
         } catch (ContextIndexSearcher.TimeExceededException e) {
-            handleDfsTimeout(context);
+            finalizeStatisticsAsTimedOut(context);
             return;
         } finally {
             if (profiler != null) {
@@ -193,7 +199,15 @@ public class DfsPhase {
             return profiler.startTimer(dtt);
         }
         return null;
-    };
+    }
+
+    private static void finalizeStatisticsAsTimedOut(SearchContext context) {
+        context.dfsResult()
+            .termsStatistics(new Term[0], new TermStatistics[0])
+            .fieldStatistics(Collections.emptyMap())
+            .maxDoc(0);
+        handleDfsTimeout(context);
+    }
 
     private static void handleDfsTimeout(SearchContext context) {
         if (context.request().allowPartialSearchResults() == false) {
@@ -202,7 +216,7 @@ public class DfsPhase {
         context.dfsResult().searchTimedOut(true);
     }
 
-    static void executeKnnVectorQuery(SearchContext context) throws IOException {
+    static void executeKnnVectorQuery(SearchContext context, Runnable timeoutRunnable) throws IOException {
         SearchSourceBuilder source = context.request().source();
         if (source == null || source.knnSearch().isEmpty()) {
             return;
@@ -225,7 +239,6 @@ public class DfsPhase {
         var opsListener = context.indexShard().getSearchOperationListener();
         opsListener.onPreQueryPhase(context);
 
-        final Runnable timeoutRunnable = QueryPhase.getTimeoutCheck(context);
         if (timeoutRunnable != null) {
             context.searcher().addQueryCancellation(timeoutRunnable);
         }
