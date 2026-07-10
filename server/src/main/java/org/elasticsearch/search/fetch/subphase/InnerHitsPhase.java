@@ -102,7 +102,7 @@ public final class InnerHitsPhase implements FetchSubPhase {
                 fetchResult.releaseCircuitBreakerBytes(innerHitsContext.circuitBreaker());
                 parentContext.chargeScriptFieldsBytes(innerHitsBreakerBytes);
             }
-            
+
             SearchHit[] internalHits = fetchResult.fetchResult().hits().getHits();
             for (int j = 0; j < internalHits.length; j++) {
                 ScoreDoc scoreDoc = topDoc.topDocs.scoreDocs[j];
