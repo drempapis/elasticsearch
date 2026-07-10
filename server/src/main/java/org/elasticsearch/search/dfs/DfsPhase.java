@@ -60,7 +60,10 @@ public class DfsPhase {
     public static void execute(SearchContext context) {
         try {
             collectStatistics(context);
-            executeKnnVectorQuery(context);
+
+            if (context.dfsResult().searchTimedOut() == false) {
+                executeKnnVectorQuery(context);
+            }
 
             if (context.getProfilers() != null) {
                 context.dfsResult().profileResult(context.getProfilers().getDfsProfiler().buildDfsPhaseResults());
@@ -122,6 +125,11 @@ public class DfsPhase {
             profiler.start();
         }
 
+        final Runnable timeoutRunnable = QueryPhase.getTimeoutCheck(context);
+        if (timeoutRunnable != null) {
+            context.searcher().addQueryCancellation(timeoutRunnable);
+        }
+
         try {
             Timer timer = maybeStartTimer(profiler, DfsTimingType.CREATE_WEIGHT);
             try {
@@ -152,9 +160,15 @@ public class DfsPhase {
                     }
                 }
             }
+        } catch (ContextIndexSearcher.TimeExceededException e) {
+            handleDfsTimeout(context);
+            return;
         } finally {
             if (profiler != null) {
                 profiler.stop();
+            }
+            if (timeoutRunnable != null) {
+                context.searcher().removeQueryCancellation(timeoutRunnable);
             }
         }
 
@@ -180,6 +194,13 @@ public class DfsPhase {
         }
         return null;
     };
+
+    private static void handleDfsTimeout(SearchContext context) {
+        if (context.request().allowPartialSearchResults() == false) {
+            throw new SearchTimeoutException(context.shardTarget(), "Time exceeded");
+        }
+        context.dfsResult().searchTimedOut(true);
+    }
 
     static void executeKnnVectorQuery(SearchContext context) throws IOException {
         SearchSourceBuilder source = context.request().source();
@@ -225,10 +246,7 @@ public class DfsPhase {
             opsListener = null;
         } catch (ContextIndexSearcher.TimeExceededException e) {
             context.dfsResult().knnResults(List.of());
-            if (context.request().allowPartialSearchResults() == false) {
-                throw new SearchTimeoutException(context.shardTarget(), "Time exceeded");
-            }
-            context.dfsResult().searchTimedOut(true);
+            handleDfsTimeout(context);
             opsListener.onQueryPhase(context, System.nanoTime() - beforeQueryTime);
             opsListener = null;
             return;
