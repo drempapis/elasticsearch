@@ -2,4 +2,4 @@ area: Search
 issues: []
 pr: 153479
 summary: Apply search timeout to the DFS phase query rewrite
-type: enhancement
+type: bug
