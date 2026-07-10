@@ -337,7 +337,7 @@ public final class FetchPhase {
         final int[] locallyAccumulatedBytes = new int[1];
         NestedDocuments nestedDocuments = context.getSearchExecutionContext().getNestedDocuments();
 
-        return new StreamingFetchPhaseDocsIterator() {
+        StreamingFetchPhaseDocsIterator docsIterator = new StreamingFetchPhaseDocsIterator(context.currentThreadStoreMetrics()) {
 
             LeafReaderContext ctx;
             LeafNestedDocuments leafNestedDocuments;
@@ -419,6 +419,7 @@ public final class FetchPhase {
                 }
             }
         };
+        return docsIterator;
     }
 
     /**
@@ -434,6 +435,7 @@ public final class FetchPhase {
         ActionListener<SearchHitsWithSizeBytes> wrappedListener = new ActionListener<>() {
             @Override
             public void onResponse(SearchHitsWithSizeBytes result) {
+                context.addFetchThreadsBytesRead(docsIterator.getStoreBytesRead());
                 buildListener.onResponse(null);
                 listener.onResponse(result);
             }
@@ -552,6 +554,7 @@ public final class FetchPhase {
                         onFailure(e);
                         return;
                     }
+                    context.addFetchThreadsBytesRead(docsIterator.getStoreBytesRead());
                     buildListener.onResponse(null);
                     mainBuildListener.onResponse(null);
                 }
