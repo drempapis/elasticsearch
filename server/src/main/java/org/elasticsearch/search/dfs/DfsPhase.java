@@ -202,10 +202,7 @@ public class DfsPhase {
     }
 
     private static void finalizeStatisticsAsTimedOut(SearchContext context) {
-        context.dfsResult()
-            .termsStatistics(new Term[0], new TermStatistics[0])
-            .fieldStatistics(Collections.emptyMap())
-            .maxDoc(0);
+        context.dfsResult().termsStatistics(new Term[0], new TermStatistics[0]).fieldStatistics(Collections.emptyMap()).maxDoc(0);
         handleDfsTimeout(context);
     }
 
