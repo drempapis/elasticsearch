@@ -35,6 +35,8 @@ public final class DocumentFieldRamUsageEstimator {
 
     private static final int MAX_ESTIMATE_DEPTH = 20;
 
+    private static final long DEPTH_CAP_PENALTY_BYTES = 1L << 20;
+
     private static final int REF_BYTES = RamUsageEstimator.NUM_BYTES_OBJECT_REF;
     private static final int ARRAY_HEADER_BYTES = RamUsageEstimator.NUM_BYTES_ARRAY_HEADER;
     private static final int OBJECT_HEADER_BYTES = RamUsageEstimator.NUM_BYTES_OBJECT_HEADER;
@@ -82,6 +84,9 @@ public final class DocumentFieldRamUsageEstimator {
             return 0L;
         }
         if (depth >= MAX_ESTIMATE_DEPTH) {
+            if (value instanceof Map<?, ?> || value instanceof Collection<?> || value instanceof Object[]) {
+                return DEPTH_CAP_PENALTY_BYTES;
+            }
             return RamUsageEstimator.sizeOfObject(value);
         }
         if (value instanceof Map<?, ?> map) {
