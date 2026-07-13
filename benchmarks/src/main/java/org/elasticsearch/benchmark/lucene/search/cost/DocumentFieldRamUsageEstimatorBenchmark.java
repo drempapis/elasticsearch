@@ -105,7 +105,7 @@ public class DocumentFieldRamUsageEstimatorBenchmark {
 
     @Benchmark
     public void groundTruth(Blackhole bh) {
-         bh.consume(RamUsageTester.ramUsed(field));
+        bh.consume(RamUsageTester.ramUsed(field));
     }
 
     private static List<Object> buildValues(String shape) {
