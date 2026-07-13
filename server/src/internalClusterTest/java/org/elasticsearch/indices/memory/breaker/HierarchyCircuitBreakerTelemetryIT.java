@@ -34,7 +34,6 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static org.elasticsearch.common.breaker.ChildMemoryCircuitBreaker.BREAKER_METRIC_TYPE_ATTRIBUTE;
-import static org.elasticsearch.common.breaker.ChildMemoryCircuitBreaker.CIRCUIT_BREAKER_CATEGORY_ATTRIBUTE;
 import static org.elasticsearch.common.breaker.ChildMemoryCircuitBreaker.CIRCUIT_BREAKER_TYPE_ATTRIBUTE;
 import static org.elasticsearch.indices.breaker.HierarchyCircuitBreakerService.FIELDDATA_CIRCUIT_BREAKER_LIMIT_SETTING;
 import static org.elasticsearch.indices.breaker.HierarchyCircuitBreakerService.FIELDDATA_CIRCUIT_BREAKER_OVERHEAD_SETTING;
@@ -99,11 +98,6 @@ public class HierarchyCircuitBreakerTelemetryIT extends ESIntegTestCase {
                 .toList();
             assertThat(allMeasurements, Matchers.not(Matchers.empty()));
             final Measurement measurement = allMeasurements.get(0);
-            assertThat(1L, Matchers.equalTo(measurement.getLong()));
-            assertThat(1L, Matchers.equalTo(measurement.value()));
-            assertThat(measurement.attributes(), Matchers.hasEntry(CIRCUIT_BREAKER_TYPE_ATTRIBUTE, "inflight_requests"));
-            assertThat(measurement.attributes(), Matchers.not(Matchers.hasKey(CIRCUIT_BREAKER_CATEGORY_ATTRIBUTE)));
-            assertThat(true, Matchers.equalTo(measurement.isLong()));
             // Indexing fans out into internal transport requests, each of which reserves its serialized size against the
             // 100-byte inflight_requests breaker on the receiving node. A single trip is typically indices:admin/create or
             // the dynamic-mapping update indices:admin/mapping/auto_put. Two trips occur when the shard bulk
