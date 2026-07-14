@@ -331,10 +331,7 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
             }
         };
 
-        expectThrows(
-            FetchPhaseExecutionException.class,
-            () -> it.iterate(null, reader, docs, randomBoolean(), new QuerySearchResult())
-        );
+        expectThrows(FetchPhaseExecutionException.class, () -> it.iterate(null, reader, docs, randomBoolean(), new QuerySearchResult()));
 
         DirectoryMetrics delta = it.getFetchMetricsDelta();
         var counter = delta.metrics(DirectoryMetricsTests.Counter.NAME);
