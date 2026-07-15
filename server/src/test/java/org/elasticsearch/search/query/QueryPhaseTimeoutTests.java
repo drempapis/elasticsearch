@@ -975,6 +975,10 @@ public class QueryPhaseTimeoutTests extends IndexShardTestCase {
      * aggregation contexts in tests. Handles plugin setup and resource cleanup.
      */
     private static final class AggregationTestHelper extends AggregatorTestCase implements AutoCloseable {
+        void intiPlugins() {
+            super.initPlugins();
+        }
+
         @Override
         public void close() {
             super.cleanupReleasables();
