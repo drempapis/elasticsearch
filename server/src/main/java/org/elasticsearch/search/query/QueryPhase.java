@@ -181,6 +181,10 @@ public class QueryPhase {
         return true;
     }
 
+    /**
+     * In a package-private method so that it can be tested without having to
+     * wire everything (mapperService, etc.)
+     */
     static void addCollectorsAndSearch(SearchContext searchContext, Long timeRangeFilterFromMillis) throws QueryPhaseExecutionException {
         addCollectorsAndSearch(searchContext, timeRangeFilterFromMillis, getTimeoutCheck(searchContext));
     }
