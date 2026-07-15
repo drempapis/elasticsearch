@@ -136,6 +136,10 @@ public class QueryPhase {
             LOGGER.trace("{}", new SearchContextSourcePrinter(searchContext));
         }
 
+        if (rewriteUnderTimeout(searchContext) == false) {
+            return;
+        }
+
         // Pre-process aggregations as late as possible. In the case of a DFS_Q_T_F
         // request, preProcess is called on the DFS phase, this is why we pre-process them
         // here to make sure it happens during the QUERY phase
@@ -148,6 +152,33 @@ public class QueryPhase {
         if (searchContext.getProfilers() != null) {
             searchContext.queryResult().profileResults(searchContext.getProfilers().buildQueryPhaseResults());
         }
+    }
+
+    private static boolean rewriteUnderTimeout(SearchContext searchContext) throws QueryPhaseExecutionException {
+        final ContextIndexSearcher searcher = searchContext.searcher();
+        final Runnable timeoutRunnable = getTimeoutCheck(searchContext);
+        if (timeoutRunnable != null) {
+            searcher.addQueryCancellation(timeoutRunnable);
+        }
+        try {
+            searchContext.rewrittenQuery();
+        } catch (RuntimeException e) {
+            throw new QueryPhaseExecutionException(searchContext.shardTarget(), "Failed to rewrite query", e);
+        } finally {
+            if (timeoutRunnable != null) {
+                searcher.removeQueryCancellation(timeoutRunnable);
+            }
+        }
+
+        if (searcher.timeExceeded()) {
+            try {
+                finalizeAsTimedOutResult(searchContext);
+            } catch (Exception e) {
+                throw new QueryPhaseExecutionException(searchContext.shardTarget(), "Failed to execute main query", e);
+            }
+            return false;
+        }
+        return true;
     }
 
     /**
