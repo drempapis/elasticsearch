@@ -136,7 +136,8 @@ public class QueryPhase {
             LOGGER.trace("{}", new SearchContextSourcePrinter(searchContext));
         }
 
-        if (rewriteUnderTimeout(searchContext) == false) {
+        final Runnable timeoutRunnable = getTimeoutCheck(searchContext);
+        if (rewriteUnderTimeout(searchContext, timeoutRunnable) == false) {
             return;
         }
 
@@ -145,7 +146,7 @@ public class QueryPhase {
         // here to make sure it happens during the QUERY phase
         AggregationPhase.preProcess(searchContext);
 
-        addCollectorsAndSearch(searchContext, searchContext.getSearchExecutionContext().getTimeRangeFilterFromMillis());
+        addCollectorsAndSearch(searchContext, searchContext.getSearchExecutionContext().getTimeRangeFilterFromMillis(), timeoutRunnable);
 
         RescorePhase.execute(searchContext);
         SuggestPhase.execute(searchContext);
@@ -154,9 +155,8 @@ public class QueryPhase {
         }
     }
 
-    private static boolean rewriteUnderTimeout(SearchContext searchContext) throws QueryPhaseExecutionException {
+    private static boolean rewriteUnderTimeout(SearchContext searchContext, Runnable timeoutRunnable) throws QueryPhaseExecutionException {
         final ContextIndexSearcher searcher = searchContext.searcher();
-        final Runnable timeoutRunnable = getTimeoutCheck(searchContext);
         if (timeoutRunnable != null) {
             searcher.addQueryCancellation(timeoutRunnable);
         }
@@ -186,6 +186,11 @@ public class QueryPhase {
      * wire everything (mapperService, etc.)
      */
     static void addCollectorsAndSearch(SearchContext searchContext, Long timeRangeFilterFromMillis) throws QueryPhaseExecutionException {
+        addCollectorsAndSearch(searchContext, timeRangeFilterFromMillis, getTimeoutCheck(searchContext));
+    }
+
+    private static void addCollectorsAndSearch(SearchContext searchContext, Long timeRangeFilterFromMillis, Runnable timeoutRunnable)
+        throws QueryPhaseExecutionException {
         final ContextIndexSearcher searcher = searchContext.searcher();
         final IndexReader reader = searcher.getIndexReader();
         QuerySearchResult queryResult = searchContext.queryResult();
@@ -195,7 +200,6 @@ public class QueryPhase {
             queryResult.from(searchContext.from());
             queryResult.size(searchContext.size());
 
-            final Runnable timeoutRunnable = getTimeoutCheck(searchContext);
             if (timeoutRunnable != null) {
                 searcher.addQueryCancellation(timeoutRunnable);
             }
