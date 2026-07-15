@@ -174,17 +174,13 @@ public class QueryPhase {
             try {
                 finalizeAsTimedOutResult(searchContext);
             } catch (Exception e) {
-                throw new QueryPhaseExecutionException(searchContext.shardTarget(), "Failed to execute main query", e);
+                throw new QueryPhaseExecutionException(searchContext.shardTarget(), "Failed to finalize timed-out rewrite result", e);
             }
             return false;
         }
         return true;
     }
 
-    /**
-     * In a package-private method so that it can be tested without having to
-     * wire everything (mapperService, etc.)
-     */
     static void addCollectorsAndSearch(SearchContext searchContext, Long timeRangeFilterFromMillis) throws QueryPhaseExecutionException {
         addCollectorsAndSearch(searchContext, timeRangeFilterFromMillis, getTimeoutCheck(searchContext));
     }
