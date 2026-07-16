@@ -475,6 +475,43 @@ public class QueryPhaseTimeoutTests extends IndexShardTestCase {
         };
     }
 
+    public void testRewriteTimeoutWithAggregation() throws IOException {
+        int size = randomBoolean() ? 0 : randomIntBetween(100, 500);
+        TimeoutQuery query = newMatchAllRewriteTimeoutQuery(true);
+        try (TestSearchContext context = createSearchContextWithTimeout(query, size)) {
+            context.aggregations(regularAggregations());
+            QueryPhase.executeQuery(context);
+            assertTrue(context.queryResult().searchTimedOut());
+            assertEquals(0, context.queryResult().topDocs().topDocs.totalHits.value());
+            assertEquals(0, context.queryResult().topDocs().topDocs.scoreDocs.length);
+            assertNotNull(context.queryResult().aggregations());
+            assertTrue(context.queryResult().aggregations().expand().asList().isEmpty());
+        }
+    }
+
+    public void testRewriteTimeoutWithAggregationDisallowPartialResults() throws IOException {
+        int size = randomBoolean() ? 0 : randomIntBetween(100, 500);
+        TimeoutQuery query = newMatchAllRewriteTimeoutQuery(true);
+        try (TestSearchContext context = createSearchContextWithTimeout(query, size, false)) {
+            context.aggregations(regularAggregations());
+            QueryPhaseExecutionException ex = expectThrows(QueryPhaseExecutionException.class, () -> QueryPhase.executeQuery(context));
+            assertNotNull("expected a root cause", ex.getCause());
+            assertTrue("expected the cause to be a SearchTimeoutException", ex.getCause() instanceof SearchTimeoutException);
+        }
+    }
+
+    private static SearchContextAggregations regularAggregations() {
+        return new SearchContextAggregations(
+            AggregatorFactories.EMPTY,
+            () -> { throw new AssertionError("reduce should not be called"); }
+        ) {
+            @Override
+            public AggregatorFactories factories() {
+                throw new AssertionError("AggregationPhase.preProcess must not be called after a rewrite timeout");
+            }
+        };
+    }
+
     public void testPostFilterCreateWeightTimeout() throws IOException {
         int size = randomBoolean() ? 0 : randomIntBetween(100, 500);
         TimeoutQuery mainQuery = new TimeoutQuery() {
