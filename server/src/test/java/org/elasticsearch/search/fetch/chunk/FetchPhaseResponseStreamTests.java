@@ -792,13 +792,7 @@ public class FetchPhaseResponseStreamTests extends ESTestCase {
             hit.decRef();
         }
     }
-
-    /**
-     * Sums {@link SearchHit#ramBytesUsed()} over a freshly built, identical set of hits. The stream now
-     * prices the breaker on the retained heap of the deserialized hits, and a deserialized hit has the same
-     * source length and (here) no fields as the hit it was serialized from, so this matches exactly what the
-     * stream charges for the corresponding chunk.
-     */
+    
     private long estimatedRetainedBytesForSourceSize(int startId, int hitCount, int sourceSize) {
         SearchHit[] hits = new SearchHit[hitCount];
         for (int i = 0; i < hitCount; i++) {
