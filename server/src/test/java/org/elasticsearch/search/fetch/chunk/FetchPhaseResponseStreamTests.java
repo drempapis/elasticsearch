@@ -792,7 +792,7 @@ public class FetchPhaseResponseStreamTests extends ESTestCase {
             hit.decRef();
         }
     }
-    
+
     private long estimatedRetainedBytesForSourceSize(int startId, int hitCount, int sourceSize) {
         SearchHit[] hits = new SearchHit[hitCount];
         for (int i = 0; i < hitCount; i++) {
