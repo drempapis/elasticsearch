@@ -304,6 +304,47 @@ public class FetchPhaseResponseStreamTests extends ESTestCase {
         assertThat("All breaker bytes should be released after close", breaker.getUsed(), equalTo(0L));
     }
 
+    public void testRetainedEstimateTripsBreakerWhereSerializedSizeWouldNot() throws IOException {
+        int fieldsPerHit = 500;
+        SearchHit[] hits = new SearchHit[5];
+        for (int i = 0; i < hits.length; i++) {
+            hits[i] = createHitWithManyFields(i, fieldsPerHit);
+        }
+
+        long serializedBytes;
+        long retainedBytes;
+        FetchPhaseResponseChunk chunk;
+        try {
+            retainedBytes = 0L;
+            for (SearchHit hit : hits) {
+                retainedBytes += hit.ramBytesUsed();
+            }
+            chunk = new FetchPhaseResponseChunk(TEST_SHARD_ID, serializeHits(hits, 0), hits.length, 100, 0);
+            serializedBytes = chunk.getBytesLength();
+        } finally {
+            decRefSearchHits(hits);
+        }
+
+        assertThat("retained estimate must exceed serialized size", retainedBytes, greaterThan(serializedBytes));
+
+        long limit = retainedBytes - 1;
+
+        CircuitBreaker serializedBasis = newLimitedBreaker(ByteSizeValue.ofBytes(limit));
+        serializedBasis.addEstimateBytesAndMaybeBreak(serializedBytes, "serialized_basis");
+        assertThat("serialized-size accounting would not have tripped at this limit", serializedBasis.getUsed(), equalTo(serializedBytes));
+        serializedBasis.addWithoutBreaking(-serializedBytes); // release the throwaway breaker used only for the comparison
+
+        CircuitBreaker retainedBasis = newLimitedBreaker(ByteSizeValue.ofBytes(limit));
+        FetchPhaseResponseStream stream = new FetchPhaseResponseStream(SHARD_INDEX, hits.length, retainedBasis);
+        try {
+            expectThrows(CircuitBreakingException.class, () -> writeChunk(stream, chunk));
+            assertThat("no bytes tracked after trip", retainedBasis.getUsed(), equalTo(0L));
+        } finally {
+            stream.decRef();
+        }
+        assertThat("all breaker bytes released after close", retainedBasis.getUsed(), equalTo(0L));
+    }
+
     public void testCircuitBreakerBytesReleasedOnClose() throws IOException {
         CircuitBreaker breaker = newLimitedBreaker(ByteSizeValue.ofBytes(Long.MAX_VALUE));
         FetchPhaseResponseStream stream = new FetchPhaseResponseStream(SHARD_INDEX, 10, breaker);

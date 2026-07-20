@@ -9,10 +9,12 @@
 
 package org.elasticsearch.benchmark.search;
 
+import org.apache.lucene.search.TotalHits;
 import org.elasticsearch.benchmark.Utils;
 import org.elasticsearch.common.bytes.BytesArray;
 import org.elasticsearch.common.document.DocumentField;
 import org.elasticsearch.search.SearchHit;
+import org.elasticsearch.search.SearchHits;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Fork;
@@ -43,7 +45,7 @@ import java.util.concurrent.TimeUnit;
 @Measurement(iterations = 1, time = 1, timeUnit = TimeUnit.SECONDS)
 @Fork(1)
 @State(Scope.Thread)
-@SuppressWarnings("unused") 
+@SuppressWarnings("unused")
 public class SearchHitRamAccountingBenchmark {
 
     private static final MemoryMXBean MEMORY_MX_BEAN = ManagementFactory.getMemoryMXBean();
@@ -67,6 +69,9 @@ public class SearchHitRamAccountingBenchmark {
 
     @Param({ "0", "512" })
     public int sourceBytes;
+
+    @Param({ "0", "5" })
+    public int innerHitCount;
 
     private SearchHit[] timingHits;
 
@@ -95,12 +100,13 @@ public class SearchHitRamAccountingBenchmark {
         System.out.println(
             String.format(
                 Locale.ROOT,
-                "[accuracy] fields=%d valuesPerField=%d type=%s sourceBytes=%d batch=%d "
+                "[accuracy] fields=%d valuesPerField=%d type=%s sourceBytes=%d innerHits=%d batch=%d "
                     + "estimate/hit=%.1f B actual/hit=%.1f B estimate/actual=%.3f delta/hit=%.1f B",
                 fieldCount,
                 valuesPerField,
                 valueType,
                 sourceBytes,
+                innerHitCount,
                 batch,
                 estimatePerHit,
                 actualPerHit,
@@ -131,7 +137,8 @@ public class SearchHitRamAccountingBenchmark {
     }
 
     private int batchSize() {
-        long perHitObjects = Math.max(1L, (long) fieldCount * Math.max(1, valuesPerField));
+        int vpf = Math.max(1, valuesPerField);
+        long perHitObjects = Math.max(1L, (long) fieldCount * vpf + (long) innerHitCount * vpf);
         long derived = TARGET_FIELD_OBJECTS / perHitObjects;
         return (int) Math.max(MIN_BATCH, Math.min(MAX_BATCH, derived));
     }
@@ -148,6 +155,18 @@ public class SearchHitRamAccountingBenchmark {
                 docFields.put(name, new DocumentField(name, buildValues(seq, f)));
             }
             hit.addDocumentFields(docFields, Map.of());
+        }
+        if (innerHitCount > 0) {
+            SearchHit[] inner = new SearchHit[innerHitCount];
+            for (int j = 0; j < innerHitCount; j++) {
+                SearchHit innerHit = SearchHit.unpooled(j, "inner-" + seq + "-" + j);
+                if (sourceBytes > 0) {
+                    innerHit.sourceRef(new BytesArray(new byte[sourceBytes]));
+                }
+                innerHit.setDocumentField(new DocumentField("inner_field", buildValues(seq, j)));
+                inner[j] = innerHit;
+            }
+            hit.setInnerHits(Map.of("nested", new SearchHits(inner, new TotalHits(innerHitCount, TotalHits.Relation.EQUAL_TO), 1f)));
         }
         return hit;
     }

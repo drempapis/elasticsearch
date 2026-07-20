@@ -10,7 +10,6 @@
 package org.elasticsearch.search;
 
 import org.apache.lucene.search.Explanation;
-import org.apache.lucene.util.RamUsageEstimator;
 import org.elasticsearch.ElasticsearchParseException;
 import org.elasticsearch.TransportVersion;
 import org.elasticsearch.common.Strings;
@@ -29,7 +28,6 @@ import org.elasticsearch.core.RefCounted;
 import org.elasticsearch.core.SimpleRefCounted;
 import org.elasticsearch.index.mapper.IgnoredFieldMapper;
 import org.elasticsearch.index.mapper.IgnoredSourceFieldMapper;
-import org.elasticsearch.index.mapper.MapperService;
 import org.elasticsearch.index.mapper.SourceFieldMapper;
 import org.elasticsearch.index.seqno.SequenceNumbers;
 import org.elasticsearch.rest.action.search.RestSearchAction;
@@ -66,12 +64,6 @@ import static org.elasticsearch.common.lucene.Lucene.writeExplanation;
 public final class SearchHit implements Writeable, ToXContentObject, RefCounted {
 
     private static final TransportVersion DOC_FIELDS_AS_LIST = TransportVersion.fromName("doc_fields_as_list");
-
-    private static final long SHALLOW_SIZE = RamUsageEstimator.shallowSizeOfInstance(SearchHit.class);
-    private static final long HASH_MAP_SHALLOW_SIZE = RamUsageEstimator.shallowSizeOfInstance(HashMap.class);
-    private static final long HASH_MAP_NODE_SIZE = RamUsageEstimator.alignObjectSize(
-        RamUsageEstimator.NUM_BYTES_OBJECT_HEADER + Integer.BYTES + 3L * RamUsageEstimator.NUM_BYTES_OBJECT_REF);
-    private static final long RAM_BYTES_FLOOR = 256L;
 
     private final transient int docId;
 
@@ -301,47 +293,8 @@ public final class SearchHit implements Writeable, ToXContentObject, RefCounted 
         return new SearchHit(nestedTopDocId, id, nestedIdentity, ALWAYS_REFERENCED);
     }
 
-    private static final Text SINGLE_MAPPING_TYPE = new Text(MapperService.SINGLE_MAPPING_NAME);
-
-    /**
-     * Estimates the retained heap of this hit for circuit-breaker accounting. Covers the shallow object,
-     * the {@code _source} bytes, and (recursively) the document/meta field graph and inner hits.
-     *
-     * <p>The deserialized {@link DocumentField} graph is typically several times larger than its serialized
-     * (wire) form, so pricing the breaker on serialized bytes badly undercounts memory during chunked-fetch
-     * accumulation on the coordinator when hits carry many extracted fields (e.g. a {@code fields:[*]} request).
-     * The estimate is intentionally approximate and focuses on those dominant contributors; smaller members
-     * such as highlight fields, sort values and matched queries are not walked individually but are covered
-     * in aggregate by {@link #RAM_BYTES_FLOOR}, a flat per-hit addend that keeps the estimate a safe
-     * over-count of real retained heap even for near-empty hits where the field graph does not dominate.
-     */
     public long ramBytesUsed() {
-        long size = SHALLOW_SIZE + RAM_BYTES_FLOOR;
-        if (source != null) {
-            size += source.length();
-        }
-        size += ramBytesUsedByFields(documentFields);
-        size += ramBytesUsedByFields(metaFields);
-        if (innerHits != null) {
-            for (SearchHits hits : innerHits.values()) {
-                for (SearchHit hit : hits.getHits()) {
-                    size += hit.ramBytesUsed();
-                }
-            }
-        }
-        return size;
-    }
-
-    private static long ramBytesUsedByFields(Map<String, DocumentField> fields) {
-        if (fields == null || fields.isEmpty()) {
-            return 0L;
-        }
-        long size = HASH_MAP_SHALLOW_SIZE + RamUsageEstimator.NUM_BYTES_ARRAY_HEADER + (long) fields.size() * (HASH_MAP_NODE_SIZE
-            + RamUsageEstimator.NUM_BYTES_OBJECT_REF);
-        for (DocumentField field : fields.values()) {
-            size += field.ramBytesUsed();
-        }
-        return size;
+        return SearchHitRamUsageEstimator.estimate(this);
     }
 
     @Override

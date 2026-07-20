@@ -9,7 +9,6 @@
 
 package org.elasticsearch.common.document;
 
-import org.apache.lucene.util.RamUsageEstimator;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.io.stream.Writeable;
@@ -37,12 +36,6 @@ import static org.elasticsearch.common.xcontent.XContentParserUtils.parseFieldsV
  * @see GetResult
  */
 public class DocumentField implements Writeable, Iterable<Object> {
-
-    private static final long SHALLOW_SIZE = RamUsageEstimator.shallowSizeOfInstance(DocumentField.class);
-    private static final long LIST_SHALLOW_SIZE = RamUsageEstimator.shallowSizeOfInstance(ArrayList.class);
-    private static final long LOOKUP_FIELD_SHALLOW_SIZE = RamUsageEstimator.shallowSizeOfInstance(LookupField.class);
-    private static final long BOXED_PRIMITIVE_SIZE = RamUsageEstimator.shallowSizeOfInstance(Long.class);
-    private static final long DEFAULT_VALUE_RAM_BYTES = 32L;
 
     private final String name;
     private final List<Object> values;
@@ -117,57 +110,6 @@ public class DocumentField implements Writeable, Iterable<Object> {
      */
     public List<Object> getIgnoredValues() {
         return ignoredValues == Collections.emptyList() ? ignoredValues : Collections.unmodifiableList(ignoredValues);
-    }
-
-    /**
-     * Estimates the retained heap of this field: its shallow size plus the field name and, recursively,
-     * its values and ignored values. This is used to price circuit-breaker accounting on the deserialized
-     * object graph rather than on the much smaller serialized (wire) form, which badly undercounts memory
-     * when a hit carries many extracted fields (e.g. a {@code fields:[*]} request).
-     *
-     * <p>The estimate is approximate: it covers the common scalar value types precisely and falls back to a
-     * conservative constant for structured values whose layout is not walked.
-     */
-    public long ramBytesUsed() {
-        long size = SHALLOW_SIZE;
-        size += RamUsageEstimator.sizeOf(name);
-        size += ramBytesUsedByValues(values);
-        size += ramBytesUsedByValues(ignoredValues);
-        size += LIST_SHALLOW_SIZE + RamUsageEstimator.NUM_BYTES_ARRAY_HEADER + (long) lookupFields.size()
-            * (RamUsageEstimator.NUM_BYTES_OBJECT_REF + LOOKUP_FIELD_SHALLOW_SIZE);
-        return size;
-    }
-
-    private static long ramBytesUsedByValues(List<Object> values) {
-        long size = LIST_SHALLOW_SIZE + RamUsageEstimator.NUM_BYTES_ARRAY_HEADER + (long) values.size()
-            * RamUsageEstimator.NUM_BYTES_OBJECT_REF;
-        for (Object value : values) {
-            size += estimateValueRamBytes(value);
-        }
-        return RamUsageEstimator.alignObjectSize(size);
-    }
-
-    private static long estimateValueRamBytes(Object value) {
-        if (value == null) {
-            return 0L;
-        }
-        if (value instanceof String s) {
-            return RamUsageEstimator.sizeOf(s);
-        }
-        if (value instanceof byte[] b) {
-            return RamUsageEstimator.sizeOf(b);
-        }
-        if (value instanceof Long
-            || value instanceof Double
-            || value instanceof Integer
-            || value instanceof Float
-            || value instanceof Short
-            || value instanceof Byte
-            || value instanceof Boolean
-            || value instanceof Character) {
-            return BOXED_PRIMITIVE_SIZE;
-        }
-        return RamUsageEstimator.sizeOfObject(value, DEFAULT_VALUE_RAM_BYTES);
     }
 
     @Override
