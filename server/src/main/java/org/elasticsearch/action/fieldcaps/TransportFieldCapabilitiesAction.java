@@ -969,9 +969,7 @@ public class TransportFieldCapabilitiesAction extends HandledTransportAction<Fie
                             if (e instanceof TaskCancelledException) {
                                 throw e;
                             }
-                            if (cancellableTask.isCancelled()) {
-                                cancellableTask.ensureNotCancelled();
-                            }
+                            cancellableTask.ensureNotCancelled();
                             failures.put(shardId, e);
                         }
                     }
