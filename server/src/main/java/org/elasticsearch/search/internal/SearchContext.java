@@ -138,10 +138,11 @@ public abstract class SearchContext implements Releasable {
 
     /**
      * Supplier that, when invoked, captures the calling thread's directory-metric baseline and returns a delta supplier
-     * for the reads performed on that thread. Returns {@code null} when directory metrics are disabled.
+     * for the reads performed on that thread. Returns {@link DirectoryMetrics.Capture#NOOP} when directory metrics are
+     * disabled.
      */
     public DirectoryMetrics.Capture currentThreadDirectoryMetricsCapture() {
-        return null;
+        return DirectoryMetrics.Capture.NOOP;
     }
 
     /**

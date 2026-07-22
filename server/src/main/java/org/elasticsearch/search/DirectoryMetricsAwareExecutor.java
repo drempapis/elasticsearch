@@ -13,7 +13,6 @@ import org.elasticsearch.index.store.DirectoryMetrics;
 
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Supplier;
 
 /**
  * Wrapping executor that captures each forked task's {@link DirectoryMetrics} on the worker thread that runs it and
@@ -32,14 +31,7 @@ public class DirectoryMetricsAwareExecutor implements Executor {
 
     @Override
     public void execute(Runnable runnable) {
-        executor.execute(() -> {
-            final Supplier<DirectoryMetrics> delta = metricsCaptureSupplier.start();
-            try {
-                runnable.run();
-            } finally {
-                DirectoryMetrics.accumulate(workerMetrics, delta.get());
-            }
-        });
+        executor.execute(() -> metricsCaptureSupplier.measure(runnable, workerMetrics));
     }
 
     public DirectoryMetrics workerMetrics() {

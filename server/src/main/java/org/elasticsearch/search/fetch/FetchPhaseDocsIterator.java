@@ -67,15 +67,7 @@ abstract class FetchPhaseDocsIterator {
     }
 
     protected final <T> T measure(Supplier<T> readOperation) {
-        if (metricsCapture == null) {
-            return readOperation.get();
-        }
-        final Supplier<DirectoryMetrics> delta = metricsCapture.start();
-        try {
-            return readOperation.get();
-        } finally {
-            DirectoryMetrics.accumulate(fetchMetricsDelta, delta.get());
-        }
+        return metricsCapture.measure(readOperation, fetchMetricsDelta);
     }
 
     /**

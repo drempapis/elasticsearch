@@ -115,7 +115,6 @@ final class DefaultSearchContext extends SearchContext {
     private final ContextIndexSearcher searcher;
     @Nullable
     private DirectoryMetricsAwareExecutor metricsAwareExecutor;
-    @Nullable
     private final DirectoryMetrics.Capture currentThreadDirectoryMetricsCapture;
     private DirectoryMetrics fetchThreadsMetrics = DirectoryMetrics.EMPTY;
     private final long memoryAccountingBufferSize;
@@ -187,7 +186,7 @@ final class DefaultSearchContext extends SearchContext {
         int minimumDocsPerSlice,
         long memoryAccountingBufferSize,
         @Nullable CircuitBreaker circuitBreaker,
-        @Nullable DirectoryMetrics.Capture currentThreadDirectoryMetricsCapture
+        DirectoryMetrics.Capture currentThreadDirectoryMetricsCapture
     ) throws IOException {
         this.readerContext = readerContext;
         this.request = request;

@@ -1105,7 +1105,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
     }
 
     private static void setFetchDirectoryMetrics(SearchPhaseResult result, SearchContext context) {
-        if (context.currentThreadDirectoryMetricsCapture() == null) {
+        if (Store.DIRECTORY_METRICS_FEATURE_FLAG.isEnabled() == false) {
             return;
         }
         result.setDirectoryMetrics(context.getFetchThreadsMetrics().merge(context.getWorkerThreadsMetrics()));
@@ -1873,7 +1873,9 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
                 minimumDocsPerSlice,
                 memoryAccountingBufferSize,
                 circuitBreaker,
-                Store.DIRECTORY_METRICS_FEATURE_FLAG.isEnabled() ? indicesService::captureDirectoryMetrics : null
+                Store.DIRECTORY_METRICS_FEATURE_FLAG.isEnabled()
+                    ? indicesService::captureDirectoryMetrics
+                    : DirectoryMetrics.Capture.NOOP
             );
             // we clone the query shard context here just for rewriting otherwise we
             // might end up with incorrect state since we are using now() or script services
