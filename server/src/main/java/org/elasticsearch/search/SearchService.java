@@ -1873,7 +1873,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
                 minimumDocsPerSlice,
                 memoryAccountingBufferSize,
                 circuitBreaker,
-                Store.DIRECTORY_METRICS_FEATURE_FLAG.isEnabled() ? indicesService::captureDirectoryMetrics : DirectoryMetrics.Capture.NOOP
+                Store.DIRECTORY_METRICS_FEATURE_FLAG.isEnabled() ? indicesService::directoryMetricsDelta : DirectoryMetrics.Capture.NOOP
             );
             // we clone the query shard context here just for rewriting otherwise we
             // might end up with incorrect state since we are using now() or script services
