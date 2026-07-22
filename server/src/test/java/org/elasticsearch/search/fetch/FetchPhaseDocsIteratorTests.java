@@ -1361,7 +1361,7 @@ public class FetchPhaseDocsIteratorTests extends ESTestCase {
         private final List<SetupEvent> setups = new CopyOnWriteArrayList<>();
 
         RecordingStreamingIterator() {
-            super(null);
+            super(DirectoryMetrics.Capture.NOOP);
         }
 
         @Override
