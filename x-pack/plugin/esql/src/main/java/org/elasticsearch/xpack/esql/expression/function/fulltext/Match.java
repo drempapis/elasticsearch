@@ -16,7 +16,6 @@ import org.elasticsearch.compute.ann.Evaluator;
 import org.elasticsearch.compute.ann.Fixed;
 import org.elasticsearch.compute.ann.Position;
 import org.elasticsearch.compute.data.BooleanBlock;
-import org.elasticsearch.compute.data.BytesRefBlock;
 import org.elasticsearch.compute.data.DoubleBlock;
 import org.elasticsearch.compute.data.IntBlock;
 import org.elasticsearch.compute.data.LongBlock;
@@ -28,6 +27,7 @@ import org.elasticsearch.xpack.esql.common.Failure;
 import org.elasticsearch.xpack.esql.common.Failures;
 import org.elasticsearch.xpack.esql.core.InvalidArgumentException;
 import org.elasticsearch.xpack.esql.core.expression.Expression;
+import org.elasticsearch.xpack.esql.core.expression.FieldAttribute;
 import org.elasticsearch.xpack.esql.core.expression.Literal;
 import org.elasticsearch.xpack.esql.core.expression.MapExpression;
 import org.elasticsearch.xpack.esql.core.querydsl.query.Query;
@@ -62,7 +62,6 @@ import java.util.Map;
 import java.util.Set;
 
 import static java.util.Map.entry;
-import static org.elasticsearch.compute.ann.Fixed.Scope.THREAD_LOCAL;
 import static org.elasticsearch.index.query.AbstractQueryBuilder.BOOST_FIELD;
 import static org.elasticsearch.index.query.MatchQueryBuilder.ANALYZER_FIELD;
 import static org.elasticsearch.index.query.MatchQueryBuilder.FUZZY_REWRITE_FIELD;
@@ -98,7 +97,7 @@ public class Match extends SingleFieldFullTextFunction implements OptionalArgume
     public static final NamedWriteableRegistry.Entry ENTRY = new NamedWriteableRegistry.Entry(Expression.class, "Match", Match::readFrom);
     public static final FunctionDefinition DEFINITION = FunctionDefinition.def(Match.class)
         .ternary(Match::new)
-        .capabilities("runtime_filter")
+        .capabilities("runtime_filter", "unmapped_fields_pushdown_fix")
         .name("match");
     public static final Set<DataType> FIELD_DATA_TYPES = Set.of(
         NULL,
@@ -310,7 +309,11 @@ public class Match extends SingleFieldFullTextFunction implements OptionalArgume
         Expression query = in.readNamedWriteable(Expression.class);
         QueryBuilder queryBuilder = in.readOptionalNamedWriteable(QueryBuilder.class);
         Configuration configuration = ((PlanStreamInput) in).configuration();
-        return new Match(source, field, query, null, queryBuilder);
+        Expression options = in.getTransportVersion().supports(ESQL_OPTIONS_FOR_SEARCH_FUNCTIONS)
+            ? in.readOptionalNamedWriteable(Expression.class)
+            : null;
+
+        return new Match(source, field, query, options, queryBuilder);
     }
 
     // This is not meant to be overriden by MatchOperator - MatchOperator should be serialized to Match
@@ -320,6 +323,9 @@ public class Match extends SingleFieldFullTextFunction implements OptionalArgume
         out.writeNamedWriteable(field());
         out.writeNamedWriteable(query());
         out.writeOptionalNamedWriteable(queryBuilder());
+        if (out.getTransportVersion().supports(ESQL_OPTIONS_FOR_SEARCH_FUNCTIONS)) {
+            out.writeOptionalNamedWriteable(options());
+        }
     }
 
     @Override
@@ -406,11 +412,19 @@ public class Match extends SingleFieldFullTextFunction implements OptionalArgume
     }
 
     @Override
-    protected boolean isRuntimeSearch() {
-        if (fieldAsFieldAttribute() == null) {
+    public boolean isRuntimeSearch() {
+        FieldAttribute fieldAttribute = fieldAsFieldAttribute();
+        if (fieldAttribute == null) {
             // This *isn't* a field in the index OR a pushed block loader
             return true;
         }
+
+        if (fieldAttribute.isPotentiallyUnmapped()) {
+            // A potentially unmapped field cannot be pushed down: the Lucene query would silently miss the rows of the
+            // indices where the field is unmapped, so it is matched at runtime instead.
+            return true;
+        }
+
         if (fieldAsFieldAttribute().field() instanceof FunctionEsField functionEsField) {
             // This is a pushed block loader.
             // We can only support FIELD_EXTRACT(flattened, "constant"), here named EXTRACT_FLATTENED_SUBFIELD
@@ -421,9 +435,16 @@ public class Match extends SingleFieldFullTextFunction implements OptionalArgume
 
     @Override
     public Translatable translatable(LucenePushdownPredicates pushdownPredicates) {
-        if (fieldAsFieldAttribute() == null) {
+        FieldAttribute fieldAttribute = fieldAsFieldAttribute();
+
+        if (fieldAttribute == null) {
             return Translatable.NO;
         }
+
+        if (fieldAttribute.isPotentiallyUnmapped()) {
+            return Translatable.NO;
+        }
+
         return super.translatable(pushdownPredicates);
     }
 
@@ -487,7 +508,7 @@ public class Match extends SingleFieldFullTextFunction implements OptionalArgume
 
         Object queryValue = queryAsRuntimeSearchValue(field.dataType(), query().dataType(), Foldables.queryAsObject(query(), sourceText()));
         return switch (PlannerUtils.toElementType(field.dataType())) {
-            case BYTES_REF -> new MatchBytesRefEvaluator.Factory(
+            case BYTES_REF -> new RuntimeSearchBytesRefEvaluator.Factory(
                 source(),
                 toEvaluator.apply(field()),
                 (BytesRef) queryValue,
@@ -556,20 +577,6 @@ public class Match extends SingleFieldFullTextFunction implements OptionalArgume
             case INT -> queryString != null ? EsqlDataTypeConverter.stringToInt(queryString) : ((Number) queryValue).intValue();
             default -> throw EsqlIllegalArgumentException.illegalDataType(fieldType);
         };
-    }
-
-    @Evaluator(extraName = "BytesRef", allNullsIsNull = false)
-    static boolean processBytesRef(
-        @Position int position,
-        BytesRefBlock fieldBlock,
-        @Fixed BytesRef queryStringBytesRef,
-        @Fixed(includeInToString = false, scope = THREAD_LOCAL) BytesRef scratch
-    ) {
-        if (fieldBlock == null) {
-            return false;
-        }
-
-        return fieldBlock.hasValue(position, queryStringBytesRef, scratch);
     }
 
     @Evaluator(extraName = "Boolean", allNullsIsNull = false)
