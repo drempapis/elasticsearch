@@ -598,3 +598,6 @@ tests:
 - class: org.elasticsearch.index.codec.vectors.diskbbq.next.ESNextDiskBBQVectorsFormatTests
   method: testSlicedIndexOneVectorPerSlice
   issue: https://github.com/elastic/elasticsearch/issues/154792
+- class: org.elasticsearch.xpack.esql.action.ExternalCsvHivePartitionedIT
+  method: testCommaSeparatedResourceFirstFileWinsRoundTrips
+  issue: https://github.com/elastic/elasticsearch/issues/154662
