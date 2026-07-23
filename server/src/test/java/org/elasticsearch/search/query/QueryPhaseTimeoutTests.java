@@ -430,8 +430,7 @@ public class QueryPhaseTimeoutTests extends IndexShardTestCase {
         TimeoutQuery query = newMatchAllRewriteTimeoutQuery(true);
         try (SearchContext context = createSearchContextWithTimeout(query, size, false)) {
             QueryPhaseExecutionException ex = expectThrows(QueryPhaseExecutionException.class, () -> QueryPhase.executeQuery(context));
-            assertNotNull("expected a root cause", ex.getCause());
-            assertTrue("expected the cause to be a SearchTimeoutException", ex.getCause() instanceof SearchTimeoutException);
+            assertThat(ex.getCause(), Matchers.instanceOf(SearchTimeoutException.class));
         }
     }
 
@@ -453,8 +452,7 @@ public class QueryPhaseTimeoutTests extends IndexShardTestCase {
         try (TestSearchContext context = createSearchContextWithTimeout(query, size, false)) {
             context.aggregations(inSortOrderAggregations());
             QueryPhaseExecutionException ex = expectThrows(QueryPhaseExecutionException.class, () -> QueryPhase.executeQuery(context));
-            assertNotNull("expected a root cause", ex.getCause());
-            assertTrue("expected the cause to be a SearchTimeoutException", ex.getCause() instanceof SearchTimeoutException);
+            assertThat(ex.getCause(), Matchers.instanceOf(SearchTimeoutException.class));
         }
     }
 
@@ -495,8 +493,7 @@ public class QueryPhaseTimeoutTests extends IndexShardTestCase {
         try (TestSearchContext context = createSearchContextWithTimeout(query, size, false)) {
             context.aggregations(regularAggregations());
             QueryPhaseExecutionException ex = expectThrows(QueryPhaseExecutionException.class, () -> QueryPhase.executeQuery(context));
-            assertNotNull("expected a root cause", ex.getCause());
-            assertTrue("expected the cause to be a SearchTimeoutException", ex.getCause() instanceof SearchTimeoutException);
+            assertThat(ex.getCause(), Matchers.instanceOf(SearchTimeoutException.class));
         }
     }
 
@@ -540,8 +537,7 @@ public class QueryPhaseTimeoutTests extends IndexShardTestCase {
         try (SearchContext context = createSearchContextWithTimeout(mainQuery, size, false)) {
             context.parsedPostFilter(new ParsedQuery(newThrowOnCreateWeightQuery()));
             QueryPhaseExecutionException ex = expectThrows(QueryPhaseExecutionException.class, () -> QueryPhase.executeQuery(context));
-            assertNotNull("expected a root cause", ex.getCause());
-            assertTrue("expected the cause to be a SearchTimeoutException", ex.getCause() instanceof SearchTimeoutException);
+            assertThat(ex.getCause(), Matchers.instanceOf(SearchTimeoutException.class));
         }
     }
 
@@ -938,8 +934,7 @@ public class QueryPhaseTimeoutTests extends IndexShardTestCase {
 
             // expect QueryPhase to propagate a failure instead of marking timed_out=true
             QueryPhaseExecutionException ex = expectThrows(QueryPhaseExecutionException.class, () -> QueryPhase.execute(context));
-            assertNotNull("expected a root cause", ex.getCause());
-            assertTrue("expected the cause to be a SearchTimeoutException", ex.getCause() instanceof SearchTimeoutException);
+            assertThat(ex.getCause(), Matchers.instanceOf(SearchTimeoutException.class));
         }
     }
 

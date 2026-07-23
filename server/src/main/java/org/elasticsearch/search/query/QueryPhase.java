@@ -136,47 +136,16 @@ public class QueryPhase {
             LOGGER.trace("{}", new SearchContextSourcePrinter(searchContext));
         }
 
-        final Runnable timeoutRunnable = getTimeoutCheck(searchContext);
-        if (rewriteUnderTimeout(searchContext, timeoutRunnable) == false) {
-            return;
-        }
-
         // Pre-process aggregations as late as possible, i.e. during the QUERY phase, after the query has been rewritten.
         AggregationPhase.preProcess(searchContext);
 
-        addCollectorsAndSearch(searchContext, searchContext.getSearchExecutionContext().getTimeRangeFilterFromMillis(), timeoutRunnable);
+        addCollectorsAndSearch(searchContext, searchContext.getSearchExecutionContext().getTimeRangeFilterFromMillis());
 
         RescorePhase.execute(searchContext);
         SuggestPhase.execute(searchContext);
         if (searchContext.getProfilers() != null) {
             searchContext.queryResult().profileResults(searchContext.getProfilers().buildQueryPhaseResults());
         }
-    }
-
-    private static boolean rewriteUnderTimeout(SearchContext searchContext, Runnable timeoutRunnable) throws QueryPhaseExecutionException {
-        final ContextIndexSearcher searcher = searchContext.searcher();
-        if (timeoutRunnable != null) {
-            searcher.addQueryCancellation(timeoutRunnable);
-        }
-        try {
-            searchContext.rewrittenQuery();
-        } catch (RuntimeException e) {
-            throw new QueryPhaseExecutionException(searchContext.shardTarget(), "Failed to rewrite query", e);
-        } finally {
-            if (timeoutRunnable != null) {
-                searcher.removeQueryCancellation(timeoutRunnable);
-            }
-        }
-
-        if (searcher.timeExceeded()) {
-            try {
-                finalizeAsTimedOutResult(searchContext);
-            } catch (Exception e) {
-                throw new QueryPhaseExecutionException(searchContext.shardTarget(), "Failed to finalize timed-out rewrite result", e);
-            }
-            return false;
-        }
-        return true;
     }
 
     /**
@@ -204,6 +173,11 @@ public class QueryPhase {
 
             Query query = searchContext.rewrittenQuery();
             assert query == searcher.rewrite(query); // already rewritten
+
+            if (searcher.timeExceeded()) {
+                finalizeAsTimedOutResult(searchContext);
+                return;
+            }
 
             final ScrollContext scrollContext = searchContext.scrollContext();
             if (scrollContext != null) {
