@@ -76,4 +76,11 @@ public final class ActiveFetchPhaseTasks {
         }
         return outerRequest;
     }
+
+    /**
+     * Test-only: reports whether a stream is currently registered for the given task+shard
+     */
+    boolean isRegistered(long coordinatingTaskId, ShardId shardId) {
+        return tasks.containsKey(new ResponseStreamKey(coordinatingTaskId, shardId));
+    }
 }

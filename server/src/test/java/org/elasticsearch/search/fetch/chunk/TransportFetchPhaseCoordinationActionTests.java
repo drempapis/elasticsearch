@@ -9,7 +9,7 @@
 
 package org.elasticsearch.search.fetch.chunk;
 
-import org.elasticsearch.ResourceNotFoundException;
+import org.elasticsearch.ElasticsearchTimeoutException;
 import org.elasticsearch.TransportVersion;
 import org.elasticsearch.action.ActionListenerResponseHandler;
 import org.elasticsearch.action.ActionResponse;
@@ -62,6 +62,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.elasticsearch.action.search.SearchTransportService.FETCH_ID_ACTION_NAME;
 import static org.elasticsearch.search.fetch.chunk.TransportFetchPhaseCoordinationAction.CHUNKED_FETCH_DOC_ID_ORDER;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.instanceOf;
+import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.notNullValue;
 
 /**
@@ -397,7 +399,8 @@ public class TransportFetchPhaseCoordinationActionTests extends ESTestCase {
         long taskId = 456L;
         PlainActionFuture<TransportFetchPhaseCoordinationAction.Response> future = new PlainActionFuture<>();
         action.doExecute(createTask(taskId), request, future);
-        expectThrows(Exception.class, () -> future.actionGet(10, TimeUnit.SECONDS));
+        Exception failure = expectThrows(Exception.class, () -> future.actionGet(10, TimeUnit.SECONDS));
+        assertThat(failure, not(instanceOf(ElasticsearchTimeoutException.class)));
 
         // doExecute adds bytes to the REQUEST breaker before SearchHit.readFrom() throws on the
         // invalid payload. closeInternal (triggered when the stream's refCount reaches zero after
@@ -411,8 +414,7 @@ public class TransportFetchPhaseCoordinationActionTests extends ESTestCase {
                 equalTo(0L)
             )
         );
-        // Confirm the task was also deregistered (single call, no retry loop, no ref leak).
-        expectThrows(ResourceNotFoundException.class, () -> activeFetchPhaseTasks.acquireResponseStream(taskId, TEST_SHARD_ID));
+        assertBusy(() -> assertFalse(activeFetchPhaseTasks.isRegistered(taskId, TEST_SHARD_ID)));
     }
 
     public void testDoExecutePreservesContextIdInFinalResult() throws Exception {
@@ -516,8 +518,7 @@ public class TransportFetchPhaseCoordinationActionTests extends ESTestCase {
                 equalTo(0L)
             )
         );
-        // Confirm the task was also deregistered (single call, no retry loop, no ref leak).
-        expectThrows(ResourceNotFoundException.class, () -> activeFetchPhaseTasks.acquireResponseStream(taskId, TEST_SHARD_ID));
+        assertBusy(() -> assertFalse(activeFetchPhaseTasks.isRegistered(taskId, TEST_SHARD_ID)));
     }
 
     private ShardFetchSearchRequest createShardFetchSearchRequest() {
