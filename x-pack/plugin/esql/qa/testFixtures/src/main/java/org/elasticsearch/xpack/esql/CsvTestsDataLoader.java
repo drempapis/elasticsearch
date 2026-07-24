@@ -92,23 +92,18 @@ public class CsvTestsDataLoader {
         new TestDataset("employees", "mapping-default.json", "employees.csv").noSubfields(),
         new TestDataset("voyager", "mapping-voyager.json", "voyager.csv").noSubfields(),
         new TestDataset("employees_incompatible", "mapping-default-incompatible.json", "employees_incompatible.csv").noSubfields(),
-        new TestDataset("employees", "mapping-default.json", "employees.csv").withIndex("employees_no_names")
-            .withTypeMapping(removeFields("first_name", "last_name"))
-            .withDynamic("false")
+        new TestDataset("employees_no_names", "mapping-default.json", "employees.csv").withTypeMapping(
+            removeFields("first_name", "last_name")
+        ).withDynamic("false").noSubfields(),
+        new TestDataset("employees_gender_text", "mapping-default.json", "employees.csv").withTypeMapping(Map.of("gender", "text"))
             .noSubfields(),
-        new TestDataset("employees", "mapping-default.json", "employees.csv").withIndex("employees_gender_text")
-            .withTypeMapping(Map.of("gender", "text"))
-            .noSubfields(),
-        new TestDataset("employees", "mapping-default.json", "employees.csv").withIndex("employees_no_gender")
-            .withTypeMapping(removeFields("gender"))
+        new TestDataset("employees_no_gender", "mapping-default.json", "employees.csv").withTypeMapping(removeFields("gender"))
             .withDynamic("false")
             .noSubfields(),
         new TestDataset("all_types", "mapping-all-types.json", "all-types.csv"),
-        new TestDataset("all_types", "mapping-all-types.json", "all-types.csv").withIndex("all_types_no_short")
-            .withTypeMapping(removeFields("short"))
+        new TestDataset("all_types_no_short", "mapping-all-types.json", "all-types.csv").withTypeMapping(removeFields("short"))
             .withDynamic("false"),
-        new TestDataset("all_types", "mapping-all-types.json", "all-types.csv").withIndex("all_types_short_as_long")
-            .withTypeMapping(Map.of("short", "long")),
+        new TestDataset("all_types_short_as_long", "mapping-all-types.json", "all-types.csv").withTypeMapping(Map.of("short", "long")),
         new TestDataset("hosts"),
         new TestDataset("hosts").withIndex("hosts_ip_is_kwd").withTypeMapping(Map.of("ip0", "keyword", "ip1", "keyword")),
         new TestDataset("apps"),
@@ -265,13 +260,13 @@ public class CsvTestsDataLoader {
                 )
             ),
         new TestDataset("books").withSetting("books-settings.json"),
-        new TestDataset("text_state_mapped", "mapping-text_state_mapped.json", "text_state_mapped.csv"),
-        new TestDataset("text_state_mapped", "mapping-text_state_mapped.json", "text_state_unmapped.csv").withIndex("text_state_unmapped")
-            .withTypeMapping(removeFields("txt"))
-            .withDynamic("false"),
-        new TestDataset("text_state_mapped", "mapping-text_state_mapped.json", "text_state_nonexistent.csv").withIndex(
-            "text_state_nonexistent"
-        ).withTypeMapping(removeFields("txt")).withDynamic("false"),
+        new TestDataset("text_state_mapped"),
+        new TestDataset("text_state_unmapped", "mapping-text_state_mapped.json", "text_state_unmapped.csv").withTypeMapping(
+            removeFields("txt")
+        ).withDynamic("false"),
+        new TestDataset("text_state_nonexistent", "mapping-text_state_mapped.json", "text_state_nonexistent.csv").withTypeMapping(
+            removeFields("txt")
+        ).withDynamic("false"),
         new TestDataset("semantic_text").withInferenceEndpoints("test_sparse_inference", "test_dense_inference"),
         new TestDataset("logs"),
         new TestDataset("dense_vector_text"),
@@ -287,8 +282,7 @@ public class CsvTestsDataLoader {
         new TestDataset("employees_no_mv", "mapping-default.json", "employees_no_mv.csv").noSubfields(),
         new TestDataset("mv_sample", "mapping-mv_sample.json", "mv_sample.csv"),
         new TestDataset("colors"),
-        new TestDataset("colors", "mapping-colors.json", "colors.csv").withIndex("colors_unmapped")
-            .withTypeMapping(removeFields("rgb_vector"))
+        new TestDataset("colors_unmapped", "mapping-colors.json", "colors.csv").withTypeMapping(removeFields("rgb_vector"))
             .withDynamic("false"),
         new TestDataset("colors_cmyk").withSetting("lookup-settings.json"),
         new TestDataset("base_conversion"),
@@ -376,6 +370,7 @@ public class CsvTestsDataLoader {
         new ViewConfig("employees_not_rehired"),
         new ViewConfig("employees_all"),
         new ViewConfig("employees_extra"),
+        new ViewConfig("employees_via_alias"),
         new ViewConfig("partial_mapping_view"),
         new ViewConfig("partial_mapping_view_message_wildcard"),
         new ViewConfig("partial_mapping_mv_view"),
@@ -400,6 +395,15 @@ public class CsvTestsDataLoader {
         new ViewConfig("employees_in_subquery_disjunction_view", List.of(WHERE_IN_SUBQUERY_WITH_VIEW)),
         new ViewConfig("employees_in_subquery_nested_view", List.of(WHERE_IN_SUBQUERY_WITH_VIEW))
     ).collect(toMap(ViewConfig::name, Function.identity()));
+
+    /**
+     * Index aliases created unconditionally alongside the main test indices. These are not tied
+     * to view support — any csv-spec test may reference them. Non-view tests that use wildcard
+     * patterns (e.g. {@code FROM employees*}) are unaffected because Elasticsearch field-caps
+     * deduplicates an alias and its backing index into a single logical source.
+     */
+    public static final Map<String, AliasConfig> ALIAS_CONFIGS = Stream.of(new AliasConfig("employees_alias", "employees"))
+        .collect(toMap(AliasConfig::aliasName, Function.identity()));
 
     /**
      * <p>
@@ -520,6 +524,9 @@ public class CsvTestsDataLoader {
                 }
                 if (policies) {
                     loadEnrichPolicies(client);
+                }
+                if (indexes) {
+                    loadAliasesIntoEs(client);
                 }
                 if (views) {
                     loadViewsIntoEs(client);
@@ -656,6 +663,7 @@ public class CsvTestsDataLoader {
                 loadEnrichPolicies(client);
             }
         }
+        loadAliasesIntoEs(client, indicesToLoad);
     }
 
     /**
@@ -750,6 +758,37 @@ public class CsvTestsDataLoader {
             }
         } else {
             logger.info("Skipping loading views as the cluster does not support views");
+        }
+    }
+
+    private static void loadAliasesIntoEs(RestClient client) throws IOException {
+        loadAliasesIntoEs(client, null);
+    }
+
+    /**
+     * Creates index aliases from {@link #ALIAS_CONFIGS}. When {@code indicesToLoad} is non-null,
+     * only aliases whose backing index is in that list are created — aliases for indices that were
+     * not loaded in this run are skipped to avoid {@code index_not_found_exception}.
+     */
+    private static void loadAliasesIntoEs(RestClient client, @Nullable List<String> indicesToLoad) throws IOException {
+        logger.info("Loading aliases");
+        for (var alias : ALIAS_CONFIGS.values()) {
+            if (indicesToLoad != null && indicesToLoad.contains(alias.indexName()) == false) {
+                logger.debug("Skipping alias [{}] -> [{}]: backing index not in indicesToLoad", alias.aliasName(), alias.indexName());
+                continue;
+            }
+            Request request = new Request("POST", "/_aliases");
+            request.setJsonEntity(
+                "{\"actions\":[{\"add\":{\"index\":\"" + alias.indexName() + "\",\"alias\":\"" + alias.aliasName() + "\"}}]}"
+            );
+            try {
+                client.performRequest(request);
+            } catch (ResponseException e) {
+                // Alias may already exist (idempotent re-load); ignore 400
+                if (e.getResponse().getStatusLine().getStatusCode() != 400) {
+                    throw e;
+                }
+            }
         }
     }
 
@@ -1553,6 +1592,9 @@ public class CsvTestsDataLoader {
             return getResourceString("/views/" + name + ".esql");
         }
     }
+
+    /** An index alias to create alongside the main test indices. */
+    public record AliasConfig(String aliasName, String indexName) {}
 
     private interface IndexCreator {
         void createIndex(RestClient client, String indexName, String mapping, Settings indexSettings) throws IOException;

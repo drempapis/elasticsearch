@@ -1220,7 +1220,9 @@ public class ParquetFormatReader implements RangeAwareFormatReader, ColumnExtrac
     private FilterPredicate resolveFilterPredicate(StorageObject object, MessageType schema) {
         if (pushedExpressions != null) {
             try {
-                return pushedExpressions.toFilterPredicate(schema);
+                // Pass the declared formats: without them the temporal arms cannot tell that the scan rescales a
+                // column relative to the statistics these predicates are compared against, and prune matching rows.
+                return pushedExpressions.toFilterPredicate(schema, declaredDateFormats);
             } catch (Exception e) {
                 logger.warn("Failed to resolve Parquet filter predicate for [{}], proceeding without pushdown: {}", object.path(), e);
                 return null;
@@ -1726,10 +1728,12 @@ public class ParquetFormatReader implements RangeAwareFormatReader, ColumnExtrac
             // metadata and emit row-count-only pages instead of building a column iterator over
             // the entire file schema. Skipped when any predicate path is active (record filter,
             // FilterPredicate, or {@link ParquetPushedExpressions}) so we keep the row-group
-            // pruning and YES-conjunct re-evaluation the column iterator performs - in those
-            // cases the leak is plugged at the consumer side by
-            // {@link org.elasticsearch.xpack.esql.datasources.VirtualColumnIterator} releasing
-            // any surplus blocks the legacy "empty projection -> full schema" fallback emits.
+            // pruning and YES-conjunct re-evaluation the column iterator performs - the legacy
+            // "empty projection -> full schema" fallback then over-projects. Those surplus blocks
+            // are not leaked: a virtual-column wrap that narrows the page releases them
+            // ({@link org.elasticsearch.xpack.esql.datasources.VirtualColumnIterator}), and when
+            // no wrap is needed (a zero-output read such as a bare COUNT(*)) the page is forwarded
+            // whole, so every block stays owned by its page and is released downstream with it.
             if (projectedColumns != null
                 && projectedColumns.isEmpty()
                 && filterPredicate == null
@@ -1951,7 +1955,8 @@ public class ParquetFormatReader implements RangeAwareFormatReader, ColumnExtrac
                 dynamicThreshold,
                 resolveDynamicThresholdColumn(fileSchema, dynamicThreshold),
                 counters,
-                errorPolicy
+                errorPolicy,
+                warningSink
             );
             // Constructor succeeded — iterator now owns preloadedMetadata. Set the flag after
             // construction so that a throw inside the constructor does not suppress cleanup.
@@ -2710,6 +2715,14 @@ public class ParquetFormatReader implements RangeAwareFormatReader, ColumnExtrac
         private SkipWarnings coercionWarnings;
         /** The read's error policy; strict ({@code fail_fast}) makes {@link #coercionWarnings()} return {@code null}. */
         private final ErrorPolicy errorPolicy;
+        /**
+         * Relay for this read's per-value coercion warnings, or {@code null} to fall back to emitting
+         * directly via {@code HeaderWarning}. Under the async source
+         * this iterator runs on a background reader thread, so a non-null sink (the source buffer
+         * relay) is required for the warnings to reach the response; see {@link #coercionWarnings()}.
+         */
+        @Nullable
+        private final Consumer<String> warningSink;
 
         /**
          * The coercion-failure sink for this read, or {@code null} under {@code fail_fast} — the
@@ -2727,7 +2740,8 @@ public class ParquetFormatReader implements RangeAwareFormatReader, ColumnExtrac
                     "Parquet file ["
                         + fileLocation
                         + "] has values that could not be coerced to the declared column type; "
-                        + "they are returned as null"
+                        + "they are returned as null",
+                    warningSink
                 );
             }
             return coercionWarnings;
@@ -2751,6 +2765,7 @@ public class ParquetFormatReader implements RangeAwareFormatReader, ColumnExtrac
             @Nullable Consumer<String> warningSink
         ) {
             this.errorPolicy = errorPolicy;
+            this.warningSink = warningSink;
             this.reader = reader;
             this.projectedSchema = projectedSchema;
             this.attributes = attributes;
@@ -3002,7 +3017,7 @@ public class ParquetFormatReader implements RangeAwareFormatReader, ColumnExtrac
             DataType fileType = info.fileEsqlType();
             if (fileType != null
                 && declared != fileType
-                && DeclaredTypeCoercions.fusedInDecode(fileType, declared) == false
+                && DeclaredTypeCoercions.fusedInDecode(fileType, declared, info.dateFormatter() != null) == false
                 && DeclaredTypeCoercions.supports(fileType, declared)) {
                 Block physical = readColumnBlock(cr, info.fileTyped(), rowsToRead, colIndex);
                 try {
