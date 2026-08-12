@@ -126,10 +126,18 @@ public final class CustomUnifiedHighlighter extends UnifiedHighlighter {
         this.noMatchSize = noMatchSize;
         this.maxAnalyzedOffset = maxAnalyzedOffset;
         this.queryMaxAnalyzedOffset = queryMaxAnalyzedOffset;
-        if (weightMatchesEnabled == false || requireFieldMatch == false || weightMatchesUnsupported(query)) {
+        if (isWeightMatchesEffective(weightMatchesEnabled, requireFieldMatch, query) == false) {
             getFlags(field).remove(HighlightFlag.WEIGHT_MATCHES);
         }
         fieldHighlighter = (CustomFieldHighlighter) getFieldHighlighter(field, query, extractTerms(query), maxPassages);
+    }
+
+    /**
+     * Whether this highlighter will run {@code query} with {@link HighlightFlag#WEIGHT_MATCHES} enabled.
+     * Exposed so callers can predict this before building the highlighter.
+     */
+    public static boolean isWeightMatchesEffective(boolean weightMatchesEnabled, boolean requireFieldMatch, Query query) {
+        return weightMatchesEnabled && requireFieldMatch && weightMatchesUnsupported(query) == false;
     }
 
     /**
@@ -262,7 +270,7 @@ public final class CustomUnifiedHighlighter extends UnifiedHighlighter {
      *
      * @param query The query to highlight
      */
-    private boolean weightMatchesUnsupported(Query query) {
+    private static boolean weightMatchesUnsupported(Query query) {
         boolean[] hasUnknownLeaf = new boolean[1];
         query.visit(new QueryVisitor() {
             @Override
