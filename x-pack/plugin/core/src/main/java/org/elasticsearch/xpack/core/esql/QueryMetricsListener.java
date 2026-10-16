@@ -22,9 +22,14 @@ public interface QueryMetricsListener {
     QueryMetricsListener NOOP = metrics -> {};
 
     /**
-     * Time spent on planning, from queryProfile.planning()
+     * Wall-clock time spent on planning, from queryProfile.planning(). Includes I/O and transport waits: object-store
+     * listings and metadata reads, field caps, enrich and inference round trips.
      */
     String PLANNING_NANOS = "planning_nanos";
+    /**
+     * CPU time spent on planning (no I/O wait), from queryProfile.planningCpuNanos()
+     */
+    String PLANNING_CPU_NANOS = "planning_cpu_nanos";
     /**
      * Time spent by drivers on compute, from result.completionInfo().cpuNanos()
      */
@@ -34,9 +39,17 @@ public interface QueryMetricsListener {
      */
     String READ_NANOS = "read_nanos";
     /**
+     * CPU time spent by drivers on reading data (no IO wait), from result.completionInfo().readCpuNanos()
+     */
+    String READ_CPU_NANOS = "read_cpu_nanos";
+    /**
      * Time spent on discovering splits, from queryProfile.splitDiscoveryNanos()
      */
     String SPLIT_DISCOVERY_NANOS = "split_discovery_nanos";
+    /**
+     * CPU time spent discovering splits (no IO wait), from queryProfile.splitDiscoveryCpuNanos()
+     */
+    String SPLIT_DISCOVERY_CPU_NANOS = "split_discovery_cpu_nanos";
     /**
      * Bytes read by the query, both from external sources and Lucene.
      */
